@@ -1,0 +1,13 @@
+﻿tech,flag,annual,exchange,unlim_cap
+ELC_GEN,p,1,0,0
+H2_PLANT,p,1,0,0
+CO2_CAP,p,1,0,0
+METOH_PLANT,p,1,0,0
+GSL_PLANT,p,1,0,0
+ELC_TRANS,p,1,1,0
+H2_PIPE,p,1,1,0
+CO2_PIPE,p,1,1,0
+METOH_PIPE,p,1,1,0
+GSL_PIPE,p,1,1,0
+GSL_DEMAND,p,1,0,1
+GSL_BACKUP,p,1,0,1

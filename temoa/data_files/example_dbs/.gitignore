@@ -1,0 +1,3 @@
+# ignore any built databases
+*.sqlite
+*.db

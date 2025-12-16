@@ -1,0 +1,29 @@
+# ignore all root items
+/*
+
+# unignore folders
+!temoa/
+!tests/
+!docs/
+!data_files/
+!notebooks/
+!output_files/
+!.github/
+
+# unignore files
+!.gitignore
+!README.md
+!pyproject.toml
+!uv.lock
+!requirements*.txt
+!LICENSE.txt
+!CHANGELOG.md
+!CONTRIBUTING.md
+!.pre-commit-config.yaml
+
+
+# recursively re-ignore
+__pycache__
+
+# ignore built docs
+docs/_build

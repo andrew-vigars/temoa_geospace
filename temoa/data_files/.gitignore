@@ -1,0 +1,6 @@
+# locally ignore all .dat files and newly added .sqlite db's
+*.sqlite
+*.dat
+*.xlsx
+*.log
+

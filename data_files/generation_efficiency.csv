@@ -1,0 +1,10 @@
+﻿tech,input_comm,output_comm,efficiency
+ELC_GEN,ethos,elc,1
+H2_PLANT,elc,h2,0.01953125
+CO2_CAP,ethos,co2,1
+METOH_PLANT,co2,ch3oh,0.714285714
+METOH_PLANT,h2,ch3oh,5.208333333
+METOH_PLANT,elc,ch3oh,5.714285714
+GSL_PLANT,ch3oh,gsl,0.444444444
+GSL_PLANT,h2,gsl,200
+GSL_BACKUP,ethos,d_gsl,1
