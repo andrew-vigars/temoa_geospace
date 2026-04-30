@@ -58,11 +58,11 @@ def write_db(db_path, grid_res=5, etl_res=5):
 
     df_gsl = mr.invest_costs(site, 23334, -0.4, 'GSL_PLANT', resolution=etl_res)
     df_met = mr.invest_costs(site, 4500, -0.3663, 'METOH_PLANT', resolution=etl_res)
-    df_gas_pipe = mr.invest_costs(site, 4.5, -0.3, 'GSL_PIPE', resolution=etl_res, transp_tech=True) # dummy values for economies of scale of pipes
-    df_co2_pipe = mr.invest_costs(site, 4.5, -0.3, 'CO2_PIPE', resolution=etl_res, transp_tech=True) # dummy values for economies of scale of pipes
-    df_metoh_pipe = mr.invest_costs(site, 4.5, -0.3, 'METOH_PIPE', resolution=etl_res, transp_tech=True) # dummy values for economies of scale of pipes
-    df_h2_pipe = mr.invest_costs(site, 4.5, -0.3, 'H2_PIPE', resolution=etl_res, transp_tech=True) # dummy values for economies of scale 
-    df_elc_trans = mr.invest_costs(site, 1.5, -0.3, 'ELC_TRANS', resolution=etl_res, transp_tech=True) # dummy values for economies of scale of transmission lines
+    df_gas_pipe = mr.invest_costs(site, 45000, -0.3, 'GSL_PIPE', resolution=etl_res, transp_tech=True) # dummy values for economies of scale of pipes
+    df_co2_pipe = mr.invest_costs(site, 45000, -0.3, 'CO2_PIPE', resolution=etl_res, transp_tech=True) # dummy values for economies of scale of pipes
+    df_metoh_pipe = mr.invest_costs(site, 45000, -0.3, 'METOH_PIPE', resolution=etl_res, transp_tech=True) # dummy values for economies of scale of pipes
+    df_h2_pipe = mr.invest_costs(site, 45000, -0.3, 'H2_PIPE', resolution=etl_res, transp_tech=True) # dummy values for economies of scale 
+    df_elc_trans = mr.invest_costs(site, 2000, -0.3, 'ELC_TRANS', resolution=etl_res, transp_tech=True) # dummy values for economies of scale of transmission lines
     
     df_elc = mr.fix_cost(site, 'ELC_GEN', 1000)
     df_co2 = mr.fix_cost(site, 'CO2_CAP', 1000)
@@ -98,11 +98,11 @@ def write_db(db_path, grid_res=5, etl_res=5):
         }
 
 
-    with pd.ExcelWriter('data_files/CANOE_geospatial.xlsx') as writer:
-        for key, df in sorted(data.items()):
-            df.to_excel(writer, sheet_name=key, index=False)
-            print(f'Written sheet: {key}')
-        print('Data saved to CANOE_geospatial.xlsx successfully.')
+    # with pd.ExcelWriter('data_files/CANOE_geospatial.xlsx') as writer:
+    #     for key, df in sorted(data.items()):
+    #         df.to_excel(writer, sheet_name=key, index=False)
+    #         print(f'Written sheet: {key}')
+    #     print('Data saved to CANOE_geospatial.xlsx successfully.')
     
 
     mgmt.update_sqlite(db_path, data)

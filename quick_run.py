@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 import re
 from db_mgmt import update_database_from_excel, update_db_paths, convert_sql_to_sqlite
-import model_run as mr
+import model_run as mod_run
 
 
 main_path = os.path.join('temoa/', "main.py")
@@ -23,9 +23,9 @@ db_path= f'data_files/CANOE_geospatial.sqlite'
 os.remove(db_path) if os.path.exists(db_path) else None
 convert_sql_to_sqlite(sql_file_path, db_path)
 # write data base
-grid_res = 2
+grid_res = 1
 etl_res = 5
-mr.write_db(db_path, grid_res=grid_res, etl_res=etl_res)
+mod_run.write_db(db_path, grid_res=grid_res, etl_res=etl_res)
 
 update_db_paths(config_path, db_path, False) 
 

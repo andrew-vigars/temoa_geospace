@@ -13,10 +13,10 @@ import geopandas as gpd
 # -------------------------------
 # Load data
 # -------------------------------
-db_path = 'output_files/2025-12-09 1338/CANOE_geospatial.sqlite'
+db_path = 'output_files/2026-03-04 1553/CANOE_geospatial.sqlite'
 data = mgmt.sqlite_to_dfs(db_path)
 
-sites = pd.read_csv('sites_dict_2.csv')
+sites = pd.read_csv('sites_dict_5.csv')
 sites['region'] = sites['site_id']
 sites = sites.set_index('region', drop=True)
 
@@ -56,7 +56,7 @@ def slice_with_coords(df, tech_name):
 elc_gen   = slice_with_coords(flowOut, 'ELC_GEN')
 h2_plant  = slice_with_coords(flowOut, 'H2_PLANT')
 co2_cap   = slice_with_coords(flowOut, 'CO2_CAP')
-meth_plant= slice_with_coords(flowOut, 'METH_PLANT')
+metoh_plant= slice_with_coords(flowOut, 'METOH_PLANT')
 gsl_plant = slice_with_coords(flowOut, 'GSL_PLANT')
 gsl_demand= slice_with_coords(flowOut, 'GSL_DEMAND')
 
@@ -83,7 +83,7 @@ tech_points = {
     'Electricity' : (elc_gen,   'blue'),
     'H2'          : (h2_plant,  'green'),
     'CO2'         : (co2_cap,   'gray'),
-    'Methanol'    : (meth_plant,'orange'),
+    'Methanol'    : (metoh_plant,'orange'),
     'Gasoline'    : (gsl_plant, 'brown'),
 }
 
@@ -121,6 +121,7 @@ jitter_deg = 1.5
 
 # Plot each tech’s point bubbles
 for name, (dfp, color) in tech_points.items():
+    print(name)
     if dfp.empty or 'flow' not in dfp.columns:
         continue
     dfp_plot = dfp[['lon','lat','flow']].dropna().copy()
@@ -202,7 +203,7 @@ sites_gdf = gpd.GeoDataFrame(
 sites_web = sites_gdf.to_crs(epsg=3857)
 
 # Create figure
-fig, ax = plt.subplots(figsize=(10, 14))
+fig, ax = plt.subplots(figsize=(6, 8))
 
 # --- Base map ---
 sites_web.plot(ax=ax, color='gray', markersize=5, alpha=0.2, label='Region')
@@ -276,7 +277,7 @@ for name, (links, color) in tech_links.items():
 
 # --- Styling ---
 ax.set_title('', fontsize=14, pad=12)
-ax.legend(title='Legend', frameon=True, loc='upper left')
+# ax.legend(title='Legend', frameon=False, loc='upper left', bbox_to_anchor=(1.25, 1))
 
 # Remove all gridlines, ticks, and spines
 ax.grid(False)
@@ -289,7 +290,7 @@ proxies = [Line2D([0],[0], color=c, lw=1, label=n) for n,(dfp,c) in tech_links.i
 handles2 = list(by_label.values()) + proxies
 labels2  = list(by_label.keys())   + [p.get_label() for p in proxies]
 by_label2 = dict(zip(labels2, handles2))
-ax.legend(by_label2.values(), by_label2.keys(), title='', frameon=False, loc='upper right', bbox_to_anchor=(1.5, 1.0), fontsize=14)
+# ax.legend(by_label2.values(), by_label2.keys(), title='', frameon=False, loc='upper right', bbox_to_anchor=(1.15, 1.0), fontsize=14)
 
 ax.set_xticks([])
 ax.set_yticks([])
