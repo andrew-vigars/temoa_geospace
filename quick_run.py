@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import sqlite3
 import os
+import sys
 from datetime import datetime
 import shutil
 import subprocess
@@ -34,6 +35,6 @@ if not os.path.exists(output_dir):
     os.makedirs(output_dir)
 
 shutil.copy2(db_path, output_dir)
-subprocess.run(["python", main_path, "--config", config_path, "-o", output_dir])
+subprocess.run([sys.executable, main_path, "--config", config_path, "-o", output_dir])
 shutil.copy2(db_path, output_dir)
 
