@@ -263,6 +263,7 @@ def solve_instance(
             optimizer.options["Crossover"] = 0 # non basic solution, ie no crossover
             optimizer.options["BarConvTol"] = 1.e-5
             optimizer.options["FeasibilityTol"] = 1.e-6
+            optimizer.options["MIPGap"] = 0.001  # Optimality gap for mixed integer problems
             # optimizer.options["BarOrder"] = 0 # if solve times seem unusually long, try 0 or 1
             optimizer.options["LogFile"] = str(Path(instance.name).with_suffix(".gurobi.log"))
             optimizer.options["LogToConsole"] = 1  # or 0 to silence console output
