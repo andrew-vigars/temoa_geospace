@@ -483,7 +483,7 @@ def invest_costs(site, a, b, tech, resolution=5, upper_vol=1_000_000, spacing="l
 
 def set_techs(technologies):
     df = technologies.copy()
-    df['sector'] = 'insdustrial'
+    df['sector'] = 'industrial'
     df['reserve'] = 0
     df['curtail'] = 0
     df['retire'] = 0
@@ -495,7 +495,7 @@ def set_techs(technologies):
 def set_supporting_tables(): 
     TechnologyType = pd.DataFrame({'label': ['p','t'], 'description': ['production','transport']})
     TimePeriod = pd.DataFrame({'sequence': [1,2], 'period': [1,2], 'flag': ['f','f']})
-    SectorLabel = pd.DataFrame({'sector': ['insdustrial'], 'notes': ['industrial sector']})
+    SectorLabel = pd.DataFrame({'sector': ['industrial'], 'notes': ['industrial sector']})
     DataSet = pd.DataFrame({'data_id': ['GEO001'], 
                             'label': ['Geospatial Renewable Gas Data'], 
                             'version': ['O001'], 
