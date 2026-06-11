@@ -60,7 +60,7 @@ except (ValueError, IndexError):
 
 print(f"  → {selected_sites}\n")
 
-# Figure save file names based on timestamp used to generate the corresponding model run and under what resolution
+# Figure output naming based on timestamp model run and resolution
 run_tag = selected_run.name.replace(" ", "_")  # e.g. "2026-06-10_1801"
 sites_tag = selected_sites.stem  # e.g. "sites_dict_1"
 fig_stem = f"{run_tag}_{sites_tag}"  # e.g. "2026-06-10_1801_sites_dict_1"
@@ -173,6 +173,13 @@ if not demand_pts.empty:
 rng = np.random.default_rng(42)
 jitter_deg = 1.5
 
+# Determine global max flow for scaling bubble sizes consistently across techs
+all_flows = pd.concat([
+    df['flow'] for df, _ in tech_points.values()
+    if not df.empty and 'flow' in df.columns
+])
+global_max_flow = all_flows.max()
+
 # Plot each tech’s point bubbles
 for name, (dfp, color) in tech_points.items():
     print(name)
@@ -190,7 +197,7 @@ for name, (dfp, color) in tech_points.items():
     dfp_plot['lon_plot'] = dfp_plot['lon'] + rng.uniform(-jitter_deg, jitter_deg, size=len(dfp_plot))
     dfp_plot['lat_plot'] = dfp_plot['lat'] + rng.uniform(-jitter_deg, jitter_deg, size=len(dfp_plot))
 
-    size = (dfp_plot['flow'] / dfp_plot['flow'].max()) * 150
+    size = np.sqrt(dfp_plot['flow'] / global_max_flow) * 150
     ax.scatter(dfp_plot['lon_plot'], dfp_plot['lat_plot'], s=size, alpha=0.6, label=name, c=color)
 
 # Transport arrows
@@ -296,7 +303,7 @@ for name, (dfp, color) in tech_points.items():
         crs="EPSG:4326"
     ).to_crs(epsg=3857)
 
-    sizes = dfp['flow'] / dfp['flow'].max() * 150
+    sizes = np.sqrt(dfp['flow'] / global_max_flow) * 150
     ax.scatter(
         dfp_gdf.geometry.x,
         dfp_gdf.geometry.y,
