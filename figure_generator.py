@@ -296,7 +296,7 @@ for name, (dfp, color) in tech_points.items():
         crs="EPSG:4326"
     ).to_crs(epsg=3857)
 
-    sizes = np.sqrt(dfp['flow'] / dfp['flow'].max() * 150)
+    sizes = np.sqrt(dfp['flow'] / dfp['flow'].max()) * 150
     ax.scatter(
         dfp_gdf.geometry.x,
         dfp_gdf.geometry.y,
