@@ -1,22 +1,71 @@
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
 import seaborn as sns  # optional
 import db_mgmt as mgmt
 import geopandas as gpd
+import contextily as ctx
+import matplotlib.pyplot as plt
+from pathlib import Path
+from matplotlib.lines import Line2D
+from shapely.geometry import LineString
 
+import sys
+from pathlib import Path
 
+# CLI based call for selecting run and sites_dict
+output_dir = Path("output_files")
 
+# Find all valid runs (folders containing CANOE_geospatial.sqlite)
+runs = sorted([
+    d for d in output_dir.iterdir()
+    if d.is_dir() and (d / "CANOE_geospatial.sqlite").exists()
+])
 
+if not runs:
+    print(f"No valid runs found in {output_dir.resolve()}")
+    sys.exit(1)
+
+print("\nAvailable model runs:")
+for i, r in enumerate(runs):
+    size_mb = (r / "CANOE_geospatial.sqlite").stat().st_size / 1e6
+    print(f"  [{i}] {r.name}  ({size_mb:.1f} MB)")
+
+run_idx = input("\nSelect run index: ").strip()
+try:
+    selected_run = runs[int(run_idx)]
+except (ValueError, IndexError):
+    print("Invalid selection.")
+    sys.exit(1)
+
+db_path = selected_run / "CANOE_geospatial.sqlite"
+print(f"  → {db_path}")
+
+# Find available site dictionaries
+site_files = sorted(Path(".").glob("sites_dict_*.csv"))
+
+if not site_files:
+    print("No sites_dict_*.csv files found.")
+    sys.exit(1)
+
+print("\nAvailable site dictionaries:")
+for i, f in enumerate(site_files):
+    print(f"  [{i}] {f.name}")
+
+site_idx = input("\nSelect sites index: ").strip()
+try:
+    selected_sites = site_files[int(site_idx)]
+except (ValueError, IndexError):
+    print("Invalid selection.")
+    sys.exit(1)
+
+print(f"  → {selected_sites}\n")
 
 # -------------------------------
 # Load data
 # -------------------------------
-db_path = 'output_files/2026-03-04 1553/CANOE_geospatial.sqlite'
-data = mgmt.sqlite_to_dfs(db_path)
+data = mgmt.sqlite_to_dfs(str(db_path))
 
-sites = pd.read_csv('sites_dict_5.csv')
+sites = pd.read_csv(selected_sites)
 sites['region'] = sites['site_id']
 sites = sites.set_index('region', drop=True)
 
@@ -180,16 +229,6 @@ plt.tight_layout()
 plt.savefig('figures/map_output.png', dpi=300)
 plt.show()
 
-
-import geopandas as gpd
-import contextily as ctx
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-from matplotlib.lines import Line2D
-from shapely.geometry import LineString
-
-
 # --- Assuming you already have: sites, flowOut, etc. as before ---
 
 # Convert sites to GeoDataFrame
@@ -266,11 +305,10 @@ for name, (dfp, color) in tech_points.items():
 for name, (links, color) in tech_links.items():
     if links.empty:
         continue
-    for _, row in links.iterrows():
-        lon_from, lat_from = sites.loc[row['region_from'], ['lon', 'lat']]
-        lon_to, lat_to     = sites.loc[row['region_to'], ['lon', 'lat']]
+    links_plot = links[['lon_from','lat_from','lon_to','lat_to']].dropna().copy()
+    for _, row in links_plot.iterrows():
         line = gpd.GeoSeries(
-            [LineString([(lon_from, lat_from), (lon_to, lat_to)])],
+            [LineString([(row['lon_from'], row['lat_from']), (row['lon_to'], row['lat_to'])])],
             crs="EPSG:4326"
         ).to_crs(epsg=3857)
         ax.plot(*line.geometry[0].xy, color=color, lw=1, alpha=0.7)
