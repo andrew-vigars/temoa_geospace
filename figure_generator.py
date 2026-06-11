@@ -60,6 +60,11 @@ except (ValueError, IndexError):
 
 print(f"  → {selected_sites}\n")
 
+# Figure save file names based on timestamp used to generate the corresponding model run and under what resolution
+run_tag = selected_run.name.replace(" ", "_")  # e.g. "2026-06-10_1801"
+sites_tag = selected_sites.stem  # e.g. "sites_dict_1"
+fig_stem = f"{run_tag}_{sites_tag}"  # e.g. "2026-06-10_1801_sites_dict_1"
+
 # -------------------------------
 # Load data
 # -------------------------------
@@ -226,7 +231,7 @@ ax.set_yticks([])
 
 sns.despine(top=True, right=True, bottom=True, left=True)
 plt.tight_layout()
-plt.savefig('figures/map_output.png', dpi=300)
+plt.savefig(f'figures/{fig_stem}_schematic.png', dpi=300)
 plt.show()
 
 # --- Assuming you already have: sites, flowOut, etc. as before ---
@@ -334,5 +339,5 @@ ax.set_xticks([])
 ax.set_yticks([])
 
 plt.tight_layout()
-plt.savefig('figures/map_output_v2.svg', dpi=300)
+plt.savefig(f'figures/{fig_stem}_basemap.svg', dpi=300)
 plt.show()
