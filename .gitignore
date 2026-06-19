@@ -1,55 +1,121 @@
 # -----------------------
+
 # Python
+
 # -----------------------
 
 .venv/
-__pycache__/
+**pycache**/
 *.pyc
+*.pyo
 
 # -----------------------
+
 # VS Code
+
 # -----------------------
 
 .vscode/
 
 # -----------------------
+
 # Jupyter
+
 # -----------------------
 
 .ipynb_checkpoints/
+*.html
 
 # -----------------------
-# Raw and intermediate data
-# -----------------------
 
+# Processed data
+
+# -----------------------
 data_files/raw/
+data_files/processed/
 
 # -----------------------
+
 # Model outputs
+
 # -----------------------
 
 output_files/
 outputs/
 
-# Solver files
-*.gurobi.log
+# -----------------------
 
-# SQLite databases
+# Solver artifacts
+
+# -----------------------
+
+*.gurobi.log
+*.lp
+*.mps
+*.sol
+*.mst
+
+# -----------------------
+
+# Databases
+
+# -----------------------
+
 *.sqlite
 
 # -----------------------
+
 # Temporary figures
+
 # -----------------------
 
 figures/*.png
 figures/*.svg
 
-# Keep manually curated figures if desired
+# Keep manually curated files if desired
+
 !figures/README.md
 
 # -----------------------
+
 # CSV exports
+
 # -----------------------
 
 *_RoadClass_Count.csv
+
+# -----------------------
+
+# Logs and temporary files
+
+# -----------------------
+
+*.log
+*.tmp
+
+# -----------------------
+
+# Operating system files
+
+# -----------------------
+
+.DS_Store
+Thumbs.db
+
+# -----------------------
+
+# QGIS backup files
+
+# -----------------------
+
+*.qgz~
+
+# -----------------------
+
+# Keep QGIS project files
+
+# -----------------------
+
+!*.qgz
+
 
