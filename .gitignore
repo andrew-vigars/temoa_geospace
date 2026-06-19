@@ -1,13 +1,55 @@
+# -----------------------
 # Python
+# -----------------------
+
 .venv/
 __pycache__/
 *.pyc
 
+# -----------------------
 # VS Code
+# -----------------------
+
 .vscode/
 
+# -----------------------
+# Jupyter
+# -----------------------
+
+.ipynb_checkpoints/
+
+# -----------------------
+# Raw and intermediate data
+# -----------------------
+
+data_files/raw/
+
+# -----------------------
 # Model outputs
+# -----------------------
+
 output_files/
+outputs/
+
+# Solver files
+*.gurobi.log
+
+# SQLite databases
 *.sqlite
 
+# -----------------------
+# Temporary figures
+# -----------------------
+
+figures/*.png
+figures/*.svg
+
+# Keep manually curated figures if desired
+!figures/README.md
+
+# -----------------------
+# CSV exports
+# -----------------------
+
+*_RoadClass_Count.csv
 
