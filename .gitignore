@@ -71,7 +71,7 @@ outputs/
 
 figures/*.png
 figures/*.svg
-notebooks\Misc outputs
+notebooks/Misc outputs/**
 
 # Keep manually curated files if desired
 
