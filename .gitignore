@@ -20,6 +20,7 @@
 # -----------------------
 
 # Jupyter
+*.nbconvert.ipynb
 
 # -----------------------
 
@@ -62,6 +63,7 @@ outputs/
 # -----------------------
 
 *.sqlite
+*.db
 
 # -----------------------
 
@@ -71,7 +73,7 @@ outputs/
 
 figures/*.png
 figures/*.svg
-notebooks/Misc outputs/**
+notebooks/Misc outputs/
 
 # Keep manually curated files if desired
 
@@ -80,6 +82,8 @@ notebooks/Misc outputs/**
 # -----------------------
 
 # CSV exports
+*.csv~
+*.xlsx~
 
 # -----------------------
 
@@ -110,6 +114,8 @@ Thumbs.db
 # -----------------------
 
 *.qgz~
+*.gpkg-wal
+*.gpkg-shm
 
 # -----------------------
 
