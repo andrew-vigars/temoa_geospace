@@ -97,6 +97,7 @@ notebooks/Misc outputs/
 
 *.log
 *.tmp
+temoa_geospace/unknown.gurobi.log
 
 # -----------------------
 
