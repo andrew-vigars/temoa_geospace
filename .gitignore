@@ -71,7 +71,7 @@ outputs/
 
 # -----------------------
 
-temoa_geospace/figures
+temoa_geospace/figures/
 notebooks/Misc outputs/
 
 # Keep manually curated files if desired
