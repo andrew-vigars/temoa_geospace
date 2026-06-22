@@ -22,8 +22,8 @@ ACTIVE_SCHEMA = "weak_1deg"
 
 DATABASE_SCHEMAS = {
     "baseline": Path("data_files") / "CANOE_geospatial.sqlite",
-    "weak_1deg": Path("data_files") / "processed" / "schema" / "CANOE_geospatial_1deg_roads_weak.sqlite",
-    "strong_1deg": Path("data_files") / "processed" / "schema" / "CANOE_geospatial_1deg_roads_strong.sqlite",
+    "weak_1deg": Path("data_files") / "processed" / "schema" / "CANOE_geospatial_1deg_graph_roads_weak.sqlite",
+    "strong_1deg": Path("data_files") / "processed" / "schema" / "CANOE_geospatial_1deg_graph_roads_strong.sqlite",
 }
 
 
