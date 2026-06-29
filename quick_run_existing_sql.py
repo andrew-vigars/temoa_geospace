@@ -15,19 +15,6 @@ from db_mgmt import update_db_paths
 
 
 # =============================================================================
-# Scenario settings
-# =============================================================================
-
-ACTIVE_SCHEMA = "weak_1deg"
-
-DATABASE_SCHEMAS = {
-    "baseline": Path("data_files") / "CANOE_geospatial.sqlite",
-    "weak_1deg": Path("data_files") / "processed" / "schema" / "CANOE_geospatial_1deg_graph_roads_weak.sqlite",
-    "strong_1deg": Path("data_files") / "processed" / "schema" / "CANOE_geospatial_1deg_graph_roads_strong.sqlite",
-}
-
-
-# =============================================================================
 # Project paths
 # =============================================================================
 
@@ -45,20 +32,65 @@ CONFIG_PATH = (
 
 OUTPUT_ROOT = PROJECT_ROOT / "output_files"
 
-DB_PATH = PROJECT_ROOT / DATABASE_SCHEMAS[ACTIVE_SCHEMA]
+SCHEMA_DIR = (
+    PROJECT_ROOT
+    / "data_files"
+    / "processed"
+    / "schema"
+)
+
+
+# =============================================================================
+# Select encoded SQLite schema
+# =============================================================================
+
+database_schemas = sorted(
+    SCHEMA_DIR.glob("*.sqlite")
+)
+
+if not database_schemas:
+    raise FileNotFoundError(
+        f"No SQLite schemas found in {SCHEMA_DIR}"
+    )
+
+print("\nAvailable schemas:")
+
+for i, path in enumerate(database_schemas):
+    print(f"[{i}] {path.name}")
+
+while True:
+
+    try:
+        selection = int(
+            input("\nSelect schema number: ")
+        )
+
+        if 0 <= selection < len(database_schemas):
+            break
+
+        print("Invalid selection.")
+
+    except ValueError:
+        print("Please enter an integer.")
+
+DB_PATH = database_schemas[selection]
+
+schema_name = DB_PATH.stem.replace(
+    "CANOE_geospatial_",
+    "",
+)
 
 OUTPUT_DIR = (
     OUTPUT_ROOT
-    / f"{datetime.today().strftime('%Y-%m-%d_%H%M')}_{ACTIVE_SCHEMA}"
+    / f"{datetime.today().strftime('%Y-%m-%d_%H%M')}_{schema_name}"
 )
+
+print(f"\nSelected schema: {DB_PATH.name}")
 
 
 # =============================================================================
 # Validate inputs
 # =============================================================================
-
-if ACTIVE_SCHEMA not in DATABASE_SCHEMAS:
-    raise ValueError(f"Unknown ACTIVE_SCHEMA: {ACTIVE_SCHEMA}")
 
 if not DB_PATH.exists():
     raise FileNotFoundError(f"Input database not found: {DB_PATH}")
