@@ -43,6 +43,7 @@ data_files/processed/
 
 output_files/
 outputs/
+audit_outputs/
 
 # -----------------------
 
@@ -96,7 +97,7 @@ notebooks/Misc outputs/
 
 *.log
 *.tmp
-temoa_geospace/unknown.gurobi.log
+unknown.gurobi.log
 
 # -----------------------
 
