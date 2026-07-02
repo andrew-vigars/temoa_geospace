@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from matplotlib.lines import Line2D
 from shapely.geometry import LineString
+import re
 import sys
 
 
@@ -68,17 +69,49 @@ print(f"  → {db_path}")
 # Paths
 # =============================================================================
 
+# Derive basemap stem from the selected database's filename rather than
+# hardcoding it, so this script works for any basemap/connection-method
+# combination without manual edits.
+# Expected db_path.stem pattern:
+#   CANOE_geospatial_<basemap_stem>_roads_<connection_method>
+match = re.search(r"canada_basemap_.+?(?=_roads_)", db_path.stem)
+
+if not match:
+    print(f"Could not infer basemap stem from database filename: {db_path.stem}")
+    sys.exit(1)
+
+BASEMAP_STEM = match.group(0)
+
 GRAPH_DIR = Path("data_files") / "processed" / "graph"
 
-NODE_PATH = GRAPH_DIR / "canada_basemap_1deg_centroid_graph_nodes.gpkg"
-EDGE_PATH = GRAPH_DIR / "canada_basemap_1deg_centroid_graph_edges.csv"
+NODE_PATH = GRAPH_DIR / f"{BASEMAP_STEM}_graph_nodes.gpkg"
+EDGE_PATH = GRAPH_DIR / f"{BASEMAP_STEM}_graph_edges.csv"
+
+if not NODE_PATH.exists() or not EDGE_PATH.exists():
+    print(f"Missing graph files for basemap '{BASEMAP_STEM}':")
+    print(f"  {NODE_PATH} (exists: {NODE_PATH.exists()})")
+    print(f"  {EDGE_PATH} (exists: {EDGE_PATH.exists()})")
+    sys.exit(1)
+
+print(f"Inferred basemap stem: {BASEMAP_STEM}")
+print(f"  Graph nodes: {NODE_PATH.name}")
+print(f"  Graph edges: {EDGE_PATH.name}")
 
 FIGURE_DIR = Path("figures") / "geospatial_transport" / selected_run.name
 FIGURE_DIR.mkdir(parents=True, exist_ok=True)
 
+# The run folder name and the database stem both encode the basemap and
+# connection method, so concatenating them naively duplicates that
+# information and can produce filenames long enough to exceed Windows'
+# MAX_PATH (260 chars). Strip the redundant prefix and skip appending
+# db_tag entirely when it's already implied by run_tag.
 run_tag = selected_run.name.replace(" ", "_")
+
 db_tag = db_path.stem
-fig_stem = f"{run_tag}_{db_tag}"
+if db_tag.startswith("CANOE_geospatial_"):
+    db_tag = db_tag[len("CANOE_geospatial_"):]
+
+fig_stem = run_tag if db_tag in run_tag else f"{run_tag}_{db_tag}"
 
 
 # =============================================================================
