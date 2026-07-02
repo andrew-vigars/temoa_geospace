@@ -374,37 +374,64 @@ def poll_cost_results(
     
     for r, p, t in M.ETLPeriodCost_rpt:
 
-        cost = value(M.V_ETLPeriodCost[r, p, t])
-        if cost < epsilon:
-            continue
+            cost = value(M.V_ETLPeriodCost[r, p, t])
+            if cost < epsilon:
+                continue
 
-        # gather details...
-        r0, t0 = M.etlClusterProcess[r, p, t]
-        loan_life = value(LLN[r0, t0, p])
-        loan_rate = value(M.LoanRate[r0, t0, p])
-        life = value(M.LifetimeProcess[r0, t0, p])
+            # Exclude the mirrored direction of bidirectional exchange-tech corridors.
+            # RegionalExchangeCapacity_Constraint forces capacity equal across both
+            # directions, so ETLPeriodCost_rpt's two entries represent one shared physical
+            # asset, not two independently-built ones. Skipping the non-canonical side here
+            # means only one entry reaches exchange_costs.add_cost_record() below, which
+            # makes ExchangeTechCostLedger apportion it by actual use ratio (get_use_ratio)
+            # instead of recording both sides as if they were deliberately distinct costs.
+            if '-' in r and not temoa_rules._etl_is_canonical_exchange_entry(M, r, p, t):
+                continue
 
-        model_loan_cost, undiscounted_cost = loan_costs(
-            loan_rate=loan_rate,
-            loan_life=loan_life,
-            capacity=1,
-            invest_cost=cost,
-            process_life=life,
-            p_0=p_0,
-            p_e=p_e,
-            global_discount_rate=GDR,
-            vintage=p,
-        )
+            # gather details...
+            r0, t0 = M.etlClusterProcess[r, p, t]
+            loan_life = value(LLN[r0, t0, p])
+            loan_rate = value(M.LoanRate[r0, t0, p])
+            life = value(M.LifetimeProcess[r0, t0, p])
 
-        # enter it into the entries table with period of cost = vintage (p=v)
-        if (r, p, t, p) in entries:
-            entries[r, p, t, p][CostType.D_INVEST] += model_loan_cost
-            entries[r, p, t, p][CostType.INVEST] += undiscounted_cost
-        else:
-            entries[r, p, t, p].update(
-                {CostType.D_INVEST: model_loan_cost, CostType.INVEST: undiscounted_cost}
+            model_loan_cost, undiscounted_cost = loan_costs(
+                loan_rate=loan_rate,
+                loan_life=loan_life,
+                capacity=1,
+                invest_cost=cost,
+                process_life=life,
+                p_0=p_0,
+                p_e=p_e,
+                global_discount_rate=GDR,
+                vintage=p,
             )
 
+            if '-' in r:
+                exchange_costs.add_cost_record(
+                    r,
+                    period=p,
+                    tech=t,
+                    vintage=p,
+                    cost=model_loan_cost,
+                    cost_type=CostType.D_INVEST,
+                )
+                exchange_costs.add_cost_record(
+                    r,
+                    period=p,
+                    tech=t,
+                    vintage=p,
+                    cost=undiscounted_cost,
+                    cost_type=CostType.INVEST,
+                )
+            else:
+                # enter it into the entries table with period of cost = vintage (p=v)
+                if (r, p, t, p) in entries:
+                    entries[r, p, t, p][CostType.D_INVEST] += model_loan_cost
+                    entries[r, p, t, p][CostType.INVEST] += undiscounted_cost
+                else:
+                    entries[r, p, t, p].update(
+                        {CostType.D_INVEST: model_loan_cost, CostType.INVEST: undiscounted_cost}
+                    )
     for r, p, t, v in M.CostFixed.sparse_iterkeys():
         cap = value(M.V_Capacity[r, p, t, v])
         if abs(cap) < epsilon:

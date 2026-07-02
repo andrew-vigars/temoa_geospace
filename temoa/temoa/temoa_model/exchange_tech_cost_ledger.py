@@ -131,26 +131,62 @@ class ExchangeTechCostLedger:
 
     def get_entries(self) -> dict:
         region_costs = defaultdict(dict)
-        # iterate through each region pairing, pull the cost records and decide if/how to split each one
+
+        def add_region_cost(key, cost_type, amount):
+            region_costs[key][cost_type] = (
+                region_costs[key].get(cost_type, 0.0) + amount
+            )
+
+        # Iterate through each region pairing, pull the cost records,
+        # and decide if/how to split each one.
         for cost_type in self.cost_records:
-            # make a copy, this will be destructive operation
+
+            # Make a copy; this is a destructive operation.
             records = self.cost_records[cost_type].copy()
+
             while records:
-                (r1, r2, tech, vintage, period), cost = records.popitem()  # pops a random item
-                # try to get the partner (reversed regions), if it exists
-                partner_cost = records.pop((r2, r1, tech, vintage, period), None)
-                if (
-                    partner_cost
-                ):  # they are both entered, so we just record the costs... no splitting
-                    region_costs[r2, period, tech, vintage].update({cost_type: cost})
-                    region_costs[r1, period, tech, vintage].update({cost_type: partner_cost})
-                else:
-                    # only one side had costs: the signal to split based on use
-                    use_ratio = self.get_use_ratio(r1, r2, period, tech, vintage)
-                    # not r2 is the "importer" and that is the ratio assignment
-                    region_costs[r1, period, tech, vintage].update(
-                        {cost_type: cost * (1.0 - use_ratio)}
+                (r1, r2, tech, vintage, period), cost = records.popitem()
+
+                # Try to get the reversed-region partner.
+                partner_cost = records.pop(
+                    (r2, r1, tech, vintage, period),
+                    None,
+                )
+
+                if partner_cost is not None:
+                    # Both directions have explicit costs.
+                    # Record each side without use-ratio splitting.
+                    add_region_cost(
+                        (r2, period, tech, vintage),
+                        cost_type,
+                        cost,
                     )
-                    region_costs[r2, period, tech, vintage].update({cost_type: cost * use_ratio})
+                    add_region_cost(
+                        (r1, period, tech, vintage),
+                        cost_type,
+                        partner_cost,
+                    )
+
+                else:
+                    # Only one side has a cost.
+                    # Split based on use ratio.
+                    use_ratio = self.get_use_ratio(
+                        r1,
+                        r2,
+                        period,
+                        tech,
+                        vintage,
+                    )
+
+                    add_region_cost(
+                        (r1, period, tech, vintage),
+                        cost_type,
+                        cost * (1.0 - use_ratio),
+                    )
+                    add_region_cost(
+                        (r2, period, tech, vintage),
+                        cost_type,
+                        cost * use_ratio,
+                    )
 
         return region_costs
