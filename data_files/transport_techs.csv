@@ -1,6 +1,10 @@
 ﻿tech,input_comm,output_comm,cost_per_km,intercept_cost_per_km
-H2_PIPE,h2,h2,0.0196,-0.3043
-METOH_PIPE,ch3oh,ch3oh,0.0196,-0.3043
-CO2_PIPE,co2,co2,0.0196,-0.3043
-GSL_PIPE,gsl,gsl,0.0196,-0.3043
+H2_PIPE,h2,h2,0.0196,0
+METOH_PIPE,ch3oh,ch3oh,0.0196,0
+CO2_PIPE,co2,co2,0.0196,0
+GSL_PIPE,gsl,gsl,0.0196,0
 ELC_TRANS,elc,elc,0.0052,2.7896
+CO2_TRUCK,co2,co2,0.01,0
+H2_TRUCK,h2,h2,0.01,0
+METOH_TRUCK,ch3oh,ch3oh,0.01,0
+GSL_TRUCK,gsl,gsl,0.01,0
