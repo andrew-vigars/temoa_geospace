@@ -18,7 +18,7 @@ except ImportError:
     nx = None
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_ROOT = PROJECT_ROOT / "output_files"
 AUDIT_ROOT = PROJECT_ROOT / "audit_outputs"
 

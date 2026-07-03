@@ -40,7 +40,7 @@ from temoa.temoa_model.exchange_tech_cost_ledger import (
 from temoa.temoa_model import temoa_rules
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 CONFIG_PATH = (
     PROJECT_ROOT

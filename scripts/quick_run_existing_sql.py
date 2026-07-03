@@ -18,7 +18,7 @@ from db_mgmt import update_db_paths
 # Project paths
 # =============================================================================
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 MAIN_PATH = PROJECT_ROOT / "temoa" / "main.py"
 
