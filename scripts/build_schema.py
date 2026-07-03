@@ -19,15 +19,14 @@ Inputs:
     data_files/canoe_dataset_schema.sql
     data_files/sites_full.csv
     data_files/demand.csv
-    data_files/processed/emissions/co2_large_facilities_2024/AirEmissions_GHG_2024.json
-    or data_files/processed/emissions/co2_large_facilities_2024/Greenhouse gas emissions from large facilities - 2024.csv
+    data_files/processed/emissions/co2_large_facilities_2024/co2_large_facilities_2024_clean.gpkg
     data_files/transport_techs.csv
     data_files/generation_efficiency.csv
     data_files/techs.csv
     data_files/commodities.csv
 
 Outputs:
-    data_files/processed/schema/CANOE_geospatial_{BASEMAP_STEM}_roads_{CONNECTION_METHOD}.sqlite
+    data_files/processed/schema/CANOE_geospatial_{BASEMAP_STEM}_{CONNECTION_METHOD}.sqlite
 """
 
 from dataclasses import dataclass
@@ -63,13 +62,6 @@ BASELINE_SQLITE_PATH = DATA_FILES / "CANOE_geospatial.sqlite"
 SITES_PATH = DATA_FILES / "sites_full.csv"
 DEMAND_PATH = DATA_FILES / "demand.csv"
 
-RAW_EMISSIONS_DIR = (
-    DATA_FILES
-    / "raw"
-    / "emissions"
-    / "co2_large_facilities_2024"
-)
-
 PROCESSED_EMISSIONS_DIR = (
     DATA_FILES
     / "processed"
@@ -77,18 +69,7 @@ PROCESSED_EMISSIONS_DIR = (
     / "co2_large_facilities_2024"
 )
 
-CO2_SOURCE_CANDIDATES = [
-    # Preferred raw source files from the download/batch stage.
-    RAW_EMISSIONS_DIR / "AirEmissions_GHG_2024.json",
-    RAW_EMISSIONS_DIR / "AirEmissions_GHG_2024.geojson",
-    RAW_EMISSIONS_DIR / "Greenhouse gas emissions from large facilities - 2024.csv",
-
-    # Backward-compatible processed/intermediate alternatives.
-    PROCESSED_EMISSIONS_DIR / "AirEmissions_GHG_2024.json",
-    PROCESSED_EMISSIONS_DIR / "AirEmissions_GHG_2024.geojson",
-    PROCESSED_EMISSIONS_DIR / "Greenhouse gas emissions from large facilities - 2024.csv",
-    PROCESSED_EMISSIONS_DIR / "co2_large_facilities_2024_clean.gpkg",
-]
+CO2_SOURCE_PATH = PROCESSED_EMISSIONS_DIR / "co2_large_facilities_2024_clean.gpkg"
 TRANSPORT_TECHS_PATH = DATA_FILES / "transport_techs.csv"
 GEN_EFFICIENCIES_PATH = DATA_FILES / "generation_efficiency.csv"
 TECHNOLOGIES_PATH = DATA_FILES / "techs.csv"
@@ -258,121 +239,6 @@ def ensure_baseline_sqlite_exists() -> None:
         BASELINE_SQLITE_PATH,
     )
 
-def discover_co2_source_path() -> Path:
-    for candidate in CO2_SOURCE_CANDIDATES:
-        if candidate.exists():
-            return candidate
-
-    print("\nMissing CO2 source file. Checked:")
-    for candidate in CO2_SOURCE_CANDIDATES:
-        print(f"  {candidate}")
-
-    raise FileNotFoundError("No supported CO2 source file found.")
-
-
-def load_co2_facilities(path: Path) -> gpd.GeoDataFrame:
-    """Load and normalize the 2024 large-facility GHG file.
-
-    The raw source may be GeoJSON/JSON, CSV, or a previously cleaned GPKG.
-    Downstream schema-building logic expects these canonical columns:
-    facility_id, latitude, longitude, emissions_kt_co2e_per_year.
-    """
-    suffix = path.suffix.lower()
-
-    if suffix in {".json", ".geojson", ".gpkg"}:
-        gdf = gpd.read_file(path)
-    elif suffix == ".csv":
-        df = pd.read_csv(path)
-        latitude_col = first_existing_column(df, ["Latitude", "latitude", "lat"])
-        longitude_col = first_existing_column(df, ["Longitude", "longitude", "lon"])
-        if latitude_col is None or longitude_col is None:
-            raise ValueError(
-                f"CSV CO2 file must contain latitude/longitude columns: {path}"
-            )
-
-        df[latitude_col] = pd.to_numeric(df[latitude_col], errors="coerce")
-        df[longitude_col] = pd.to_numeric(df[longitude_col], errors="coerce")
-        df = df.dropna(subset=[latitude_col, longitude_col]).copy()
-
-        gdf = gpd.GeoDataFrame(
-            df,
-            geometry=gpd.points_from_xy(df[longitude_col], df[latitude_col]),
-            crs="EPSG:4326",
-        )
-    else:
-        raise ValueError(f"Unsupported CO2 source file type: {path}")
-
-    if gdf.crs is None:
-        gdf = gdf.set_crs("EPSG:4326")
-
-    gdf = gdf.rename(
-        columns={
-            "Name": "facility_name",
-            "Company": "company",
-            "Facility type": "facility_type",
-            "City": "city",
-            "Province": "province",
-            "Latitude": "latitude",
-            "Longitude": "longitude",
-            "Total GHG emissions": "emissions_kt_co2e_per_year",
-            "Year": "year",
-            "Report year": "report_year",
-        }
-    )
-
-    latitude_col = first_existing_column(gdf, ["latitude", "lat"])
-    longitude_col = first_existing_column(gdf, ["longitude", "lon"])
-    emissions_col = first_existing_column(
-        gdf,
-        [
-            "emissions_kt_co2e_per_year",
-            "Total GHG emissions",
-            "total_ghg_emissions",
-            "co2",
-        ],
-    )
-
-    if latitude_col is None or longitude_col is None:
-        raise ValueError(
-            "CO2 source is missing latitude/longitude fields after normalization."
-        )
-    if emissions_col is None:
-        raise ValueError(
-            "CO2 source is missing a GHG emissions field after normalization."
-        )
-
-    gdf["latitude"] = pd.to_numeric(gdf[latitude_col], errors="coerce")
-    gdf["longitude"] = pd.to_numeric(gdf[longitude_col], errors="coerce")
-    gdf["emissions_kt_co2e_per_year"] = pd.to_numeric(
-        gdf[emissions_col],
-        errors="coerce",
-    ).fillna(0)
-
-    if "facility_id" not in gdf.columns:
-        gdf["facility_id"] = [f"GHG2024_{i:05d}" for i in range(len(gdf))]
-
-    gdf = gdf.dropna(subset=["latitude", "longitude"]).copy()
-
-    if "geometry" not in gdf.columns or gdf.geometry.isna().all():
-        gdf = gpd.GeoDataFrame(
-            gdf,
-            geometry=gpd.points_from_xy(gdf["longitude"], gdf["latitude"]),
-            crs="EPSG:4326",
-        )
-
-    print(f"CO2 source file: {path.name}")
-    print(f"CO2 source rows loaded: {len(gdf):,}")
-
-    return gdf
-
-
-def first_existing_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
-    for candidate in candidates:
-        if candidate in df.columns:
-            return candidate
-    return None
-
-
 def validate_required_paths(config: SchemaConfig) -> None:
     required_paths = {
         "raw_basemap": RAW_BASEMAP_PATH,
@@ -380,7 +246,7 @@ def validate_required_paths(config: SchemaConfig) -> None:
         "baseline_sqlite": BASELINE_SQLITE_PATH,
         "sites": SITES_PATH,
         "demand": DEMAND_PATH,
-        "co2_source": discover_co2_source_path(),
+        "co2_source": CO2_SOURCE_PATH,
         "transport_techs": TRANSPORT_TECHS_PATH,
         "generation_efficiency": GEN_EFFICIENCIES_PATH,
         "techs": TECHNOLOGIES_PATH,
@@ -413,6 +279,54 @@ def sort_region_ids(region_series: pd.Series) -> pd.Series:
 # Loading and canonical graph/link construction
 # =============================================================================
 
+def validate_clean_emissions(co2_raw: gpd.GeoDataFrame) -> None:
+    """Validate canonical emissions output from build_emissions.py."""
+    required_columns = {
+        "facility_id",
+        "latitude",
+        "longitude",
+        "emissions_kt_co2e_per_year",
+        "is_spatially_assignable",
+    }
+
+    missing_columns = required_columns - set(co2_raw.columns)
+    if missing_columns:
+        raise ValueError(
+            "Clean emissions file is missing required columns from build_emissions.py: "
+            f"{sorted(missing_columns)}"
+        )
+
+    if co2_raw.crs is None:
+        raise ValueError("Clean emissions GPKG has no CRS. Expected EPSG:4326.")
+
+    if co2_raw.crs.to_epsg() != 4326:
+        raise ValueError(f"Clean emissions GPKG CRS is {co2_raw.crs}; expected EPSG:4326.")
+
+    co2_raw["latitude"] = pd.to_numeric(co2_raw["latitude"], errors="coerce")
+    co2_raw["longitude"] = pd.to_numeric(co2_raw["longitude"], errors="coerce")
+    co2_raw["emissions_kt_co2e_per_year"] = pd.to_numeric(
+        co2_raw["emissions_kt_co2e_per_year"],
+        errors="coerce",
+    )
+
+    if co2_raw[["latitude", "longitude", "emissions_kt_co2e_per_year"]].isna().any().any():
+        raise ValueError("Clean emissions file contains null numeric values in required fields.")
+
+    if not co2_raw["is_spatially_assignable"].astype(bool).all():
+        raise ValueError(
+            "Clean emissions GPKG should contain only spatially assignable facilities. "
+            "Rerun build_emissions.py and verify the GPKG export filter."
+        )
+
+    if not co2_raw["latitude"].between(40, 85).all():
+        raise ValueError("Clean emissions file contains latitudes outside broad Canada bounds.")
+
+    if not co2_raw["longitude"].between(-145, -45).all():
+        raise ValueError("Clean emissions file contains longitudes outside broad Canada bounds.")
+
+    print("Clean emissions input validated.")
+
+
 def load_inputs(config: SchemaConfig) -> LoadedInputs:
     print("\nLoading selected geospatial and CANOE inputs...")
 
@@ -425,12 +339,15 @@ def load_inputs(config: SchemaConfig) -> LoadedInputs:
         db=db_mgmt.sqlite_to_dfs(BASELINE_SQLITE_PATH),
         sites_raw=pd.read_csv(SITES_PATH),
         demand_raw=pd.read_csv(DEMAND_PATH),
-        co2_raw=load_co2_facilities(discover_co2_source_path()),
+        co2_raw=gpd.read_file(CO2_SOURCE_PATH),
         transport_techs_raw=pd.read_csv(TRANSPORT_TECHS_PATH),
         gen_efficiencies_raw=pd.read_csv(GEN_EFFICIENCIES_PATH),
         technologies_raw=pd.read_csv(TECHNOLOGIES_PATH),
         commodities_raw=pd.read_csv(COMMODITIES_PATH),
     )
+
+
+    validate_clean_emissions(inputs.co2_raw)
 
     print(f"Basemap regions: {len(inputs.basemap):,}")
     print(f"Graph nodes: {len(inputs.graph_nodes):,}")
@@ -438,7 +355,7 @@ def load_inputs(config: SchemaConfig) -> LoadedInputs:
     print(f"Road edge connections: {len(inputs.road_edge_connections):,}")
     print(f"Road edge geometries: {len(inputs.road_edges_gdf):,}")
     print(f"Baseline database tables: {len(inputs.db):,}")
-    print(f"Raw CO2 facilities: {len(inputs.co2_raw):,}")
+    print(f"Clean spatial CO2 facilities: {len(inputs.co2_raw):,}")
 
     return inputs
 
