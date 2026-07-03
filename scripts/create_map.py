@@ -28,6 +28,33 @@ import seaborn as sns
 from matplotlib.lines import Line2D
 from shapely.geometry import LineString
 
+# =============================================================================
+# Project import path
+# =============================================================================
+
+def find_project_root() -> Path:
+    """Return repository root from script location or current working directory."""
+    search_starts = [
+        Path(__file__).resolve(),
+        Path.cwd().resolve(),
+    ]
+
+    for start in search_starts:
+        for candidate in [start, *start.parents]:
+            if (
+                (candidate / "data_files").exists()
+                and (candidate / "db_mgmt.py").exists()
+            ):
+                return candidate
+
+    raise FileNotFoundError(
+        "Could not locate project root. Expected to find data_files/ and db_mgmt.py."
+    )
+
+
+PROJECT_ROOT = find_project_root()
+sys.path.insert(0, str(PROJECT_ROOT))
+
 import db_mgmt as mgmt
 
 

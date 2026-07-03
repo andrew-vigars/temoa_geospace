@@ -19,27 +19,25 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from db_mgmt import update_db_paths
-
 
 # =============================================================================
 # Project discovery
 # =============================================================================
 
 def find_project_root() -> Path:
-    """Return the repository root whether this script is run from root or scripts/."""
-    here = Path(__file__).resolve()
-
-    candidates = [
-        here.parent,
-        here.parent.parent,
-        Path.cwd(),
-        Path.cwd().parent,
+    """Return repository root from script location or current working directory."""
+    search_starts = [
+        Path(__file__).resolve(),
+        Path.cwd().resolve(),
     ]
 
-    for candidate in candidates:
-        if (candidate / "temoa" / "main.py").exists() and (candidate / "data_files").exists():
-            return candidate
+    for start in search_starts:
+        for candidate in [start, *start.parents]:
+            if (
+                (candidate / "temoa" / "main.py").exists()
+                and (candidate / "data_files").exists()
+            ):
+                return candidate
 
     raise FileNotFoundError(
         "Could not locate project root. Expected to find temoa/main.py and data_files/."
@@ -47,6 +45,9 @@ def find_project_root() -> Path:
 
 
 PROJECT_ROOT = find_project_root()
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from db_mgmt import update_db_paths
 
 MAIN_PATH = PROJECT_ROOT / "temoa" / "main.py"
 CONFIG_DIR = PROJECT_ROOT / "temoa" / "data_files" / "my_configs"
@@ -99,7 +100,6 @@ def validate_required_paths(db_path: Path, config_path: Path) -> None:
         "TEMOA main script": MAIN_PATH,
         "selected SQLite database": db_path,
         "selected config file": config_path,
-        "output root": OUTPUT_ROOT,
     }
 
     missing = [f"{label}: {path}" for label, path in required.items() if not path.exists()]

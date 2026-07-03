@@ -19,7 +19,8 @@ Inputs:
     data_files/canoe_dataset_schema.sql
     data_files/sites_full.csv
     data_files/demand.csv
-    data_files/processed/emissions/co2_large_facilities_2024/co2_large_facilities_2024_clean.gpkg
+    data_files/processed/emissions/co2_large_facilities_2024/AirEmissions_GHG_2024.json
+    or data_files/processed/emissions/co2_large_facilities_2024/Greenhouse gas emissions from large facilities - 2024.csv
     data_files/transport_techs.csv
     data_files/generation_efficiency.csv
     data_files/techs.csv
@@ -29,14 +30,16 @@ Outputs:
     data_files/processed/schema/CANOE_geospatial_{BASEMAP_STEM}_roads_{CONNECTION_METHOD}.sqlite
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from pathlib import Path
 import math
+import sys
 
 import geopandas as gpd
 import pandas as pd
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 import db_mgmt
 
@@ -45,7 +48,6 @@ import db_mgmt
 # Project paths
 # =============================================================================
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_FILES = PROJECT_ROOT / "data_files"
 
 RAW_BASEMAPS = DATA_FILES / "raw" / "basemaps"
@@ -60,13 +62,33 @@ BASELINE_SQLITE_PATH = DATA_FILES / "CANOE_geospatial.sqlite"
 
 SITES_PATH = DATA_FILES / "sites_full.csv"
 DEMAND_PATH = DATA_FILES / "demand.csv"
-CO2_GPKG_PATH = (
+
+RAW_EMISSIONS_DIR = (
+    DATA_FILES
+    / "raw"
+    / "emissions"
+    / "co2_large_facilities_2024"
+)
+
+PROCESSED_EMISSIONS_DIR = (
     DATA_FILES
     / "processed"
     / "emissions"
     / "co2_large_facilities_2024"
-    / "co2_large_facilities_2024_clean.gpkg"
 )
+
+CO2_SOURCE_CANDIDATES = [
+    # Preferred raw source files from the download/batch stage.
+    RAW_EMISSIONS_DIR / "AirEmissions_GHG_2024.json",
+    RAW_EMISSIONS_DIR / "AirEmissions_GHG_2024.geojson",
+    RAW_EMISSIONS_DIR / "Greenhouse gas emissions from large facilities - 2024.csv",
+
+    # Backward-compatible processed/intermediate alternatives.
+    PROCESSED_EMISSIONS_DIR / "AirEmissions_GHG_2024.json",
+    PROCESSED_EMISSIONS_DIR / "AirEmissions_GHG_2024.geojson",
+    PROCESSED_EMISSIONS_DIR / "Greenhouse gas emissions from large facilities - 2024.csv",
+    PROCESSED_EMISSIONS_DIR / "co2_large_facilities_2024_clean.gpkg",
+]
 TRANSPORT_TECHS_PATH = DATA_FILES / "transport_techs.csv"
 GEN_EFFICIENCIES_PATH = DATA_FILES / "generation_efficiency.csv"
 TECHNOLOGIES_PATH = DATA_FILES / "techs.csv"
@@ -79,6 +101,21 @@ CO2_KT_TO_T_FACTOR = 1000.0
 PLANT_TECHS = {"GSL_PLANT", "METOH_PLANT"}
 NODE_COSTVARIABLE_TECHS = ["ELC_GEN", "CO2_CAP", "GSL_BACKUP"]
 NODE_COSTINVEST_TECHS = ["ELC_GEN", "CO2_CAP"]
+
+# ETL cost-curve parameters inherited from the legacy workflow, but applied
+# only to the selected geospatial graph nodes/edges in this script.
+# This avoids reintroducing the legacy grouped-site topology.
+ETL_COST_PARAMETERS = {
+    "GSL_PLANT": {"a": 23334.0, "b": -0.4, "upper_vol": 1_000_000.0},
+    "METOH_PLANT": {"a": 4500.0, "b": -0.3663, "upper_vol": 1_000_000.0},
+    "GSL_PIPE": {"a": 45000.0, "b": -0.3, "upper_vol": 1_000_000.0},
+    "CO2_PIPE": {"a": 45000.0, "b": -0.3, "upper_vol": 1_000_000.0},
+    "METOH_PIPE": {"a": 45000.0, "b": -0.3, "upper_vol": 1_000_000.0},
+    "H2_PIPE": {"a": 45000.0, "b": -0.3, "upper_vol": 1_000_000.0},
+    "ELC_TRANS": {"a": 2000.0, "b": -0.3, "upper_vol": 1_000_000.0},
+}
+ETL_RESOLUTION = 5
+ETL_SPACING = "log"
 
 
 @dataclass(frozen=True)
@@ -201,8 +238,139 @@ def select_schema_configuration() -> SchemaConfig:
         ),
     )
 
+    ensure_baseline_sqlite_exists()
     validate_required_paths(config)
     return config
+
+def ensure_baseline_sqlite_exists() -> None:
+    if BASELINE_SQLITE_PATH.exists():
+        return
+
+    if not RAW_SCHEMA_PATH.exists():
+        raise FileNotFoundError(f"Missing raw schema SQL: {RAW_SCHEMA_PATH}")
+
+    print("\nBaseline SQLite not found.")
+    print(f"Creating baseline SQLite from: {RAW_SCHEMA_PATH}")
+    print(f"Output baseline SQLite: {BASELINE_SQLITE_PATH}")
+
+    db_mgmt.convert_sql_to_sqlite(
+        RAW_SCHEMA_PATH,
+        BASELINE_SQLITE_PATH,
+    )
+
+def discover_co2_source_path() -> Path:
+    for candidate in CO2_SOURCE_CANDIDATES:
+        if candidate.exists():
+            return candidate
+
+    print("\nMissing CO2 source file. Checked:")
+    for candidate in CO2_SOURCE_CANDIDATES:
+        print(f"  {candidate}")
+
+    raise FileNotFoundError("No supported CO2 source file found.")
+
+
+def load_co2_facilities(path: Path) -> gpd.GeoDataFrame:
+    """Load and normalize the 2024 large-facility GHG file.
+
+    The raw source may be GeoJSON/JSON, CSV, or a previously cleaned GPKG.
+    Downstream schema-building logic expects these canonical columns:
+    facility_id, latitude, longitude, emissions_kt_co2e_per_year.
+    """
+    suffix = path.suffix.lower()
+
+    if suffix in {".json", ".geojson", ".gpkg"}:
+        gdf = gpd.read_file(path)
+    elif suffix == ".csv":
+        df = pd.read_csv(path)
+        latitude_col = first_existing_column(df, ["Latitude", "latitude", "lat"])
+        longitude_col = first_existing_column(df, ["Longitude", "longitude", "lon"])
+        if latitude_col is None or longitude_col is None:
+            raise ValueError(
+                f"CSV CO2 file must contain latitude/longitude columns: {path}"
+            )
+
+        df[latitude_col] = pd.to_numeric(df[latitude_col], errors="coerce")
+        df[longitude_col] = pd.to_numeric(df[longitude_col], errors="coerce")
+        df = df.dropna(subset=[latitude_col, longitude_col]).copy()
+
+        gdf = gpd.GeoDataFrame(
+            df,
+            geometry=gpd.points_from_xy(df[longitude_col], df[latitude_col]),
+            crs="EPSG:4326",
+        )
+    else:
+        raise ValueError(f"Unsupported CO2 source file type: {path}")
+
+    if gdf.crs is None:
+        gdf = gdf.set_crs("EPSG:4326")
+
+    gdf = gdf.rename(
+        columns={
+            "Name": "facility_name",
+            "Company": "company",
+            "Facility type": "facility_type",
+            "City": "city",
+            "Province": "province",
+            "Latitude": "latitude",
+            "Longitude": "longitude",
+            "Total GHG emissions": "emissions_kt_co2e_per_year",
+            "Year": "year",
+            "Report year": "report_year",
+        }
+    )
+
+    latitude_col = first_existing_column(gdf, ["latitude", "lat"])
+    longitude_col = first_existing_column(gdf, ["longitude", "lon"])
+    emissions_col = first_existing_column(
+        gdf,
+        [
+            "emissions_kt_co2e_per_year",
+            "Total GHG emissions",
+            "total_ghg_emissions",
+            "co2",
+        ],
+    )
+
+    if latitude_col is None or longitude_col is None:
+        raise ValueError(
+            "CO2 source is missing latitude/longitude fields after normalization."
+        )
+    if emissions_col is None:
+        raise ValueError(
+            "CO2 source is missing a GHG emissions field after normalization."
+        )
+
+    gdf["latitude"] = pd.to_numeric(gdf[latitude_col], errors="coerce")
+    gdf["longitude"] = pd.to_numeric(gdf[longitude_col], errors="coerce")
+    gdf["emissions_kt_co2e_per_year"] = pd.to_numeric(
+        gdf[emissions_col],
+        errors="coerce",
+    ).fillna(0)
+
+    if "facility_id" not in gdf.columns:
+        gdf["facility_id"] = [f"GHG2024_{i:05d}" for i in range(len(gdf))]
+
+    gdf = gdf.dropna(subset=["latitude", "longitude"]).copy()
+
+    if "geometry" not in gdf.columns or gdf.geometry.isna().all():
+        gdf = gpd.GeoDataFrame(
+            gdf,
+            geometry=gpd.points_from_xy(gdf["longitude"], gdf["latitude"]),
+            crs="EPSG:4326",
+        )
+
+    print(f"CO2 source file: {path.name}")
+    print(f"CO2 source rows loaded: {len(gdf):,}")
+
+    return gdf
+
+
+def first_existing_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
+    for candidate in candidates:
+        if candidate in df.columns:
+            return candidate
+    return None
 
 
 def validate_required_paths(config: SchemaConfig) -> None:
@@ -212,7 +380,7 @@ def validate_required_paths(config: SchemaConfig) -> None:
         "baseline_sqlite": BASELINE_SQLITE_PATH,
         "sites": SITES_PATH,
         "demand": DEMAND_PATH,
-        "co2_gpkg": CO2_GPKG_PATH,
+        "co2_source": discover_co2_source_path(),
         "transport_techs": TRANSPORT_TECHS_PATH,
         "generation_efficiency": GEN_EFFICIENCIES_PATH,
         "techs": TECHNOLOGIES_PATH,
@@ -257,7 +425,7 @@ def load_inputs(config: SchemaConfig) -> LoadedInputs:
         db=db_mgmt.sqlite_to_dfs(BASELINE_SQLITE_PATH),
         sites_raw=pd.read_csv(SITES_PATH),
         demand_raw=pd.read_csv(DEMAND_PATH),
-        co2_raw=gpd.read_file(CO2_GPKG_PATH, layer="co2_large_facilities_2024"),
+        co2_raw=load_co2_facilities(discover_co2_source_path()),
         transport_techs_raw=pd.read_csv(TRANSPORT_TECHS_PATH),
         gen_efficiencies_raw=pd.read_csv(GEN_EFFICIENCIES_PATH),
         technologies_raw=pd.read_csv(TECHNOLOGIES_PATH),
@@ -927,43 +1095,140 @@ def rebuild_node_efficiency(
 # ETLSegment and transport table rebuilds
 # =============================================================================
 
+
+def build_etl_curve(
+    tech: str,
+    resolution: int = ETL_RESOLUTION,
+    spacing: str = ETL_SPACING,
+) -> pd.DataFrame:
+    """Build ETLSegment curve rows for one technology without topology.
+
+    This mirrors the legacy ``model_rules.invest_costs`` curve generation, but
+    intentionally does not assign regions. Region assignment is handled later
+    using the selected geospatial graph nodes or graph edges.
+    """
+    if tech not in ETL_COST_PARAMETERS:
+        raise ValueError(f"Missing ETL cost parameters for {tech}.")
+    if resolution < 2:
+        raise ValueError("ETL resolution must be at least 2.")
+
+    params = ETL_COST_PARAMETERS[tech]
+    a = float(params["a"])
+    b = float(params["b"])
+    upper_vol = float(params["upper_vol"])
+
+    if upper_vol <= 0:
+        raise ValueError(f"upper_vol must be positive for {tech}.")
+    if b <= -1:
+        raise ValueError(f"b must be greater than -1 for {tech}.")
+
+    if spacing == "log":
+        import numpy as np
+
+        edges = upper_vol * (np.logspace(0, 1, resolution) - 1.0) / 9.0
+        edges[0] = 0.0
+        edges[-1] = upper_vol
+    elif spacing == "linear":
+        import numpy as np
+
+        edges = np.linspace(0.0, upper_vol, resolution)
+    else:
+        raise ValueError("ETL spacing must be 'log' or 'linear'.")
+
+    cap_lower = edges[:-1]
+    cap_upper = edges[1:]
+
+    def antiderivative(q: float) -> float:
+        return (a / (b + 1.0)) * (q ** (b + 1.0))
+
+    cost_lower = [antiderivative(q) for q in cap_lower]
+    cost_upper = [antiderivative(q) for q in cap_upper]
+
+    return pd.DataFrame(
+        {
+            "tech_or_group": tech,
+            "segment": range(len(cap_lower)),
+            "cap_lower": cap_lower,
+            "cap_upper": cap_upper,
+            "cost_lower": cost_lower,
+            "cost_upper": cost_upper,
+            "data_id": DATA_ID,
+        }
+    )
+
+
+def assign_etl_curve_to_regions(
+    regions: pd.Series,
+    tech: str,
+    distance_factor: pd.Series | None = None,
+) -> pd.DataFrame:
+    """Cross-join a topology-free ETL curve onto selected regions."""
+    region_frame = pd.DataFrame({"region": regions.reset_index(drop=True), "key": 1})
+    curve = build_etl_curve(tech).copy()
+    curve["key"] = 1
+
+    out = region_frame.merge(curve, on="key").drop(columns="key")
+
+    if distance_factor is not None:
+        factor_frame = pd.DataFrame(
+            {
+                "region": regions.reset_index(drop=True),
+                "distance_factor": distance_factor.reset_index(drop=True),
+            }
+        )
+        out = out.merge(factor_frame, on="region", how="left")
+        if out["distance_factor"].isna().any():
+            raise ValueError(f"Missing distance scaling factor for {tech} ETL rows.")
+        out["cost_lower"] = out["cost_lower"] * out["distance_factor"]
+        out["cost_upper"] = out["cost_upper"] * out["distance_factor"]
+        out = out.drop(columns="distance_factor")
+
+    return out[
+        [
+            "region",
+            "tech_or_group",
+            "segment",
+            "cap_lower",
+            "cap_upper",
+            "cost_lower",
+            "cost_upper",
+            "data_id",
+        ]
+    ].copy()
+
+
 def rebuild_etl_segments(
     db_encoded: dict[str, pd.DataFrame],
-    db_baseline: dict[str, pd.DataFrame],
     site_attributes: pd.DataFrame,
     canonical: CanonicalLinks,
     specs: TechSpecs,
 ) -> None:
-    plant_etl_template = db_baseline["ETLSegment"].loc[
-        db_baseline["ETLSegment"]["tech_or_group"].isin(PLANT_TECHS)
-    ].copy()
+    """Rebuild all ETLSegment rows on the new geospatial topology.
 
-    assert not plant_etl_template.empty, "No plant ETLSegment rows found in baseline database."
+    The legacy workflow generated ETLSegment rows after grouping points into an
+    old grid and assigning old neighbor relationships. This function keeps the
+    same cost-curve parameterization but discards the legacy topology entirely:
 
+    * GSL_PLANT and METOH_PLANT curves are mapped to current graph node regions.
+    * *_PIPE and ELC_TRANS curves are mapped to current canonical graph edges.
+    * Truck technologies intentionally receive no ETLSegment rows because roads
+      are represented as existing links with variable cost and zero investment.
+    """
     plant_etl_rows = []
     for tech in sorted(PLANT_TECHS):
-        tech_segments = (
-            plant_etl_template
-            .loc[plant_etl_template["tech_or_group"] == tech]
-            .drop(columns=["region"])
-            .drop_duplicates()
-            .sort_values(["tech_or_group", "segment"])
-            .reset_index(drop=True)
-        )
-
-        assert not tech_segments.empty, f"No ETLSegment template rows found for {tech}."
-
-        region_frame = pd.DataFrame({"region": site_attributes["region"], "key": 1})
-        segment_frame = tech_segments.copy()
-        segment_frame["key"] = 1
-
         plant_etl_rows.append(
-            region_frame.merge(segment_frame, on="key").drop(columns="key")
+            assign_etl_curve_to_regions(
+                regions=site_attributes["region"],
+                tech=tech,
+            )
         )
 
     plant_etl_new = pd.concat(plant_etl_rows, ignore_index=True)
 
     reference_distance_km = canonical.pipeline_links["distance_km"].mean()
+    if pd.isna(reference_distance_km) or reference_distance_km <= 0:
+        raise ValueError("Cannot scale ETL costs because reference graph-edge distance is invalid.")
+
     print(f"Reference distance for ETLSegment cost scaling: {reference_distance_km:.2f} km")
 
     pipeline_etl_rows = []
@@ -972,72 +1237,32 @@ def rebuild_etl_segments(
         ignore_index=True,
     )
 
-    for pipe in edge_tech_specs.itertuples(index=False):
-        pipe_etl_template = db_baseline["ETLSegment"].loc[
-            db_baseline["ETLSegment"]["tech_or_group"] == pipe.tech
-        ].copy()
+    for tech in edge_tech_specs["tech"].drop_duplicates().sort_values():
+        if tech not in ETL_COST_PARAMETERS:
+            raise ValueError(f"Missing ETL cost parameters for transport technology: {tech}")
 
-        assert not pipe_etl_template.empty, (
-            f"No ETLSegment rows found in baseline database for {pipe.tech}."
-        )
-        assert pipe_etl_template["segment"].nunique() > 1, (
-            f"{pipe.tech} ETLSegment template has only one segment."
-        )
-
-        pipe_segments = (
-            pipe_etl_template
-            .drop(columns=["region"])
-            .drop_duplicates()
-            .sort_values(["tech_or_group", "segment"])
-            .reset_index(drop=True)
-        )
-
-        edge_frame = canonical.pipeline_links[["canoe_region", "distance_km"]].rename(
-            columns={"canoe_region": "region"}
-        ).copy()
-        edge_frame["key"] = 1
-
-        segment_frame = pipe_segments.copy()
-        segment_frame["key"] = 1
-
-        df = edge_frame.merge(segment_frame, on="key").drop(columns="key")
-
-        distance_factor = df["distance_km"] / reference_distance_km
-        df["cost_lower"] = df["cost_lower"] * distance_factor
-        df["cost_upper"] = df["cost_upper"] * distance_factor
+        edge_frame = canonical.pipeline_links[["canoe_region", "distance_km"]].copy()
+        edge_frame = edge_frame.rename(columns={"canoe_region": "region"})
+        distance_factor = edge_frame["distance_km"] / reference_distance_km
 
         pipeline_etl_rows.append(
-            df[
-                [
-                    "region",
-                    "tech_or_group",
-                    "segment",
-                    "cap_lower",
-                    "cap_upper",
-                    "cost_lower",
-                    "cost_upper",
-                    "data_id",
-                ]
-            ].copy()
+            assign_etl_curve_to_regions(
+                regions=edge_frame["region"],
+                tech=tech,
+                distance_factor=distance_factor,
+            )
         )
 
     pipeline_etl_new = pd.concat(pipeline_etl_rows, ignore_index=True)
 
-    etl_cost_range = pipeline_etl_new.groupby("tech_or_group")["cost_upper"].agg(["min", "max"])
-    assert (etl_cost_range["max"] > etl_cost_range["min"]).all(), (
-        "Distance scaling did not produce cost variation across edges."
-    )
-
-    non_edge_etl = db_encoded["ETLSegment"].loc[
-        ~db_encoded["ETLSegment"]["region"].astype(str).str.contains("-", regex=False)
-    ].copy()
-
-    non_rebuilt_node_etl = non_edge_etl.loc[
-        ~non_edge_etl["tech_or_group"].isin(PLANT_TECHS)
-    ].copy()
+    if not pipeline_etl_new.empty:
+        etl_cost_range = pipeline_etl_new.groupby("tech_or_group")["cost_upper"].agg(["min", "max"])
+        assert (etl_cost_range["max"] > etl_cost_range["min"]).all(), (
+            "Distance scaling did not produce cost variation across graph edges."
+        )
 
     db_encoded["ETLSegment"] = pd.concat(
-        [non_rebuilt_node_etl, plant_etl_new, pipeline_etl_new],
+        [plant_etl_new, pipeline_etl_new],
         ignore_index=True,
     )
 
@@ -1054,10 +1279,14 @@ def rebuild_etl_segments(
         f"ETLSegment contains invalid edge regions: {invalid_etl_edge_regions[:10]}"
     )
 
+    truck_etl_rows = db_encoded["ETLSegment"].loc[
+        db_encoded["ETLSegment"]["tech_or_group"].isin(specs.truck_techs)
+    ]
+    assert truck_etl_rows.empty, "Truck technologies should not receive ETLSegment rows."
+
     print(f"Plant ETLSegment rows: {len(plant_etl_new):,}")
     print(f"Pipeline/transmission ETLSegment rows: {len(pipeline_etl_new):,}")
     print(f"Encoded ETLSegment rows: {len(db_encoded['ETLSegment']):,}")
-
 
 def rebuild_technology_table(
     db_encoded: dict[str, pd.DataFrame],
@@ -1271,6 +1500,50 @@ def rebuild_transport_tables(
     print(f"Truck CostInvest rows: {len(truck_costinvest):,}")
 
 
+
+def rebuild_static_supporting_tables(
+    db_encoded: dict[str, pd.DataFrame],
+    commodities_raw: pd.DataFrame,
+) -> None:
+    """Populate small non-topology tables without using legacy grid generation."""
+    db_encoded["Commodity"] = commodities_raw.copy()
+    db_encoded["TechnologyType"] = pd.DataFrame(
+        {
+            "label": ["p", "t"],
+            "description": ["production", "transport"],
+        }
+    )
+    db_encoded["TimePeriod"] = pd.DataFrame(
+        {
+            "sequence": [1, 2],
+            "period": [1, 2],
+            "flag": ["f", "f"],
+        }
+    )
+    db_encoded["SectorLabel"] = pd.DataFrame(
+        {
+            "sector": ["industrial"],
+            "notes": ["industrial sector"],
+        }
+    )
+    db_encoded["DataSet"] = pd.DataFrame(
+        {
+            "data_id": [DATA_ID],
+            "label": ["Geospatial Renewable Gas Data"],
+            "version": ["GEO001"],
+            "description": ["Geospatial data for renewable gas model"],
+            "status": ["active"],
+            "author": ["Geospatial-CANOE workflow"],
+            "date": ["2026-07-03"],
+            "parent_id": [None],
+            "changelog": ["Rebuilt on selected geospatial topology without legacy grouped-site topology."],
+            "notes": [None],
+        }
+    )
+
+    print("Static supporting tables rebuilt.")
+
+
 # =============================================================================
 # Final validation and export
 # =============================================================================
@@ -1451,6 +1724,7 @@ def main() -> None:
 
     db_encoded = {table_name: df.copy() for table_name, df in inputs.db.items()}
     db_encoded["Region"] = canonical.region_table.copy()
+    rebuild_static_supporting_tables(db_encoded, inputs.commodities_raw)
 
     snapped = build_site_attributes(inputs, canonical)
 
@@ -1463,7 +1737,6 @@ def main() -> None:
     print("\nRebuilding ETLSegment and transport tables...")
     rebuild_etl_segments(
         db_encoded=db_encoded,
-        db_baseline=inputs.db,
         site_attributes=snapped.site_attributes,
         canonical=canonical,
         specs=specs,
