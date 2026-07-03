@@ -234,7 +234,7 @@ def select_schema_configuration() -> SchemaConfig:
         ),
         output_sqlite_path=(
             PROCESSED_SCHEMA
-            / f"CANOE_geospatial_{basemap_stem}_roads_{connection_method}.sqlite"
+            / f"CANOE_geospatial_{basemap_stem}_{connection_method}.sqlite"
         ),
     )
 
