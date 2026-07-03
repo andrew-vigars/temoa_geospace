@@ -133,7 +133,7 @@ def main() -> None:
     config_tag = safe_name(config_path)
     timestamp = datetime.today().strftime("%Y-%m-%d_%H%M")
 
-    output_dir = OUTPUT_ROOT / f"{timestamp}_{schema_tag}_{config_tag}"
+    output_dir = OUTPUT_ROOT / f"{timestamp}_{schema_tag}"
     output_dir.mkdir(parents=True, exist_ok=False)
 
     input_db_archive = output_dir / f"input_{db_path.name}"
