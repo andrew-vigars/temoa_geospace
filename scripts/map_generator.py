@@ -154,13 +154,22 @@ print(f"  Road edge layer:   {ROAD_EDGE_GPKG_PATH.name if ROAD_EDGE_GPKG_PATH el
 # Plot settings
 # =============================================================================
 
-MIN_TRANSPORT_FLOW = 0
-MIN_PROCESS_FLOW = 0
-JITTER_DEG = 1.5
+MIN_TRANSPORT_FLOW = 1e-3
+MIN_PROCESS_FLOW = 1e-3
+
+# These are assigned after geospatial data is loaded using the selected basemap resolution.
+JITTER_DEG = None
 
 PLOT_WEB_TILES = True
 PLOT_ROAD_OVERLAY = True
 PLOT_ROAD_EDGE_LAYER = True
+
+# Parallel corridor plotting.
+# Used to separate multiple transport technologies that use the same model edge.
+PLOT_PARALLEL_TRANSPORT_ARCS = True
+PARALLEL_OFFSET_M = None
+PARALLEL_MAX_OFFSET_M = None
+
 
 
 # =============================================================================
@@ -189,6 +198,68 @@ if ROAD_EDGE_GPKG_PATH and ROAD_EDGE_GPKG_PATH.exists():
 sites["region"] = sites["region"].astype(str)
 sites["site_id"] = sites["region"]
 sites = sites.set_index("region", drop=True)
+
+
+# =============================================================================
+# Resolution-aware visual spacing
+# =============================================================================
+
+def infer_degree_resolution(basemap_stem: str) -> float | None:
+    """Infer degree grid resolution from names like canada_basemap_1deg_intersects."""
+    match = re.search(r"_(\d+(?:\.\d+)?)deg(?:_|$)", basemap_stem)
+    return float(match.group(1)) if match else None
+
+
+def infer_centroid_spacing_deg(sites_gdf: gpd.GeoDataFrame) -> float:
+    """Fallback spacing from model-region centroid coordinates."""
+    lon_vals = np.sort(pd.to_numeric(sites_gdf["lon"], errors="coerce").dropna().unique())
+    lat_vals = np.sort(pd.to_numeric(sites_gdf["lat"], errors="coerce").dropna().unique())
+
+    lon_step = np.median(np.diff(lon_vals)) if len(lon_vals) > 1 else np.nan
+    lat_step = np.median(np.diff(lat_vals)) if len(lat_vals) > 1 else np.nan
+
+    candidates = [abs(x) for x in [lon_step, lat_step] if np.isfinite(x) and abs(x) > 0]
+    return min(candidates) if candidates else 1.0
+
+
+def configure_resolution_aware_spacing(
+    basemap_stem: str,
+    sites_gdf: gpd.GeoDataFrame,
+    diagnostic_mode: bool = False,
+) -> tuple[float, float, float, float]:
+    """Return grid resolution, node jitter in degrees, arc offset m, and max arc offset m.
+
+    Node jitter is only for visual separation of colocated facilities. It should never be
+    large enough to move a point into a different model cell during diagnostic plots.
+    """
+    grid_res_deg = infer_degree_resolution(basemap_stem)
+    if grid_res_deg is None:
+        grid_res_deg = infer_centroid_spacing_deg(sites_gdf)
+
+    if diagnostic_mode:
+        jitter_deg = 0.0
+    else:
+        jitter_deg = 0.12 * grid_res_deg
+
+    parallel_offset_m = 0.06 * grid_res_deg * 111_000
+    parallel_max_offset_m = 0.25 * grid_res_deg * 111_000
+
+    return grid_res_deg, jitter_deg, parallel_offset_m, parallel_max_offset_m
+
+
+DIAGNOSTIC_MODE = False
+GRID_RES_DEG, JITTER_DEG, PARALLEL_OFFSET_M, PARALLEL_MAX_OFFSET_M = configure_resolution_aware_spacing(
+    BASEMAP_STEM,
+    sites,
+    diagnostic_mode=DIAGNOSTIC_MODE,
+)
+
+print("\nResolution-aware plot spacing:")
+print(f"  DIAGNOSTIC_MODE:        {DIAGNOSTIC_MODE}")
+print(f"  GRID_RES_DEG:           {GRID_RES_DEG:,.4f}")
+print(f"  JITTER_DEG:             {JITTER_DEG:,.4f}")
+print(f"  PARALLEL_OFFSET_M:      {PARALLEL_OFFSET_M:,.0f}")
+print(f"  PARALLEL_MAX_OFFSET_M:  {PARALLEL_MAX_OFFSET_M:,.0f}")
 
 edges["edge_region"] = edges["edge_region"].astype(str)
 edges["region_from"] = edges["region_from"].astype(str)
@@ -237,6 +308,12 @@ def slice_with_coords(df, tech_name):
 
 
 def add_from_to_coords(df_links):
+    """Attach graph edge coordinates to positive transport flows.
+
+    OutputFlowOut can contain multiple rows for the same region-tech pair if later
+    model versions add periods, seasons, TOD, scenarios, or output commodities.
+    For mapping, collapse these to one visible line per edge and technology.
+    """
     df = df_links.copy()
     df["flow"] = pd.to_numeric(df["flow"], errors="coerce")
     df = df.loc[df["flow"] > MIN_TRANSPORT_FLOW].copy()
@@ -257,7 +334,27 @@ def add_from_to_coords(df_links):
         validate="many_to_one",
     )
 
-    return df.dropna(subset=["lon_from", "lat_from", "lon_to", "lat_to"]).copy()
+    df = df.dropna(subset=["lon_from", "lat_from", "lon_to", "lat_to"]).copy()
+    if df.empty:
+        return df
+
+    group_cols = [
+        "region",
+        "tech",
+        "edge_region",
+        "region_from",
+        "region_to",
+        "lon_from",
+        "lat_from",
+        "lon_to",
+        "lat_to",
+    ]
+
+    return (
+        df
+        .groupby(group_cols, as_index=False)
+        .agg(flow=("flow", "sum"))
+    )
 
 
 def plot_context_layers_schematic(ax):
@@ -341,57 +438,204 @@ def plot_context_layers_web(ax):
         )
 
 
-def plot_transport_lines_schematic(ax, tech_links):
-    for name, values in tech_links.items():
+def _combined_transport_links(tech_links):
+    """Combine transport layers and assign one parallel offset per corridor/technology."""
+    frames = []
+
+    for display_name, values in tech_links.items():
         links, color, linestyle, width_factor = values
         if links.empty:
             continue
 
-        links_plot = links[["lon_from", "lat_from", "lon_to", "lat_to", "flow"]].dropna().copy()
-        links_plot["flow"] = pd.to_numeric(links_plot["flow"], errors="coerce")
-        links_plot = links_plot.loc[links_plot["flow"] > 0].copy()
-        if links_plot.empty:
+        required = [
+            "region", "tech", "region_from", "region_to",
+            "lon_from", "lat_from", "lon_to", "lat_to", "flow",
+        ]
+        missing_cols = [c for c in required if c not in links.columns]
+        if missing_cols:
+            print(f"Skipping {display_name}; missing columns: {missing_cols}")
             continue
 
-        max_flow = links_plot["flow"].max()
+        tmp = links[required].dropna().copy()
+        tmp["flow"] = pd.to_numeric(tmp["flow"], errors="coerce")
+        tmp = tmp.loc[tmp["flow"] > 0].copy()
+        if tmp.empty:
+            continue
 
-        for _, row in links_plot.iterrows():
-            lw = width_factor * (0.5 + 2.5 * np.sqrt(row["flow"] / max_flow))
+        tmp["display_name"] = display_name
+        tmp["color"] = color
+        tmp["linestyle"] = linestyle
+        tmp["width_factor"] = width_factor
+
+        # Infrastructure-corridor identity is undirected for plotting.
+        tmp["route_a"] = tmp[["region_from", "region_to"]].min(axis=1)
+        tmp["route_b"] = tmp[["region_from", "region_to"]].max(axis=1)
+        tmp["route_key"] = tmp["route_a"] + "__" + tmp["route_b"]
+        tmp["is_reversed_from_canonical"] = tmp["region_from"] != tmp["route_a"]
+
+        frames.append(tmp)
+
+    if not frames:
+        return gpd.GeoDataFrame(columns=[])
+
+    combined = pd.concat(frames, ignore_index=True)
+
+    # Collapse accidental duplicates after the layer merge while preserving style.
+    group_cols = [
+        "region", "tech", "display_name", "color", "linestyle", "width_factor",
+        "region_from", "region_to", "route_a", "route_b", "route_key",
+        "is_reversed_from_canonical", "lon_from", "lat_from", "lon_to", "lat_to",
+    ]
+    combined = (
+        combined
+        .groupby(group_cols, as_index=False)
+        .agg(flow=("flow", "sum"))
+    )
+
+    # Stable ordering inside each corridor bundle.
+    # Pipes first, transmission near centre, trucks last. This makes figures reproducible.
+    tech_order = {
+        "Electricity transmission": 0,
+        "H2 pipeline": 1,
+        "CO2 pipeline": 2,
+        "Methanol pipeline": 3,
+        "Gasoline pipeline": 4,
+        "H2 truck": 5,
+        "CO2 truck": 6,
+        "Methanol truck": 7,
+        "Gasoline truck": 8,
+    }
+    combined["plot_order"] = combined["display_name"].map(tech_order).fillna(999)
+    combined = combined.sort_values(["route_key", "plot_order", "display_name"]).copy()
+
+    combined["parallel_rank"] = combined.groupby("route_key").cumcount()
+    combined["parallel_count"] = combined.groupby("route_key")["display_name"].transform("count")
+
+    raw_offset = (combined["parallel_rank"] - (combined["parallel_count"] - 1) / 2.0) * PARALLEL_OFFSET_M
+    combined["offset_m"] = raw_offset.clip(-PARALLEL_MAX_OFFSET_M, PARALLEL_MAX_OFFSET_M)
+
+    # Keep offset side consistent for R_i-R_j and R_j-R_i.
+    combined.loc[combined["is_reversed_from_canonical"], "offset_m"] *= -1
+
+    base_geom = [
+        LineString([(r.lon_from, r.lat_from), (r.lon_to, r.lat_to)])
+        for r in combined.itertuples(index=False)
+    ]
+
+    gdf = gpd.GeoDataFrame(combined, geometry=base_geom, crs="EPSG:4326")
+    gdf_3857 = gdf.to_crs(epsg=3857)
+
+    offset_geoms = []
+    for row in gdf_3857.itertuples(index=False):
+        coords = list(row.geometry.coords)
+        x1, y1 = coords[0]
+        x2, y2 = coords[-1]
+        dx = x2 - x1
+        dy = y2 - y1
+        length = float(np.hypot(dx, dy))
+
+        if length == 0 or not np.isfinite(length):
+            offset_geoms.append(row.geometry)
+            continue
+
+        # Unit perpendicular vector.
+        ux = -dy / length
+        uy = dx / length
+
+        off = float(row.offset_m)
+        offset_geoms.append(
+            LineString([
+                (x1 + ux * off, y1 + uy * off),
+                (x2 + ux * off, y2 + uy * off),
+            ])
+        )
+
+    gdf_3857 = gdf_3857.copy()
+    gdf_3857["geometry"] = offset_geoms
+
+    return gdf_3857
+
+
+def summarize_parallel_corridors(tech_links):
+    """Print simple diagnostics for multiplex corridors."""
+    transport_gdf = _combined_transport_links(tech_links)
+    if transport_gdf.empty:
+        print("\nParallel corridor diagnostics: no positive transport links.")
+        return transport_gdf
+
+    corridor_summary = (
+        transport_gdf
+        .groupby("route_key", as_index=False)
+        .agg(
+            n_parallel_layers=("display_name", "count"),
+            technologies=("display_name", lambda x: ", ".join(sorted(set(x)))),
+            total_flow=("flow", "sum"),
+        )
+        .sort_values(["n_parallel_layers", "total_flow"], ascending=[False, False])
+    )
+
+    multiplex = corridor_summary.loc[corridor_summary["n_parallel_layers"] > 1].copy()
+
+    print("\nParallel corridor diagnostics:")
+    print(f"Active transport corridor-tech rows: {len(transport_gdf):,}")
+    print(f"Unique active corridors: {len(corridor_summary):,}")
+    print(f"Corridors with >1 active transport layer: {len(multiplex):,}")
+
+    if not multiplex.empty:
+        print("\nTop multiplex corridors:")
+        print(multiplex.head(10).to_string(index=False))
+
+    return transport_gdf
+
+
+def plot_transport_lines_schematic(ax, tech_links):
+    transport_gdf_3857 = _combined_transport_links(tech_links)
+    if transport_gdf_3857.empty:
+        return
+
+    transport_gdf = transport_gdf_3857.to_crs(epsg=4326)
+
+    for display_name, group in transport_gdf.groupby("display_name", sort=False):
+        max_flow = group["flow"].max()
+        if max_flow <= 0 or not np.isfinite(max_flow):
+            continue
+
+        for row in group.itertuples(index=False):
+            x, y = row.geometry.xy
+            lw = row.width_factor * (0.5 + 2.5 * np.sqrt(row.flow / max_flow))
             ax.plot(
-                [row["lon_from"], row["lon_to"]],
-                [row["lat_from"], row["lat_to"]],
-                color=color,
-                linestyle=linestyle,
+                x,
+                y,
+                color=row.color,
+                linestyle=row.linestyle,
                 linewidth=lw,
-                alpha=0.75,
+                alpha=0.78,
                 zorder=20,
             )
 
 
 def plot_transport_lines_web(ax, tech_links):
-    for name, values in tech_links.items():
-        links, color, linestyle, width_factor = values
-        if links.empty:
+    transport_gdf_3857 = _combined_transport_links(tech_links)
+    if transport_gdf_3857.empty:
+        return
+
+    for display_name, group in transport_gdf_3857.groupby("display_name", sort=False):
+        max_flow = group["flow"].max()
+        if max_flow <= 0 or not np.isfinite(max_flow):
             continue
 
-        links_plot = links[["lon_from", "lat_from", "lon_to", "lat_to", "flow"]].dropna().copy()
-        links_plot["flow"] = pd.to_numeric(links_plot["flow"], errors="coerce")
-        links_plot = links_plot.loc[links_plot["flow"] > 0].copy()
-        if links_plot.empty:
-            continue
-
-        max_flow = links_plot["flow"].max()
-
-        for _, row in links_plot.iterrows():
-            line = gpd.GeoSeries(
-                [LineString([(row["lon_from"], row["lat_from"]), (row["lon_to"], row["lat_to"])])],
-                crs="EPSG:4326",
-            ).to_crs(epsg=3857)
-
-            x, y = line.geometry.iloc[0].xy
-            lw = width_factor * (0.5 + 2.5 * np.sqrt(row["flow"] / max_flow))
-            ax.plot(x, y, color=color, linestyle=linestyle, linewidth=lw, alpha=0.70, zorder=20)
-
+        for row in group.itertuples(index=False):
+            x, y = row.geometry.xy
+            lw = row.width_factor * (0.5 + 2.5 * np.sqrt(row.flow / max_flow))
+            ax.plot(
+                x,
+                y,
+                color=row.color,
+                linestyle=row.linestyle,
+                linewidth=lw,
+                alpha=0.72,
+                zorder=20,
+            )
 
 def build_legend(ax, tech_links, bbox_to_anchor, fontsize=None, loc="upper right"):
     handles, labels = ax.get_legend_handles_labels()
