@@ -244,15 +244,29 @@ def select_run_and_database(output_root: Path) -> SelectedRun:
 # =============================================================================
 
 def infer_basemap_stem(db_path: Path) -> str:
-    """Infer basemap stem from the selected CANOE geospatial database name."""
+    """Infer basemap stem from selected CANOE geospatial database or run name."""
 
-    match = re.search(r"canada_basemap_.+?(?=_roads_)", db_path.stem)
+    search_texts = [
+        db_path.stem,
+        db_path.parent.name,
+    ]
 
-    if not match:
-        print(f"Could not infer basemap stem from database filename: {db_path.stem}")
-        sys.exit(1)
+    for text in search_texts:
+        text = re.sub(r"^(input_|solved_)", "", text)
+        text = re.sub(r"^CANOE_geospatial_", "", text)
 
-    return match.group(0)
+        match = re.search(
+            r"canada_basemap_\d+(?:\.\d+)?deg_(?:centroid|intersects)",
+            text,
+        )
+
+        if match:
+            return match.group(0)
+
+    print("Could not infer basemap stem.")
+    print(f"  Database filename: {db_path.stem}")
+    print(f"  Run folder:        {db_path.parent.name}")
+    sys.exit(1)
 
 
 def build_figure_stem(selected_run: SelectedRun) -> str:
