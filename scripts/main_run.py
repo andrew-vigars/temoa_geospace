@@ -226,7 +226,7 @@ def main() -> None:
 
     validate_required_paths(db_path, config_path)
 
-    schema_tag = safe_name(db_path)
+    schema_tag = safe_name(db_path)q
     timestamp = datetime.today().strftime("%Y-%m-%d_%H%M")
 
     output_dir = OUTPUT_ROOT / f"{timestamp}_{schema_tag}"
