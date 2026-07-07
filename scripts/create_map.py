@@ -33,7 +33,22 @@ from shapely.geometry import LineString
 # =============================================================================
 
 def find_project_root() -> Path:
-    """Return repository root from script location or current working directory."""
+    """Locate the repository root using project-specific sentinel paths.
+
+    Searches upward from both this script's path and the current working
+    directory. The first directory containing both ``data_files/`` and
+    ``db_mgmt.py`` is treated as the project root.
+
+    Returns
+    -------
+    Path
+        Absolute path to the detected project root.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no parent directory contains the expected project structure.
+    """
     search_starts = [
         Path(__file__).resolve(),
         Path.cwd().resolve(),
@@ -80,7 +95,17 @@ POINT_STYLE: TypeAlias = tuple[pd.DataFrame, str]
 
 @dataclass(frozen=True)
 class ProjectPaths:
-    """Resolved project-level paths."""
+    """Resolved filesystem paths for the project mapping workflow.
+
+    Attributes
+    ----------
+    project_root : Path
+        Root directory of the repository or active project workspace.
+    output_root : Path
+        Directory containing timestamped CANOE/TEMOA model run outputs.
+    data_files : Path
+        Directory containing raw and processed model/geospatial input data.
+    """
 
     project_root: Path
     output_root: Path
@@ -89,7 +114,15 @@ class ProjectPaths:
 
 @dataclass(frozen=True)
 class SelectedRun:
-    """Selected model run and database."""
+    """Selected CANOE/TEMOA output run and SQLite database.
+
+    Attributes
+    ----------
+    run_dir : Path
+        Timestamped model-run directory selected from ``output_files/``.
+    db_path : Path
+        SQLite database selected from within the model-run directory.
+    """
 
     run_dir: Path
     db_path: Path
@@ -97,7 +130,28 @@ class SelectedRun:
 
 @dataclass(frozen=True)
 class GeospatialPaths:
-    """Geospatial input paths inferred from a selected database."""
+    """Resolved geospatial input and figure-output paths for a selected run.
+
+    Attributes
+    ----------
+    basemap_stem : str
+        Canonical basemap identifier inferred from the selected database or run
+        folder name.
+    node_path : Path
+        Path to the graph-node polygon GeoPackage for the inferred basemap.
+    edge_path : Path
+        Path to the graph-edge CSV for the inferred basemap.
+    basemap_path : Path
+        Path to the processed basemap polygon GeoPackage.
+    road_overlay_path : Path | None
+        Optional path to the road-overlay GeoPackage, if available.
+    road_edge_gpkg_path : Path | None
+        Optional path to the road-enabled graph-edge GeoPackage, if available.
+    figure_dir : Path
+        Directory where generated figures are saved.
+    fig_stem : str
+        Filename stem used for generated figure outputs.
+    """
 
     basemap_stem: str
     node_path: Path
@@ -111,7 +165,23 @@ class GeospatialPaths:
 
 @dataclass(frozen=True)
 class PlotSpacing:
-    """Resolution-aware plotting offsets and jitter."""
+    """Resolution-aware plotting parameters for map readability.
+
+    Attributes
+    ----------
+    diagnostic_mode : bool
+        If ``True``, disables random node jitter so plotted locations remain
+        exactly aligned with model-region coordinates.
+    grid_res_deg : float
+        Inferred spatial grid resolution in decimal degrees.
+    jitter_deg : float
+        Maximum random lon/lat offset applied to process-point markers.
+    parallel_offset_m : float
+        Offset distance, in metres, used to separate parallel transport arcs
+        along the same corridor.
+    parallel_max_offset_m : float
+        Maximum allowed parallel transport-arc offset, in metres.
+    """
 
     diagnostic_mode: bool
     grid_res_deg: float
@@ -122,7 +192,17 @@ class PlotSpacing:
 
 @dataclass
 class ModelTables:
-    """CANOE/TEMOA output and input tables needed for mapping."""
+    """CANOE/TEMOA tables required to build map layers.
+
+    Attributes
+    ----------
+    flow_out : pd.DataFrame
+        Output flow table used to derive process activity and transport flows.
+    demand : pd.DataFrame
+        Demand table used to identify and size gasoline demand markers.
+    limit_capacity : pd.DataFrame
+        Capacity-limit table used to locate available CO2 capture capacity.
+    """
 
     flow_out: pd.DataFrame
     demand: pd.DataFrame
@@ -131,7 +211,24 @@ class ModelTables:
 
 @dataclass
 class GeospatialData:
-    """Loaded geospatial context for mapping."""
+    """Loaded geospatial layers used to render model-output maps.
+
+    Attributes
+    ----------
+    sites : gpd.GeoDataFrame
+        Graph-node/model-region polygons indexed by region ID, with centroid
+        longitude and latitude fields used for plotting.
+    edges : pd.DataFrame
+        Graph-edge table linking transport pseudo-regions to source and target
+        model regions.
+    basemap : gpd.GeoDataFrame
+        Processed basemap polygons used as geographic context.
+    road_overlay : gpd.GeoDataFrame | None
+        Optional road-overlay geometries used as contextual background.
+    road_edge_layer : gpd.GeoDataFrame | None
+        Optional road-enabled graph-edge geometries used to show available
+        road-connected corridors.
+    """
 
     sites: gpd.GeoDataFrame
     edges: pd.DataFrame
@@ -155,7 +252,21 @@ class PlotLayers:
 # =============================================================================
 
 def resolve_project_paths() -> ProjectPaths:
-    """Resolve project root from either repository root or scripts directory."""
+    """Prepared plotting layers derived from model and geospatial tables.
+
+    Attributes
+    ----------
+    tech_points : dict[str, POINT_STYLE]
+        Node-level process layers keyed by display name. Each value contains
+        the point DataFrame and its plotting color.
+    tech_links : dict[str, TECH_STYLE]
+        Transport-flow layers keyed by display name. Each value contains the
+        link DataFrame, plotting color, line style, and width factor.
+    demand_pts : pd.DataFrame
+        Demand-point table with longitude, latitude, and demand magnitude.
+    size_demand : pd.Series
+        Marker sizes computed from demand magnitudes for plotting.
+    """
 
     script_path = Path(__file__).resolve()
 
@@ -180,8 +291,28 @@ def resolve_project_paths() -> ProjectPaths:
 
 
 def select_model_run(output_root: Path) -> Path:
-    """Interactively select a model run folder containing a SQLite database."""
+    """Prompt the user to select a model-run directory.
 
+    Searches ``output_root`` for subdirectories containing at least one SQLite
+    database, prints the valid options, and returns the directory selected by
+    index.
+
+    Parameters
+    ----------
+    output_root : Path
+        Directory containing timestamped CANOE/TEMOA model-run outputs.
+
+    Returns
+    -------
+    Path
+        Selected model-run directory.
+
+    Raises
+    ------
+    SystemExit
+        If no valid run directories are found or if the selected index is
+        invalid.
+    """
     runs = sorted(
         run_dir
         for run_dir in output_root.iterdir()
@@ -207,7 +338,29 @@ def select_model_run(output_root: Path) -> Path:
 
 
 def select_sqlite_database(run_dir: Path) -> Path:
-    """Interactively select a SQLite database from the selected run folder."""
+    """Select a SQLite database from a model-run directory.
+
+    If the run directory contains one SQLite database, that file is selected
+    automatically. If multiple SQLite databases are present, prints the
+    available files with their sizes and prompts the user to select one by
+    index.
+
+    Parameters
+    ----------
+    run_dir : Path
+        Model-run directory containing one or more SQLite database files.
+
+    Returns
+    -------
+    Path
+        Selected SQLite database path.
+
+    Raises
+    ------
+    SystemExit
+        If multiple database files are available and the selected index is
+        invalid.
+    """
 
     sqlite_files = sorted(run_dir.glob("*.sqlite"))
 
@@ -232,7 +385,27 @@ def select_sqlite_database(run_dir: Path) -> Path:
 
 
 def select_run_and_database(output_root: Path) -> SelectedRun:
-    """Select a model run and database."""
+    """Select a model run and SQLite database for mapping.
+
+    Prompts the user to choose a model-run directory from ``output_root``,
+    then selects the SQLite database to read from that run. The selected paths
+    are returned as a ``SelectedRun`` container.
+
+    Parameters
+    ----------
+    output_root : Path
+        Directory containing timestamped CANOE/TEMOA model-run outputs.
+
+    Returns
+    -------
+    SelectedRun
+        Selected model-run directory and SQLite database path.
+
+    Raises
+    ------
+    SystemExit
+        If no valid run is found or if the user makes an invalid selection.
+    """
 
     run_dir = select_model_run(output_root)
     db_path = select_sqlite_database(run_dir)
@@ -244,7 +417,31 @@ def select_run_and_database(output_root: Path) -> SelectedRun:
 # =============================================================================
 
 def infer_basemap_stem(db_path: Path) -> str:
-    """Infer basemap stem from selected CANOE geospatial database or run name."""
+    """Infer the canonical basemap stem from a database or run-folder name.
+
+    Searches the selected SQLite database filename first, then the parent run
+    directory name, for a basemap identifier matching the expected CANOE
+    geospatial naming convention. Common database prefixes such as
+    ``input_``, ``solved_``, and ``CANOE_geospatial_`` are ignored before
+    matching.
+
+    Parameters
+    ----------
+    db_path : Path
+        Path to the selected CANOE/TEMOA SQLite database.
+
+    Returns
+    -------
+    str
+        Matched basemap stem, such as ``canada_basemap_1deg_centroid`` or
+        ``canada_basemap_0.5deg_intersects``.
+
+    Raises
+    ------
+    SystemExit
+        If no valid basemap stem can be inferred from the database filename or
+        parent run-folder name.
+    """
 
     search_texts = [
         db_path.stem,
@@ -270,7 +467,23 @@ def infer_basemap_stem(db_path: Path) -> str:
 
 
 def build_figure_stem(selected_run: SelectedRun) -> str:
-    """Build output figure filename stem from run and database names."""
+    """Build a figure filename stem from the selected run and database.
+
+    Uses the model-run directory name as the primary figure tag and appends the
+    selected database stem when the database identifier is not already present
+    in the run name. The standard ``CANOE_geospatial_`` database prefix is
+    removed before comparison to keep figure filenames shorter.
+
+    Parameters
+    ----------
+    selected_run : SelectedRun
+        Selected model-run directory and SQLite database path.
+
+    Returns
+    -------
+    str
+        Filename stem used when saving generated map figures.
+    """
 
     run_tag = selected_run.run_dir.name.replace(" ", "_")
     db_tag = selected_run.db_path.stem
@@ -285,7 +498,33 @@ def infer_geospatial_paths(
     data_files: Path,
     selected_run: SelectedRun,
 ) -> GeospatialPaths:
-    """Infer all geospatial inputs from a selected database."""
+    """Infer and validate geospatial paths for a selected model run.
+
+    Infers the basemap stem from the selected SQLite database or run-folder
+    name, then constructs the required paths to graph nodes, graph edges, and
+    processed basemap polygons. Optional road-overlay and road-enabled edge
+    layers are discovered when matching files are available. Figure outputs are
+    saved beside the selected database.
+
+    Parameters
+    ----------
+    data_files : Path
+        Project ``data_files`` directory containing processed geospatial inputs.
+    selected_run : SelectedRun
+        Selected model-run directory and SQLite database path.
+
+    Returns
+    -------
+    GeospatialPaths
+        Resolved required geospatial input paths, optional road-context paths,
+        and figure-output naming metadata.
+
+    Raises
+    ------
+    SystemExit
+        If the basemap stem cannot be inferred or if any required geospatial
+        input file is missing.
+    """
 
     basemap_stem = infer_basemap_stem(selected_run.db_path)
 
@@ -357,7 +596,28 @@ def infer_geospatial_paths(
 # =============================================================================
 
 def load_model_tables(db_path: Path) -> ModelTables:
-    """Load model output and input tables used by the mapping workflow."""
+    """Load CANOE/TEMOA tables required by the mapping workflow.
+
+    Reads the selected SQLite database into DataFrames and extracts the output
+    flow, demand, and capacity-limit tables used to construct process-point,
+    demand-point, and transport-flow map layers.
+
+    Parameters
+    ----------
+    db_path : Path
+        Path to the selected CANOE/TEMOA SQLite database.
+
+    Returns
+    -------
+    ModelTables
+        Copies of the database tables required for map-layer preparation.
+
+    Raises
+    ------
+    KeyError
+        If the database does not contain ``OutputFlowOut``, ``Demand``, or
+        ``LimitCapacity``.
+    """
 
     db_tables = mgmt.sqlite_to_dfs(str(db_path))
 
@@ -369,7 +629,33 @@ def load_model_tables(db_path: Path) -> ModelTables:
 
 
 def load_geospatial_data(paths: GeospatialPaths) -> GeospatialData:
-    """Load graph nodes, graph edges, basemap, and optional road context layers."""
+    """Load and normalize geospatial layers for mapping.
+
+    Reads graph-node polygons, graph-edge records, processed basemap polygons,
+    and optional road-context layers from the resolved geospatial paths. Region
+    identifiers are coerced to strings, graph nodes are indexed by ``region``,
+    and all geospatial context layers are reprojected to match the graph-node
+    CRS.
+
+    Parameters
+    ----------
+    paths : GeospatialPaths
+        Resolved geospatial input paths and optional road-context paths.
+
+    Returns
+    -------
+    GeospatialData
+        Loaded graph nodes, graph edges, basemap polygons, and optional road
+        overlay layers prepared for downstream plotting.
+
+    Raises
+    ------
+    FileNotFoundError
+        If a required graph-node, graph-edge, or basemap file is missing.
+    KeyError
+        If required identifier columns are missing from the graph-node or
+        graph-edge inputs.
+    """
 
     sites = gpd.read_file(paths.node_path)
     edges = pd.read_csv(paths.edge_path)
@@ -408,14 +694,49 @@ def load_geospatial_data(paths: GeospatialPaths) -> GeospatialData:
 
 
 def infer_degree_resolution(basemap_stem: str) -> float | None:
-    """Infer degree grid resolution from names like canada_basemap_1deg_intersects."""
+    """Infer grid resolution in decimal degrees from a basemap stem.
+
+    Parses basemap names containing tokens such as ``_1deg_`` or
+    ``_0.5deg_`` and returns the numeric grid resolution. If no degree
+    resolution token is found, returns ``None`` so callers can use a fallback
+    spacing method.
+
+    Parameters
+    ----------
+    basemap_stem : str
+        Basemap identifier, such as ``canada_basemap_1deg_intersects`` or
+        ``canada_basemap_0.5deg_centroid``.
+
+    Returns
+    -------
+    float | None
+        Parsed grid resolution in decimal degrees, or ``None`` if the naming
+        pattern does not contain a degree-resolution token.
+    """
 
     match = re.search(r"_(\d+(?:\.\d+)?)deg(?:_|$)", basemap_stem)
     return float(match.group(1)) if match else None
 
 
 def infer_centroid_spacing_deg(sites_gdf: gpd.GeoDataFrame) -> float:
-    """Fallback spacing from model-region centroid coordinates."""
+    """Estimate grid spacing in degrees from model-region centroids.
+
+    Computes the median spacing between unique longitude and latitude centroid
+    coordinates, then returns the smallest positive finite spacing as a fallback
+    grid resolution. If no valid spacing can be inferred, defaults to ``1.0``
+    degree.
+
+    Parameters
+    ----------
+    sites_gdf : gpd.GeoDataFrame
+        Graph-node/model-region GeoDataFrame containing numeric ``lon`` and
+        ``lat`` centroid coordinate columns.
+
+    Returns
+    -------
+    float
+        Estimated model-region grid spacing in decimal degrees.
+    """
 
     lon_vals = np.sort(
         pd.to_numeric(sites_gdf["lon"], errors="coerce").dropna().unique()
@@ -440,7 +761,30 @@ def configure_resolution_aware_spacing(
     sites_gdf: gpd.GeoDataFrame,
     diagnostic_mode: bool = False,
 ) -> PlotSpacing:
-    """Return resolution-aware node jitter and transport arc offsets."""
+    """Configure plotting offsets from the inferred spatial resolution.
+
+    Infers the model grid resolution from the basemap stem, falling back to
+    centroid-coordinate spacing when needed. The resulting resolution is used
+    to scale point jitter and parallel transport-arc offsets so figures remain
+    readable across different grid sizes.
+
+    Parameters
+    ----------
+    basemap_stem : str
+        Basemap identifier used to parse degree resolution when available.
+    sites_gdf : gpd.GeoDataFrame
+        Graph-node/model-region GeoDataFrame containing centroid coordinate
+        columns used for fallback spacing inference.
+    diagnostic_mode : bool, default=False
+        If ``True``, disables point jitter so plotted process nodes remain
+        exactly aligned with their model-region coordinates.
+
+    Returns
+    -------
+    PlotSpacing
+        Resolution-aware plotting parameters for point jitter and parallel
+        transport-arc offsets.
+    """
 
     grid_res_deg = infer_degree_resolution(basemap_stem)
     if grid_res_deg is None:
@@ -468,7 +812,28 @@ def print_loaded_data_summary(
     geodata: GeospatialData,
     spacing: PlotSpacing,
 ) -> None:
-    """Print loaded table counts and resolution-aware plotting settings."""
+    """Print summary diagnostics for loaded mapping inputs.
+
+    Reports resolution-aware plotting settings, model-output table size, graph
+    and basemap layer sizes, and optional road-context layer counts. This is a
+    console-only diagnostic used to confirm that the selected run and inferred
+    geospatial inputs loaded as expected.
+
+    Parameters
+    ----------
+    tables : ModelTables
+        Loaded CANOE/TEMOA tables used by the mapping workflow.
+    geodata : GeospatialData
+        Loaded graph, basemap, and optional road-context layers.
+    spacing : PlotSpacing
+        Resolution-aware plotting parameters used for jitter and transport-line
+        offsets.
+
+    Returns
+    -------
+    None
+        This function only prints diagnostics to the console.
+    """
 
     print("\nResolution-aware plot spacing:")
     print(f"  DIAGNOSTIC_MODE:        {spacing.diagnostic_mode}")
@@ -496,7 +861,27 @@ def add_site_coords(
     sites: gpd.GeoDataFrame,
     idx_col: str = "region",
 ) -> pd.DataFrame:
-    """Join lon/lat model-region coordinates onto a table."""
+    """Attach model-region centroid coordinates to a DataFrame.
+
+    Copies the input table, indexes it by ``idx_col`` when needed, and joins
+    ``lon`` and ``lat`` from the graph-node GeoDataFrame. Rows whose region IDs
+    are not present in ``sites`` are retained with missing coordinate values.
+
+    Parameters
+    ----------
+    frame : pd.DataFrame
+        Table containing a model-region identifier column.
+    sites : gpd.GeoDataFrame
+        Graph-node/model-region GeoDataFrame indexed by region ID and
+        containing ``lon`` and ``lat`` columns.
+    idx_col : str, default="region"
+        Column in ``frame`` used to align rows with the ``sites`` index.
+
+    Returns
+    -------
+    pd.DataFrame
+        Copy of ``frame`` with joined ``lon`` and ``lat`` columns.
+    """
 
     output_frame = frame.copy()
     if idx_col != output_frame.index.name:
@@ -509,7 +894,29 @@ def slice_with_coords(
     sites: gpd.GeoDataFrame,
     tech_name: str,
 ) -> pd.DataFrame:
-    """Aggregate positive node-level process output and attach lon/lat coordinates."""
+    """Build a coordinate-enriched process-flow layer for one technology.
+
+    Filters ``OutputFlowOut`` to the requested node-level process technology,
+    coerces flow values to numeric, removes flows below ``MIN_PROCESS_FLOW``,
+    aggregates remaining flow by region and technology, and joins model-region
+    centroid coordinates for plotting.
+
+    Parameters
+    ----------
+    flow_out : pd.DataFrame
+        CANOE/TEMOA ``OutputFlowOut`` table.
+    sites : gpd.GeoDataFrame
+        Graph-node/model-region GeoDataFrame indexed by region ID and
+        containing ``lon`` and ``lat`` columns.
+    tech_name : str
+        Process technology name to extract from ``flow_out``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Aggregated process-flow table with ``region``, ``tech``, ``flow``,
+        ``lon``, and ``lat`` columns.
+    """
 
     tech_flow = flow_out.loc[flow_out["tech"] == tech_name].copy()
     tech_flow["flow"] = pd.to_numeric(tech_flow["flow"], errors="coerce")
@@ -528,7 +935,28 @@ def add_from_to_coords(
     flow_links: pd.DataFrame,
     edges: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Attach graph edge coordinates to positive transport flows."""
+    """Attach source/target graph coordinates to transport-flow records.
+
+    Filters transport-flow records to positive flows above ``MIN_TRANSPORT_FLOW``,
+    joins each transport pseudo-region to the graph-edge table, drops links
+    without valid endpoint coordinates, and aggregates duplicate flow records by
+    edge and technology.
+
+    Parameters
+    ----------
+    flow_links : pd.DataFrame
+        Transport subset of ``OutputFlowOut`` where ``region`` identifies a
+        graph-edge pseudo-region.
+    edges : pd.DataFrame
+        Graph-edge table containing ``edge_region``, endpoint region IDs, and
+        endpoint coordinates.
+
+    Returns
+    -------
+    pd.DataFrame
+        Aggregated transport-flow table with source/target region IDs,
+        endpoint coordinates, technology name, and total flow.
+    """
 
     link_flow = flow_links.copy()
     link_flow["flow"] = pd.to_numeric(link_flow["flow"], errors="coerce")
@@ -576,7 +1004,27 @@ def add_from_to_coords(
 
 
 def build_node_layers(tables: ModelTables, geodata: GeospatialData) -> dict[str, POINT_STYLE]:
-    """Build node-level plotting layers."""
+    """Build node-level process and capacity layers for plotting.
+
+    Creates coordinate-enriched point layers for electricity generation,
+    hydrogen production, methanol production, and gasoline production from
+    ``OutputFlowOut``. CO2 capture is handled separately using positive
+    ``CO2_CAP`` entries from ``LimitCapacity`` and is treated as a plotted
+    capacity layer.
+
+    Parameters
+    ----------
+    tables : ModelTables
+        Loaded CANOE/TEMOA tables containing output flows and capacity limits.
+    geodata : GeospatialData
+        Loaded graph-node geospatial data used to attach centroid coordinates.
+
+    Returns
+    -------
+    dict[str, POINT_STYLE]
+        Dictionary of point layers keyed by display name. Each value contains
+        a coordinate-enriched DataFrame and its plotting color.
+    """
 
     elc_gen = slice_with_coords(tables.flow_out, geodata.sites, "ELC_GEN")
     h2_plant = slice_with_coords(tables.flow_out, geodata.sites, "H2_PLANT")
@@ -604,7 +1052,29 @@ def build_transport_layers(
     flow_out: pd.DataFrame,
     edges: pd.DataFrame,
 ) -> dict[str, TECH_STYLE]:
-    """Build transport plotting layers."""
+    """Build transport-flow layers and plotting styles.
+
+    Extracts supported pipeline, truck, and electricity-transmission
+    technologies from ``OutputFlowOut``, attaches graph-edge endpoint
+    coordinates, and packages each layer with its display style. Solid lines
+    represent pipeline/transmission modes, while dashed lines represent truck
+    transport modes.
+
+    Parameters
+    ----------
+    flow_out : pd.DataFrame
+        CANOE/TEMOA ``OutputFlowOut`` table containing transport-flow records.
+    edges : pd.DataFrame
+        Graph-edge table used to map transport pseudo-regions to source and
+        target model-region coordinates.
+
+    Returns
+    -------
+    dict[str, TECH_STYLE]
+        Dictionary of transport layers keyed by display name. Each value
+        contains the transport-flow DataFrame, plotting color, line style, and
+        width factor.
+    """
 
     h2_pipe = add_from_to_coords(flow_out.loc[flow_out.tech == "H2_PIPE"], edges)
     h2_truck = add_from_to_coords(flow_out.loc[flow_out.tech == "H2_TRUCK"], edges)
@@ -634,7 +1104,25 @@ def build_transport_layers(
 
 
 def build_demand_layer(tables: ModelTables, geodata: GeospatialData) -> tuple[pd.DataFrame, pd.Series]:
-    """Build gasoline demand markers and marker sizes."""
+    """Build gasoline demand-point markers for plotting.
+
+    Filters the ``Demand`` table to positive gasoline demand records
+    identified by ``d_gsl``, attaches model-region centroid coordinates, and
+    computes square-root-scaled marker sizes for map rendering.
+
+    Parameters
+    ----------
+    tables : ModelTables
+        Loaded CANOE/TEMOA tables containing the demand table.
+    geodata : GeospatialData
+        Loaded graph-node geospatial data used to attach centroid coordinates.
+
+    Returns
+    -------
+    tuple[pd.DataFrame, pd.Series]
+        Demand-point table with ``lon``, ``lat``, and ``demand`` columns, plus
+        the corresponding marker-size series used for plotting.
+    """
 
     demand_pts = tables.demand.loc[tables.demand["commodity"] == "d_gsl"].copy()
     demand_pts["demand"] = pd.to_numeric(demand_pts["demand"], errors="coerce")
@@ -652,7 +1140,26 @@ def build_demand_layer(tables: ModelTables, geodata: GeospatialData) -> tuple[pd
 
 
 def build_plot_layers(tables: ModelTables, geodata: GeospatialData) -> PlotLayers:
-    """Build all node, transport, and demand plotting layers."""
+    """Build all render-ready plotting layers.
+
+    Orchestrates node-layer, transport-layer, and demand-layer construction
+    from the loaded model tables and geospatial inputs. The returned container
+    is used by downstream diagnostics and figure-building functions.
+
+    Parameters
+    ----------
+    tables : ModelTables
+        Loaded CANOE/TEMOA tables used to derive process, transport, and demand
+        layers.
+    geodata : GeospatialData
+        Loaded geospatial graph and context data used to attach coordinates and
+        edge topology.
+
+    Returns
+    -------
+    PlotLayers
+        Prepared node, transport, and demand layers ready for plotting.
+    """
 
     tech_points = build_node_layers(tables, geodata)
     tech_links = build_transport_layers(tables.flow_out, geodata.edges)
@@ -667,7 +1174,22 @@ def build_plot_layers(tables: ModelTables, geodata: GeospatialData) -> PlotLayer
 
 
 def print_layer_diagnostics(layers: PlotLayers) -> None:
-    """Print node, transport, and demand layer diagnostics."""
+    """Print summary diagnostics for prepared plotting layers.
+
+    Reports the number of node-layer records, transport links, total transport
+    flow by transport layer, and demand nodes. This is a console-only diagnostic
+    used to check whether layer construction produced plausible plotting inputs.
+
+    Parameters
+    ----------
+    layers : PlotLayers
+        Prepared node, transport, and demand plotting layers.
+
+    Returns
+    -------
+    None
+        This function only prints diagnostics to the console.
+    """
 
     print("\nNode layers:")
     for name, (points_df, _) in layers.tech_points.items():
@@ -690,7 +1212,25 @@ def plot_context_layers_schematic(
     ax: plt.Axes,
     geodata: GeospatialData,
 ) -> None:
-    """Plot basemap polygon boundaries and model-region polygons in lon/lat."""
+    """Plot schematic geographic context layers in lon/lat coordinates.
+
+    Draws processed basemap boundaries, model-region polygons, and optional
+    road-context layers onto an existing Matplotlib axis. Layers are plotted in
+    their loaded CRS without web-tile reprojection, making this suitable for the
+    polygon-context schematic figure.
+
+    Parameters
+    ----------
+    ax : plt.Axes
+        Matplotlib axis on which context layers are drawn.
+    geodata : GeospatialData
+        Loaded basemap, model-region, and optional road-context layers.
+
+    Returns
+    -------
+    None
+        This function draws directly onto ``ax``.
+    """
 
     geodata.basemap.plot(
         ax=ax,
@@ -733,7 +1273,25 @@ def plot_context_layers_web(
     ax: plt.Axes,
     geodata: GeospatialData,
 ) -> None:
-    """Plot context layers in EPSG:3857 for optional web-tile background."""
+    """Plot geographic context layers in Web Mercator coordinates.
+
+    Reprojects processed basemap polygons, model-region polygons, and optional
+    road-context layers to EPSG:3857 before drawing them on an existing
+    Matplotlib axis. This prepares the context layers to align with optional
+    web-tile basemaps added by Contextily.
+
+    Parameters
+    ----------
+    ax : plt.Axes
+        Matplotlib axis on which projected context layers are drawn.
+    geodata : GeospatialData
+        Loaded basemap, model-region, and optional road-context layers.
+
+    Returns
+    -------
+    None
+        This function draws directly onto ``ax``.
+    """
 
     basemap_web = geodata.basemap.to_crs(epsg=3857)
     sites_web_poly = geodata.sites.to_crs(epsg=3857)
@@ -783,7 +1341,33 @@ def combined_transport_links(
     tech_links: dict[str, TECH_STYLE],
     spacing: PlotSpacing,
 ) -> gpd.GeoDataFrame:
-    """Combine transport layers and assign one parallel offset per corridor/technology."""
+    """Combine transport layers and offset parallel corridor geometries.
+
+    Concatenates positive transport-flow layers, validates required endpoint
+    coordinate columns, aggregates duplicate edge/technology records, and
+    assigns a canonical undirected corridor key for each source-target pair.
+    Where multiple transport technologies use the same corridor, parallel
+    offsets are assigned so overlapping routes can be visually separated.
+
+    Line geometries are first constructed in EPSG:4326 from endpoint
+    lon/lat coordinates, then reprojected to EPSG:3857 before metre-scale
+    offsets are applied.
+
+    Parameters
+    ----------
+    tech_links : dict[str, TECH_STYLE]
+        Transport layers keyed by display name. Each value contains a
+        transport-flow DataFrame, plotting color, line style, and width factor.
+    spacing : PlotSpacing
+        Resolution-aware plotting parameters controlling parallel route offsets.
+
+    Returns
+    -------
+    gpd.GeoDataFrame
+        Combined transport-flow GeoDataFrame in EPSG:3857 with offset line
+        geometries and plotting metadata. Returns an empty GeoDataFrame if no
+        valid positive transport links are available.
+    """
 
     frames = []
 
@@ -926,7 +1510,29 @@ def summarize_parallel_corridors(
     tech_links: dict[str, TECH_STYLE],
     spacing: PlotSpacing,
 ) -> gpd.GeoDataFrame:
-    """Print simple diagnostics for multiplex corridors."""
+    """Print diagnostics for corridors with parallel transport layers.
+
+    Builds the combined transport GeoDataFrame, summarizes active corridors by
+    canonical route key, and reports how many corridors carry more than one
+    transport technology or mode. The returned GeoDataFrame can be reused for
+    plotting or further corridor diagnostics.
+
+    Parameters
+    ----------
+    tech_links : dict[str, TECH_STYLE]
+        Transport layers keyed by display name. Each value contains a
+        transport-flow DataFrame, plotting color, line style, and width factor.
+    spacing : PlotSpacing
+        Resolution-aware plotting parameters used to construct offset transport
+        geometries.
+
+    Returns
+    -------
+    gpd.GeoDataFrame
+        Combined transport-flow GeoDataFrame returned by
+        ``combined_transport_links``. Returns an empty GeoDataFrame if no
+        positive transport links are available.
+    """
 
     transport_gdf = combined_transport_links(tech_links, spacing)
     if transport_gdf.empty:
@@ -997,7 +1603,29 @@ def plot_transport_lines_web(
     tech_links: dict[str, TECH_STYLE],
     spacing: PlotSpacing,
 ) -> None:
-    """Plot transport lines in EPSG:3857 web-map mode."""
+    """Plot transport-flow lines on the lon/lat schematic map.
+
+    Builds combined offset transport geometries, converts them back to
+    EPSG:4326, and draws each transport layer on an existing Matplotlib axis.
+    Line widths are scaled within each displayed transport layer using the
+    square root of relative flow magnitude.
+
+    Parameters
+    ----------
+    ax : plt.Axes
+        Matplotlib axis on which transport lines are drawn.
+    tech_links : dict[str, TECH_STYLE]
+        Transport layers keyed by display name. Each value contains a
+        transport-flow DataFrame, plotting color, line style, and width factor.
+    spacing : PlotSpacing
+        Resolution-aware plotting parameters used to separate parallel
+        transport arcs.
+
+    Returns
+    -------
+    None
+        This function draws directly onto ``ax``.
+    """
 
     transport_gdf_3857 = combined_transport_links(tech_links, spacing)
     if transport_gdf_3857.empty:
@@ -1034,7 +1662,35 @@ def build_legend(
     fontsize: int | None = None,
     loc: str = "upper right",
 ) -> None:
-    """Build figure legend using the same proxies as the original script."""
+    """Build a combined legend for context, point, and transport layers.
+
+    Collects existing legend handles from the axis, adds proxy handles for
+    transport technologies, and adds proxy handles for geographic context
+    layers. Optional road-context legend entries are included only when the
+    corresponding geospatial layers are available.
+
+    Parameters
+    ----------
+    ax : plt.Axes
+        Matplotlib axis whose legend is updated.
+    tech_links : dict[str, TECH_STYLE]
+        Transport layers keyed by display name. Each value provides the color,
+        line style, and width factor used to create legend proxies.
+    geodata : GeospatialData
+        Loaded geospatial context used to determine whether optional road-layer
+        legend entries should be included.
+    bbox_to_anchor : tuple[float, float]
+        Anchor position passed to ``ax.legend`` for legend placement.
+    fontsize : int | None, default=None
+        Optional legend font size.
+    loc : str, default="upper right"
+        Legend location passed to ``ax.legend``.
+
+    Returns
+    -------
+    None
+        This function updates the legend on ``ax``.
+    """
 
     handles, labels = ax.get_legend_handles_labels()
     by_label = dict(zip(labels, handles))
@@ -1090,7 +1746,32 @@ def plot_points_lonlat(
     size_demand: pd.Series,
     spacing: PlotSpacing,
 ) -> None:
-    """Plot process and demand points in lon/lat schematic mode."""
+    """Plot demand and process-point layers in lon/lat coordinates.
+
+    Draws demand markers at their model-region centroid coordinates and draws
+    process-technology markers with reproducible random jitter to reduce visual
+    overlap. Process marker sizes are square-root-scaled within each technology
+    layer using relative positive flow magnitude.
+
+    Parameters
+    ----------
+    ax : plt.Axes
+        Matplotlib axis on which point layers are drawn.
+    tech_points : dict[str, POINT_STYLE]
+        Process-point layers keyed by display name. Each value contains a
+        coordinate-enriched DataFrame and plotting color.
+    demand_pts : pd.DataFrame
+        Demand-point table containing ``lon``, ``lat``, and ``demand`` columns.
+    size_demand : pd.Series
+        Precomputed demand marker sizes.
+    spacing : PlotSpacing
+        Resolution-aware plotting parameters controlling process-point jitter.
+
+    Returns
+    -------
+    None
+        This function draws directly onto ``ax``.
+    """
 
     if not demand_pts.empty:
         ax.scatter(
@@ -1151,7 +1832,34 @@ def plot_points_web(
     size_demand: pd.Series,
     spacing: PlotSpacing,
 ) -> None:
-    """Plot process and demand points in EPSG:3857 web-map mode."""
+    """Plot demand and process-point layers in Web Mercator coordinates.
+
+    Converts demand and process-point coordinates from EPSG:4326 to EPSG:3857
+    before drawing them on a web-map axis. Demand markers are plotted at their
+    model-region centroid coordinates, while process markers receive
+    reproducible random jitter before reprojection to reduce visual overlap.
+    Process marker sizes are square-root-scaled within each technology layer
+    using relative positive flow magnitude.
+
+    Parameters
+    ----------
+    ax : plt.Axes
+        Matplotlib axis on which projected point layers are drawn.
+    tech_points : dict[str, POINT_STYLE]
+        Process-point layers keyed by display name. Each value contains a
+        coordinate-enriched DataFrame and plotting color.
+    demand_pts : pd.DataFrame
+        Demand-point table containing ``lon``, ``lat``, and ``demand`` columns.
+    size_demand : pd.Series
+        Precomputed demand marker sizes.
+    spacing : PlotSpacing
+        Resolution-aware plotting parameters controlling process-point jitter.
+
+    Returns
+    -------
+    None
+        This function draws directly onto ``ax``.
+    """
 
     if not demand_pts.empty:
         demand_pts_gdf = gpd.GeoDataFrame(
@@ -1228,7 +1936,30 @@ def save_polygon_context_figure(
     spacing: PlotSpacing,
     paths: GeospatialPaths,
 ) -> Path:
-    """Build and save the polygon-context schematic figure."""
+    """Build, display, and save the polygon-context schematic figure.
+
+    Creates a lon/lat schematic map showing basemap boundaries, model-region
+    polygons, region centroids, process and demand points, and transport-flow
+    lines. The figure is saved as a PNG in the selected run's figure directory.
+
+    Parameters
+    ----------
+    geodata : GeospatialData
+        Loaded basemap, model-region, graph, and optional road-context layers.
+    layers : PlotLayers
+        Prepared process-point, demand-point, and transport-flow plotting
+        layers.
+    spacing : PlotSpacing
+        Resolution-aware plotting parameters used for point jitter and
+        transport-line offsets.
+    paths : GeospatialPaths
+        Resolved geospatial paths and figure-output naming metadata.
+
+    Returns
+    -------
+    Path
+        Path to the saved polygon-context PNG figure.
+    """
 
     fig, ax = plt.subplots(figsize=(10, 6))
 
@@ -1281,7 +2012,32 @@ def save_basemap_overlay_figure(
     spacing: PlotSpacing,
     paths: GeospatialPaths,
 ) -> Path:
-    """Build and save the contextily + polygon/road overlay figure."""
+    """Build, display, and save the web-map basemap overlay figure.
+
+    Creates an EPSG:3857 map showing projected basemap/context layers,
+    optional Contextily web tiles, model-region centroids, process and demand
+    points, and transport-flow lines. If web-tile loading fails, the figure is
+    still generated using local geospatial layers only. The figure is saved as
+    an SVG in the selected run's figure directory.
+
+    Parameters
+    ----------
+    geodata : GeospatialData
+        Loaded basemap, model-region, graph, and optional road-context layers.
+    layers : PlotLayers
+        Prepared process-point, demand-point, and transport-flow plotting
+        layers.
+    spacing : PlotSpacing
+        Resolution-aware plotting parameters used for point jitter and
+        transport-line offsets.
+    paths : GeospatialPaths
+        Resolved geospatial paths and figure-output naming metadata.
+
+    Returns
+    -------
+    Path
+        Path to the saved basemap polygon-overlay SVG figure.
+    """
 
     fig, ax = plt.subplots(figsize=(9, 10))
 
@@ -1354,7 +2110,19 @@ def save_basemap_overlay_figure(
 # =============================================================================
 
 def main() -> None:
-    """Run the interactive figure-generation workflow."""
+    """Run the interactive CANOE/TEMOA map-generation workflow.
+
+    Resolves project paths, prompts the user to select a model run and SQLite
+    database, infers matching geospatial inputs, loads model/geospatial data,
+    builds render-ready plotting layers, prints diagnostics, and saves both
+    the polygon-context and basemap-overlay figures.
+
+    Returns
+    -------
+    None
+        This function coordinates the CLI workflow and writes figure files to
+        the selected run directory.
+    """
 
     project_paths = resolve_project_paths()
     selected_run = select_run_and_database(project_paths.output_root)
@@ -1372,10 +2140,6 @@ def main() -> None:
 
     layers = build_plot_layers(tables, geodata)
     print_layer_diagnostics(layers)
-
-    # The original workflow defined this diagnostic helper but did not call it in
-    # the final plotting path. Keep it available without changing console output.
-    _ = PLOT_PARALLEL_TRANSPORT_ARCS
 
     save_polygon_context_figure(geodata, layers, spacing, geospatial_paths)
     save_basemap_overlay_figure(geodata, layers, spacing, geospatial_paths)

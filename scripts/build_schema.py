@@ -30,17 +30,16 @@ Outputs:
 """
 
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
-import math
 import sys
-
 import geopandas as gpd
 import pandas as pd
+import math
+import db_mgmt
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
-
-import db_mgmt
 
 
 # =============================================================================
@@ -101,6 +100,39 @@ ETL_SPACING = "log"
 
 @dataclass(frozen=True)
 class SchemaConfig:
+    """Resolved file configuration for one schema-building run.
+
+    This immutable configuration stores the selected basemap variant, selected
+    road-connection method, paths to the required Stage 1–4 geospatial inputs,
+    and the destination SQLite database path. It is created once during runtime
+    selection and passed through the schema-building workflow to keep all file
+    references tied to the same basemap and connectivity choice.
+
+    Attributes
+    ----------
+    basemap_stem : str
+        Stem of the selected Stage 1 basemap file.
+    connection_method : str
+        Road-connectivity method selected for truck links, such as ``"weak"``
+        or ``"strong"``.
+    basemap_path : Path
+        Path to the selected basemap GeoPackage.
+    graph_node_path : Path
+        Path to the Stage 2 graph-node GeoPackage for the selected basemap.
+    graph_edge_path : Path
+        Path to the Stage 2 graph-edge CSV for the selected basemap.
+    road_edge_connections_path : Path
+        Path to the road-edge connection table for the selected basemap and
+        connection method.
+    road_edges_gpkg_path : Path
+        Path to the road-connected edge geometries for the selected basemap and
+        connection method.
+    road_region_overlay_path : Path
+        Path to the road-region overlay GeoPackage for the selected basemap.
+    output_sqlite_path : Path
+        Path where the encoded CANOE/TEMOA SQLite database will be written.
+    """
+
     basemap_stem: str
     connection_method: str
     basemap_path: Path
@@ -114,6 +146,44 @@ class SchemaConfig:
 
 @dataclass
 class LoadedInputs:
+    """Container for all files loaded for one schema-building run.
+
+    This dataclass groups the selected geospatial inputs, baseline CANOE/TEMOA
+    database tables, and raw supporting CSV/GPKG datasets needed to rebuild the
+    encoded SQLite database. The fields remain close to the source files: later
+    functions are responsible for validation, canonical topology construction,
+    point snapping, and table rebuilding.
+
+    Attributes
+    ----------
+    basemap : gpd.GeoDataFrame
+        Selected Stage 1 basemap regions.
+    graph_nodes : gpd.GeoDataFrame
+        Selected Stage 2 graph-node layer.
+    graph_edges : pd.DataFrame
+        Selected Stage 2 graph-edge table.
+    road_edge_connections : pd.DataFrame
+        Road-connectivity table for the selected basemap and connection method.
+    road_edges_gdf : gpd.GeoDataFrame
+        Spatial road-edge geometries for the selected road-connectivity method.
+    db : dict[str, pd.DataFrame]
+        Baseline CANOE/TEMOA SQLite database loaded as table DataFrames.
+    sites_raw : pd.DataFrame
+        Raw site attribute table used for electricity and other node attributes.
+    demand_raw : pd.DataFrame
+        Raw demand table to be snapped to selected graph nodes.
+    co2_raw : gpd.GeoDataFrame
+        Clean spatial CO2 facility dataset from the emissions preprocessing stage.
+    transport_techs_raw : pd.DataFrame
+        Raw transport technology parameter table.
+    gen_efficiencies_raw : pd.DataFrame
+        Raw node technology efficiency table.
+    technologies_raw : pd.DataFrame
+        Raw technology definition table.
+    commodities_raw : pd.DataFrame
+        Raw commodity definition table.
+    """
+
     basemap: gpd.GeoDataFrame
     graph_nodes: gpd.GeoDataFrame
     graph_edges: pd.DataFrame
@@ -131,6 +201,36 @@ class LoadedInputs:
 
 @dataclass
 class CanonicalLinks:
+    """Canonical node and edge topology used for schema encoding.
+
+    This dataclass stores the selected geospatial topology after it has been
+    normalized into CANOE/TEMOA region identifiers. Node regions represent
+    model locations. Pipeline and transmission links use the full graph-edge
+    topology, while road links use only graph edges with a valid road connection
+    under the selected connection method.
+
+    The valid-region sets provide fast membership checks during table rebuilding
+    and final validation, helping ensure that encoded node and edge regions are
+    consistent with the selected basemap and connectivity products.
+
+    Attributes
+    ----------
+    region_table : pd.DataFrame
+        Canonical node-region table used to replace the database ``Region``
+        table.
+    pipeline_links : pd.DataFrame
+        Candidate graph-edge links used for pipeline and electricity
+        transmission technologies.
+    road_links : pd.DataFrame
+        Road-connected graph-edge links used for truck technologies.
+    valid_node_regions : set[str]
+        Set of valid node-region IDs.
+    valid_pipeline_edge_regions : set[str]
+        Set of valid edge-region IDs for pipeline and transmission links.
+    valid_road_edge_regions : set[str]
+        Set of valid edge-region IDs for road-connected truck links.
+    """
+
     region_table: pd.DataFrame
     pipeline_links: pd.DataFrame
     road_links: pd.DataFrame
@@ -141,6 +241,34 @@ class CanonicalLinks:
 
 @dataclass
 class TechSpecs:
+    """Canonical transport technology specifications for schema rebuilding.
+
+    This dataclass stores transport technology parameters after
+    ``transport_techs.csv`` has been split into pipeline, truck, and electricity
+    transmission technology groups. The DataFrame fields preserve the parameter
+    rows needed to build efficiency, variable-cost, investment-cost, and
+    ETLSegment tables. The set fields provide convenient technology-name groups
+    for filtering legacy rows, validating coverage, and enforcing mode-specific
+    assumptions.
+
+    Attributes
+    ----------
+    pipeline_tech_specs : pd.DataFrame
+        Parameter rows for pipeline transport technologies.
+    truck_tech_specs : pd.DataFrame
+        Parameter rows for truck transport technologies.
+    transmission_tech_specs : pd.DataFrame
+        Parameter rows for electricity transmission technologies.
+    pipe_techs : set[str]
+        Names of pipeline transport technologies.
+    truck_techs : set[str]
+        Names of truck transport technologies.
+    trans_techs : set[str]
+        Names of electricity transmission technologies.
+    transport_techs : set[str]
+        Union of all pipeline, truck, and transmission technology names.
+    """
+
     pipeline_tech_specs: pd.DataFrame
     truck_tech_specs: pd.DataFrame
     transmission_tech_specs: pd.DataFrame
@@ -152,6 +280,29 @@ class TechSpecs:
 
 @dataclass
 class SnappedInputs:
+    """Container for point inputs after snapping to graph nodes.
+
+    This dataclass stores the spatially assigned input data produced by
+    ``build_site_attributes``. The main output is the node-level
+    ``site_attributes`` table, which aggregates demand, electricity potential,
+    and CO2 supply onto the selected geospatial graph regions. The CO2 facility
+    fields preserve facility-level emissions records for accounting and export
+    validation.
+
+    Attributes
+    ----------
+    site_attributes : pd.DataFrame
+        Node-level table of snapped and aggregated site attributes, including
+        demand, electricity potential, CO2 capacity, and mapped CO2 facility
+        counts.
+    co2_facilities : gpd.GeoDataFrame
+        Spatial CO2 facility records with positive emissions that were used for
+        graph-node snapping.
+    co2_raw : gpd.GeoDataFrame
+        Clean spatial CO2 facility dataset before zero or negative emissions
+        records are removed.
+    """
+
     site_attributes: pd.DataFrame
     co2_facilities: gpd.GeoDataFrame
     co2_raw: gpd.GeoDataFrame
@@ -162,6 +313,30 @@ class SnappedInputs:
 # =============================================================================
 
 def select_from_options(options: list[str], label: str) -> str:
+    """Prompt the user to select one string from an indexed option list.
+
+    This helper prints the available options for a CLI workflow, reads a numeric
+    index from standard input, and returns the selected option. The ``label`` is
+    used only to make prompts and error messages specific to the type of option
+    being selected.
+
+    Parameters
+    ----------
+    options : list[str]
+        Available option values to display and select from.
+    label : str
+        Human-readable option category used in printed prompts and errors.
+
+    Returns
+    -------
+    str
+        Selected option value.
+
+    Raises
+    ------
+    ValueError
+        If no options are available or if the entered index is invalid.
+    """
     if not options:
         raise ValueError(f"No options available for {label}.")
 
@@ -185,6 +360,19 @@ def discover_basemap_stems() -> list[str]:
 
 
 def select_schema_configuration() -> SchemaConfig:
+    """Discover available Stage 1 basemap variants.
+
+    This function searches the processed basemap directory for generated Canada
+    basemap GeoPackages and returns their file stems. The stems are used as
+    selectable configuration identifiers so the schema builder can construct
+    matching graph, road-connectivity, and output SQLite paths for the same
+    basemap variant.
+
+    Returns
+    -------
+    list[str]
+        Sorted basemap file stems available for schema-building selection.
+    """
     basemap_stem = select_from_options(
         discover_basemap_stems(),
         "basemap",
@@ -224,6 +412,23 @@ def select_schema_configuration() -> SchemaConfig:
     return config
 
 def ensure_baseline_sqlite_exists() -> None:
+    """Ensure the baseline CANOE/TEMOA SQLite database exists.
+
+    This helper checks whether the baseline SQLite database is already present.
+    If it is missing, the function creates it from the raw CANOE/TEMOA schema
+    SQL file. This provides a clean database structure that can be loaded and
+    rebuilt with the selected geospatial topology.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    FileNotFoundError
+        If the baseline SQLite database is missing and the raw schema SQL file
+        needed to create it is also missing.
+    """
     if BASELINE_SQLITE_PATH.exists():
         return
 
@@ -240,6 +445,29 @@ def ensure_baseline_sqlite_exists() -> None:
     )
 
 def validate_required_paths(config: SchemaConfig) -> None:
+    """Validate that all inputs required for schema building exist.
+
+    This function checks the file dependencies needed to encode the selected
+    geospatial configuration into a CANOE/TEMOA SQLite database. The required
+    paths include static model inputs, the baseline schema/database files,
+    processed emissions data, selected basemap and graph products, and selected
+    road-connectivity outputs.
+
+    Parameters
+    ----------
+    config : SchemaConfig
+        Resolved schema-building configuration containing the selected basemap,
+        connection method, and configuration-specific input/output paths.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    FileNotFoundError
+        If one or more required input files are missing.
+    """
     required_paths = {
         "raw_basemap": RAW_BASEMAP_PATH,
         "raw_schema": RAW_SCHEMA_PATH,
@@ -272,6 +500,23 @@ def validate_required_paths(config: SchemaConfig) -> None:
 
 
 def sort_region_ids(region_series: pd.Series) -> pd.Series:
+    """Return numeric sort keys for CANOE region IDs.
+
+    Region IDs are stored as strings such as ``"R0"``, ``"R1"``, and
+    ``"R10"``. Lexicographic sorting would place ``"R10"`` before ``"R2"``.
+    This helper extracts the integer component so region tables can be sorted
+    in deterministic numeric order.
+
+    Parameters
+    ----------
+    region_series : pd.Series
+        Series of region ID strings in the form ``R<number>``.
+
+    Returns
+    -------
+    pd.Series
+        Integer sort keys extracted from the region IDs.
+    """
     return region_series.str.extract(r"R(\d+)")[0].astype(int)
 
 
@@ -280,7 +525,33 @@ def sort_region_ids(region_series: pd.Series) -> pd.Series:
 # =============================================================================
 
 def validate_clean_emissions(co2_raw: gpd.GeoDataFrame) -> None:
-    """Validate canonical emissions output from build_emissions.py."""
+    """Validate the processed emissions layer used for schema building.
+
+    This function checks that the clean emissions GeoPackage produced by
+    ``build_emissions.py`` satisfies the assumptions required by the schema
+    builder. The layer must contain required facility, coordinate, emissions,
+    and spatial-assignability fields; use WGS84; contain numeric latitude,
+    longitude, and emissions values; include only spatially assignable records;
+    and fall within broad Canada coordinate bounds.
+
+    Parameters
+    ----------
+    co2_raw : gpd.GeoDataFrame
+        Clean spatial emissions layer loaded from the processed emissions
+        GeoPackage.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValueError
+        If required columns are missing, CRS is missing or not EPSG:4326,
+        required numeric fields contain null values after coercion, records are
+        not spatially assignable, or coordinates fall outside broad Canada
+        bounds.
+    """
     required_columns = {
         "facility_id",
         "latitude",
@@ -328,6 +599,33 @@ def validate_clean_emissions(co2_raw: gpd.GeoDataFrame) -> None:
 
 
 def load_inputs(config: SchemaConfig) -> LoadedInputs:
+    """Load all inputs required for the selected schema configuration.
+
+    This function reads the selected basemap, graph topology, road-connectivity
+    products, baseline CANOE/TEMOA SQLite database, static supporting CSV
+    inputs, and processed emissions GeoPackage into a single ``LoadedInputs``
+    container. After loading, the clean emissions layer is validated to ensure
+    it satisfies the schema builder's assumptions before point snapping and
+    table rebuilding begin.
+
+    Parameters
+    ----------
+    config : SchemaConfig
+        Resolved schema-building configuration containing selected geospatial
+        input paths and the output SQLite path.
+
+    Returns
+    -------
+    LoadedInputs
+        Container holding the loaded geospatial inputs, baseline database
+        tables, raw supporting tables, and clean emissions layer.
+
+    Raises
+    ------
+    ValueError
+        If the processed emissions layer fails validation in
+        ``validate_clean_emissions``.
+    """
     print("\nLoading selected geospatial and CANOE inputs...")
 
     inputs = LoadedInputs(
@@ -366,6 +664,44 @@ def build_canonical_links(
     road_edge_connections: pd.DataFrame,
     config: SchemaConfig,
 ) -> CanonicalLinks:
+    """Build canonical node and edge regions for schema encoding.
+
+    This function converts the selected graph-node, graph-edge, and
+    road-connectivity inputs into the canonical topology used by the
+    CANOE/TEMOA schema builder. Node regions are taken from the graph nodes.
+    Pipeline and electricity transmission links are assigned to all candidate
+    graph edges. Truck links are assigned only to graph edges with a valid road
+    connection under the selected connection method.
+
+    The resulting ``CanonicalLinks`` object also stores valid node-region and
+    edge-region sets for downstream table rebuilding and coverage validation.
+
+    Parameters
+    ----------
+    graph_nodes : gpd.GeoDataFrame
+        Selected graph-node layer containing model region IDs.
+    graph_edges : pd.DataFrame
+        Selected graph-edge table used for candidate pipeline and transmission
+        links.
+    road_edge_connections : pd.DataFrame
+        Road-connectivity table indicating which graph edges have valid road
+        connections.
+    config : SchemaConfig
+        Selected schema configuration, including basemap stem and connection
+        method metadata.
+
+    Returns
+    -------
+    CanonicalLinks
+        Canonical node table, pipeline/transmission edge links, road-connected
+        truck links, and valid-region lookup sets.
+
+    Raises
+    ------
+    AssertionError
+        If the resulting canonical topology fails validation in
+        ``validate_canonical_links``.
+    """
     region_table = (
         graph_nodes[["region"]]
         .drop_duplicates()
@@ -426,6 +762,31 @@ def validate_canonical_links(
     canonical: CanonicalLinks,
     graph_nodes: gpd.GeoDataFrame,
 ) -> None:
+    """Validate internal consistency of canonical node and edge links.
+
+    This function checks that the canonical topology produced by
+    ``build_canonical_links`` is safe to use for schema rebuilding. It verifies
+    that node regions are unique, edge-region IDs are unique, link endpoints
+    refer only to valid node regions, distances are present and positive, and
+    edge-region IDs use the expected ``region_from-region_to`` form.
+
+    Parameters
+    ----------
+    canonical : CanonicalLinks
+        Canonical node and edge topology to validate.
+    graph_nodes : gpd.GeoDataFrame
+        Original graph-node layer used to confirm node-region coverage.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    AssertionError
+        If node regions, edge regions, link endpoints, distances, or edge ID
+        formats violate the expected canonical topology assumptions.
+    """
     region_table = canonical.region_table
     pipeline_links = canonical.pipeline_links
     road_links = canonical.road_links
@@ -452,6 +813,34 @@ def validate_canonical_links(
 # =============================================================================
 
 def build_tech_specs(transport_techs_raw: pd.DataFrame) -> TechSpecs:
+    """Build canonical transport technology specifications.
+
+    This function validates the raw transport technology parameter table and
+    separates technologies into pipeline, truck, and electricity transmission
+    groups. The resulting ``TechSpecs`` object stores both the parameter rows
+    and technology-name sets needed for downstream table rebuilding,
+    filtering, and validation.
+
+    Parameters
+    ----------
+    transport_techs_raw : pd.DataFrame
+        Raw transport technology parameter table loaded from
+        ``transport_techs.csv``.
+
+    Returns
+    -------
+    TechSpecs
+        Transport technology specifications split into pipeline, truck, and
+        transmission groups, with corresponding technology-name sets.
+
+    Raises
+    ------
+    ValueError
+        If the raw transport technology table is missing required columns.
+    AssertionError
+        If no pipeline, truck, or electricity transmission technologies are
+        found.
+    """
     required_transport_cols = {
         "tech",
         "input_comm",
@@ -512,6 +901,34 @@ def snap_points_to_graph_nodes(
     lon_col: str = "lon",
     lat_col: str = "lat",
 ) -> pd.DataFrame:
+    """Assign point records to selected graph-node regions.
+
+    This function converts input records with longitude and latitude columns
+    into point geometries and spatially joins them to the selected graph-node
+    polygons. Points that fall within a graph node are assigned directly. Points
+    that do not fall within any node are assigned to the nearest graph node
+    using a projected Canada-wide CRS for distance calculation.
+
+    The returned table drops geometry and preserves the original point
+    attributes with an added ``region`` assignment.
+
+    Parameters
+    ----------
+    points : pd.DataFrame | gpd.GeoDataFrame
+        Input point records to assign to graph-node regions.
+    graph_nodes : gpd.GeoDataFrame
+        Selected graph-node polygons containing ``region`` and ``geometry``.
+    lon_col : str, default "lon"
+        Name of the longitude column in ``points``.
+    lat_col : str, default "lat"
+        Name of the latitude column in ``points``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Input point records with graph-node ``region`` assignments and no
+        geometry column.
+    """
     points_df = (
         pd.DataFrame(points.drop(columns="geometry"))
         if isinstance(points, gpd.GeoDataFrame)
@@ -565,6 +982,34 @@ def build_site_attributes(
     inputs: LoadedInputs,
     canonical: CanonicalLinks,
 ) -> SnappedInputs:
+    """Snap point inputs to graph nodes and build node-level attributes.
+
+    This function assigns raw demand, electricity, and CO2 facility inputs to
+    the selected geospatial graph nodes. Non-CO2 site and demand records are
+    combined, missing numeric values are filled with zero, and records are
+    snapped to graph regions. Clean CO2 facilities are converted from
+    kilotonnes to tonnes, filtered to positive-emissions records, snapped to
+    graph regions, and aggregated by region.
+
+    The resulting site-attribute table contains one row per canonical node
+    region and includes demand, electricity potential, CO2 capacity, mapped CO2
+    facility counts, and a placeholder CO2 capture cost.
+
+    Parameters
+    ----------
+    inputs : LoadedInputs
+        Loaded geospatial, baseline database, emissions, demand, and site input
+        data for the selected schema configuration.
+    canonical : CanonicalLinks
+        Canonical node and edge topology used to ensure every selected graph
+        node receives a site-attribute row.
+
+    Returns
+    -------
+    SnappedInputs
+        Container holding the node-level site attributes, positive-emissions CO2
+        facilities used for snapping, and the original clean CO2 facility layer.
+    """
     print("\nSnapping demand, electricity, and CO2 inputs to selected graph nodes...")
 
     raw_points_non_co2 = pd.concat(
@@ -657,6 +1102,35 @@ def rebuild_demand_and_capacity(
     db_encoded: dict[str, pd.DataFrame],
     site_attributes: pd.DataFrame,
 ) -> None:
+    """Rebuild demand and capacity-limit tables from snapped site attributes.
+
+    This function replaces the encoded ``Demand`` table with gasoline demand
+    rows for graph-node regions that have positive snapped demand. It also
+    rebuilds the ``LimitCapacity`` table for every selected node region,
+    assigning CO2 capture capacity from mapped facility emissions and
+    electricity generation capacity from snapped electricity potential.
+
+    The input database dictionary is modified in place.
+
+    Parameters
+    ----------
+    db_encoded : dict[str, pd.DataFrame]
+        Mutable encoded database table dictionary being rebuilt for the selected
+        geospatial schema.
+    site_attributes : pd.DataFrame
+        Node-level snapped site attributes containing ``region``, ``demand``,
+        ``co2``, and ``max_elc`` columns.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    AssertionError
+        If demand regions are not unique, demand values are not positive, or
+        the rebuilt capacity table does not contain two rows per node region.
+    """
     demand_sites = site_attributes.loc[site_attributes["demand"] > 0].reset_index(drop=True)
 
     db_encoded["Demand"] = pd.DataFrame(
@@ -731,6 +1205,30 @@ def rebuild_node_costs(
     db_encoded: dict[str, pd.DataFrame],
     site_attributes: pd.DataFrame,
 ) -> None:
+    """Rebuild node-level cost tables from snapped site attributes.
+
+    This function replaces existing node-level ``CostVariable`` rows for
+    selected technologies with geospatially assigned costs for electricity
+    generation, CO2 capture, and backup gasoline supply. It also replaces
+    existing node-level ``CostInvest`` rows for electricity generation and CO2
+    capture with fixed investment-cost assumptions for every selected graph
+    node.
+
+    The input database dictionary is modified in place.
+
+    Parameters
+    ----------
+    db_encoded : dict[str, pd.DataFrame]
+        Mutable encoded database table dictionary being rebuilt for the selected
+        geospatial schema.
+    site_attributes : pd.DataFrame
+        Node-level snapped site attributes containing ``region``, ``LCOE``, and
+        ``co2_cost`` columns.
+
+    Returns
+    -------
+    None
+    """
     node_costvariable = pd.concat(
         [
             pd.DataFrame(
@@ -858,6 +1356,39 @@ def build_input_split(
     proportion: list[float],
     operator: str = "ge",
 ) -> pd.DataFrame:
+    """Build annual input-split rows for one technology across regions.
+
+    This helper creates ``LimitTechInputSplitAnnual`` rows for a technology
+    whose input commodities must be supplied in fixed proportions. The same
+    input split is applied to each selected graph-node region. The function
+    validates that each input commodity has a matching proportion and that the
+    proportions sum to one.
+
+    Parameters
+    ----------
+    regions : pd.Series
+        Region IDs where the input split should be applied.
+    tech : str
+        Technology receiving the fixed input split.
+    input_comm : list[str]
+        Input commodities required by the technology.
+    proportion : list[float]
+        Required input proportions corresponding to ``input_comm``.
+    operator : str, default "ge"
+        Constraint operator to assign to the input-split rows.
+
+    Returns
+    -------
+    pd.DataFrame
+        ``LimitTechInputSplitAnnual`` rows for the selected technology,
+        commodities, and regions.
+
+    Raises
+    ------
+    ValueError
+        If the number of input commodities and proportions differs, or if the
+        proportions do not sum to one.
+    """
     if len(input_comm) != len(proportion):
         raise ValueError("input_comm and proportion must have same length.")
 
@@ -896,6 +1427,28 @@ def rebuild_input_splits(
     db_encoded: dict[str, pd.DataFrame],
     site_attributes: pd.DataFrame,
 ) -> None:
+    """Rebuild annual input-split constraints for node production technologies.
+
+    This function replaces the encoded ``LimitTechInputSplitAnnual`` table with
+    fixed input-ratio constraints for gasoline and methanol production
+    technologies. The same input split is applied across all selected graph-node
+    regions using the regions present in ``site_attributes``.
+
+    The input database dictionary is modified in place.
+
+    Parameters
+    ----------
+    db_encoded : dict[str, pd.DataFrame]
+        Mutable encoded database table dictionary being rebuilt for the selected
+        geospatial schema.
+    site_attributes : pd.DataFrame
+        Node-level snapped site attributes containing the selected graph-node
+        ``region`` values.
+
+    Returns
+    -------
+    None
+    """
     node_regions = site_attributes["region"]
 
     gsl_input_split = build_input_split(
@@ -925,6 +1478,42 @@ def rebuild_node_efficiency(
     site_attributes: pd.DataFrame,
     gen_efficiencies_raw: pd.DataFrame,
 ) -> None:
+    """Rebuild node-level efficiency rows on the selected graph regions.
+
+    This function rebuilds the node-level ``Efficiency`` table entries using
+    the selected geospatial graph-node regions. Technology efficiencies are
+    taken from ``gen_efficiencies_raw`` and expanded across the applicable node
+    regions. Most technologies are assigned to all selected nodes, while
+    ``GSL_BACKUP`` is assigned only to regions with positive gasoline demand.
+
+    The function also adds ``GSL_DEMAND`` efficiency rows for regions with
+    encoded gasoline demand, then replaces existing node-level efficiency rows
+    for the rebuilt technologies. Edge-region transport efficiency rows are
+    excluded here because they are rebuilt later by the transport-table logic.
+
+    The input database dictionary is modified in place.
+
+    Parameters
+    ----------
+    db_encoded : dict[str, pd.DataFrame]
+        Mutable encoded database table dictionary being rebuilt for the selected
+        geospatial schema.
+    site_attributes : pd.DataFrame
+        Node-level snapped site attributes containing selected graph-node
+        regions and demand values.
+    gen_efficiencies_raw : pd.DataFrame
+        Raw generation and node-technology efficiency assumptions.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    AssertionError
+        If ``GSL_DEMAND`` coverage does not match encoded demand regions or if
+        edge-region efficiency rows remain after the node-level rebuild.
+    """
     efficiency_rows = []
 
     for row in gen_efficiencies_raw.itertuples(index=False):
@@ -1018,11 +1607,38 @@ def build_etl_curve(
     resolution: int = ETL_RESOLUTION,
     spacing: str = ETL_SPACING,
 ) -> pd.DataFrame:
-    """Build ETLSegment curve rows for one technology without topology.
+    """Build topology-free ETLSegment cost-curve rows for one technology.
 
-    This mirrors the legacy ``model_rules.invest_costs`` curve generation, but
-    intentionally does not assign regions. Region assignment is handled later
-    using the selected geospatial graph nodes or graph edges.
+    This function generates capacity segments and cumulative cost bounds for a
+    single technology using the configured ETL cost-curve parameters. It mirrors
+    the legacy ``model_rules.invest_costs`` curve-generation logic, but does
+    not assign the curve to any node or edge regions. Region assignment is
+    handled later by ``assign_etl_curve_to_regions`` using the selected
+    geospatial graph topology.
+
+    Parameters
+    ----------
+    tech : str
+        Technology or technology group to build ETLSegment rows for.
+    resolution : int, default ETL_RESOLUTION
+        Number of capacity breakpoints used to define the piecewise curve.
+        Must be at least 2.
+    spacing : str, default ETL_SPACING
+        Capacity breakpoint spacing method. Must be either ``"log"`` or
+        ``"linear"``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Topology-free ETLSegment rows containing segment capacity bounds,
+        cumulative cost bounds, technology name, segment index, and data ID.
+
+    Raises
+    ------
+    ValueError
+        If the technology has no configured ETL cost parameters, if resolution
+        is less than 2, if curve parameters are invalid, or if spacing is not
+        ``"log"`` or ``"linear"``.
     """
     if tech not in ETL_COST_PARAMETERS:
         raise ValueError(f"Missing ETL cost parameters for {tech}.")
@@ -1079,7 +1695,34 @@ def assign_etl_curve_to_regions(
     tech: str,
     distance_factor: pd.Series | None = None,
 ) -> pd.DataFrame:
-    """Cross-join a topology-free ETL curve onto selected regions."""
+    """Assign one ETLSegment cost curve to selected regions.
+
+    This function cross-joins the topology-free ETL curve for one technology
+    onto a set of node or edge region IDs. When ``distance_factor`` is provided,
+    the curve's cost bounds are scaled by region-specific distance factors,
+    allowing edge infrastructure costs to vary with graph-edge length.
+
+    Parameters
+    ----------
+    regions : pd.Series
+        Node or edge region IDs that should receive the ETLSegment curve.
+    tech : str
+        Technology or technology group whose ETL curve should be assigned.
+    distance_factor : pd.Series | None, default None
+        Optional multiplicative scaling factor for ``cost_lower`` and
+        ``cost_upper``. Must align positionally with ``regions``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Region-specific ETLSegment rows for the selected technology.
+
+    Raises
+    ------
+    ValueError
+        If a distance factor is provided but one or more assigned regions are
+        missing a scaling factor.
+    """
     region_frame = pd.DataFrame({"region": regions.reset_index(drop=True), "key": 1})
     curve = build_etl_curve(tech).copy()
     curve["key"] = 1
@@ -1120,16 +1763,48 @@ def rebuild_etl_segments(
     canonical: CanonicalLinks,
     specs: TechSpecs,
 ) -> None:
-    """Rebuild all ETLSegment rows on the new geospatial topology.
+    """Rebuild ETLSegment rows on the selected geospatial topology.
 
-    The legacy workflow generated ETLSegment rows after grouping points into an
-    old grid and assigning old neighbor relationships. This function keeps the
-    same cost-curve parameterization but discards the legacy topology entirely:
+    This function replaces the encoded ``ETLSegment`` table using the selected
+    graph-node and graph-edge topology. It preserves the legacy ETL cost-curve
+    parameterization but discards the legacy grouped-site topology.
 
-    * GSL_PLANT and METOH_PLANT curves are mapped to current graph node regions.
-    * *_PIPE and ELC_TRANS curves are mapped to current canonical graph edges.
-    * Truck technologies intentionally receive no ETLSegment rows because roads
-      are represented as existing links with variable cost and zero investment.
+    Plant technology curves are assigned to current graph-node regions.
+    Pipeline and electricity transmission curves are assigned to canonical
+    graph-edge regions and scaled by each edge's distance relative to the mean
+    candidate pipeline-edge distance. Truck technologies intentionally receive
+    no ETLSegment rows because road transport is represented as existing links
+    with variable costs and zero road-construction investment.
+
+    The input database dictionary is modified in place.
+
+    Parameters
+    ----------
+    db_encoded : dict[str, pd.DataFrame]
+        Mutable encoded database table dictionary being rebuilt for the selected
+        geospatial schema.
+    site_attributes : pd.DataFrame
+        Node-level snapped site attributes containing selected graph-node
+        ``region`` values.
+    canonical : CanonicalLinks
+        Canonical node and edge topology containing valid graph-node and
+        pipeline/transmission edge regions.
+    specs : TechSpecs
+        Transport technology specifications and technology-name sets.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValueError
+        If the reference graph-edge distance is invalid or an edge-based
+        transport technology is missing ETL cost parameters.
+    AssertionError
+        If distance scaling produces no edge-cost variation, duplicate
+        ETLSegment keys are created, ETLSegment edge regions are invalid, or
+        truck technologies receive ETLSegment rows.
     """
     plant_etl_rows = []
     for tech in sorted(PLANT_TECHS):
@@ -1210,6 +1885,36 @@ def rebuild_technology_table(
     technologies_raw: pd.DataFrame,
     specs: TechSpecs,
 ) -> None:
+    """Rebuild the Technology table from raw technology definitions.
+
+    This function replaces the encoded ``Technology`` table with the technology
+    definitions loaded from ``techs.csv`` and adds the required sector, reserve,
+    curtailment, retirement, flexibility, and data ID fields. It also validates
+    that all truck and pipeline technologies identified from
+    ``transport_techs.csv`` are present in the rebuilt technology table.
+
+    The input database dictionary is modified in place.
+
+    Parameters
+    ----------
+    db_encoded : dict[str, pd.DataFrame]
+        Mutable encoded database table dictionary being rebuilt for the selected
+        geospatial schema.
+    technologies_raw : pd.DataFrame
+        Raw technology definition table loaded from ``techs.csv``.
+    specs : TechSpecs
+        Transport technology specifications and technology-name sets used to
+        validate required transport technology coverage.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    AssertionError
+        If truck or pipeline technologies are missing from ``techs.csv``.
+    """
     technology = technologies_raw.copy()
     technology["sector"] = "industrial"
     technology["reserve"] = 0
@@ -1235,6 +1940,29 @@ def build_transport_efficiency(
     tech_specs: pd.DataFrame,
     notes: str,
 ) -> pd.DataFrame:
+    """Build edge-region Efficiency rows for transport technologies.
+
+    This helper expands transport technology specifications across a set of
+    canonical edge links. Each generated row assigns a transport technology to
+    a CANOE edge-region ID with unit efficiency, preserving the input and output
+    commodities from the technology specification table.
+
+    Parameters
+    ----------
+    links : pd.DataFrame
+        Canonical transport links containing a ``canoe_region`` column.
+    tech_specs : pd.DataFrame
+        Transport technology specifications containing ``tech``,
+        ``input_comm``, and ``output_comm`` columns.
+    notes : str
+        Notes string assigned to each generated efficiency row.
+
+    Returns
+    -------
+    pd.DataFrame
+        Transport ``Efficiency`` rows for every link and technology
+        combination.
+    """
     rows = []
     for tech in tech_specs.itertuples(index=False):
         rows.append(
@@ -1265,6 +1993,38 @@ def build_transport_costvariable(
     tech_specs: pd.DataFrame,
     notes: str,
 ) -> pd.DataFrame:
+    """Build edge-region CostVariable rows for transport technologies.
+
+    This helper expands transport technology cost specifications across a set
+    of canonical edge links. For each link and technology, the variable cost is
+    calculated as an intercept term plus a distance-dependent term using the
+    link distance in kilometres.
+
+    Parameters
+    ----------
+    links : pd.DataFrame
+        Canonical transport links containing unique ``canoe_region`` values and
+        positive ``distance_km`` values.
+    tech_specs : pd.DataFrame
+        Transport technology specifications containing ``tech``,
+        ``cost_per_km``, and ``intercept_cost_per_km`` columns.
+    notes : str
+        Notes string assigned to each generated cost row.
+
+    Returns
+    -------
+    pd.DataFrame
+        Transport ``CostVariable`` rows for every link and technology
+        combination.
+
+    Raises
+    ------
+    ValueError
+        If required technology cost columns are missing.
+    AssertionError
+        If link distances are missing or non-positive, edge-region IDs are not
+        unique, or duplicate cost rows are generated.
+    """
     assert links["distance_km"].notna().all()
     assert (links["distance_km"] > 0).all()
     assert links["canoe_region"].nunique() == len(links)
@@ -1311,6 +2071,48 @@ def rebuild_transport_tables(
     specs: TechSpecs,
     connection_method: str,
 ) -> None:
+    """Rebuild edge-based transport efficiency, cost, and truck investment rows.
+
+    This function rebuilds transport-related database rows on the selected
+    geospatial graph topology. Pipeline and electricity transmission
+    technologies are assigned to canonical candidate graph edges, while truck
+    technologies are assigned only to road-connected graph edges for the
+    selected road connection method.
+
+    Existing transport ``Efficiency`` rows are removed and replaced with
+    rebuilt pipeline, truck, and transmission rows. Existing edge-region
+    ``CostVariable`` rows are removed and replaced with distance-based transport
+    costs. Truck ``CostInvest`` rows are rebuilt with zero investment cost to
+    represent use of existing road infrastructure rather than construction of
+    new transport links.
+
+    The input database dictionary is modified in place.
+
+    Parameters
+    ----------
+    db_encoded : dict[str, pd.DataFrame]
+        Mutable encoded database table dictionary being rebuilt for the selected
+        geospatial schema.
+    canonical : CanonicalLinks
+        Canonical graph topology containing candidate pipeline/transmission
+        links, road-connected links, and valid edge-region sets.
+    specs : TechSpecs
+        Transport technology specifications and technology-name sets for
+        pipeline, truck, and electricity transmission technologies.
+    connection_method : str
+        Road connection method label used in truck-link notes, such as
+        ``"weak"`` or ``"strong"``.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    AssertionError
+        If rebuilt efficiency, variable-cost, or truck investment rows do not
+        cover the expected canonical pipeline or road edge-region sets.
+    """
     pipeline_efficiency = build_transport_efficiency(
         canonical.pipeline_links,
         specs.pipeline_tech_specs,
@@ -1422,7 +2224,29 @@ def rebuild_static_supporting_tables(
     db_encoded: dict[str, pd.DataFrame],
     commodities_raw: pd.DataFrame,
 ) -> None:
-    """Populate small non-topology tables without using legacy grid generation."""
+    """Rebuild small supporting tables independent of graph topology.
+
+    This function resets non-topological schema-support tables that are required
+    by the encoded CANOE/TEMOA database but are not generated from the selected
+    geospatial graph. Commodities are copied from the raw commodity input table,
+    while technology types, time periods, sector labels, and dataset metadata
+    are rebuilt using fixed geospatial workflow defaults.
+
+    The input database dictionary is modified in place.
+
+    Parameters
+    ----------
+    db_encoded : dict[str, pd.DataFrame]
+        Mutable encoded database table dictionary being rebuilt for the selected
+        geospatial schema.
+    commodities_raw : pd.DataFrame
+        Raw commodity definition table to assign to the encoded ``Commodity``
+        table.
+
+    Returns
+    -------
+    None
+    """
     db_encoded["Commodity"] = commodities_raw.copy()
     db_encoded["TechnologyType"] = pd.DataFrame(
         {
@@ -1451,7 +2275,7 @@ def rebuild_static_supporting_tables(
             "description": ["Geospatial data for renewable gas model"],
             "status": ["active"],
             "author": ["Geospatial-CANOE workflow"],
-            "date": ["2026-07-03"],
+            "date": [date.today().isoformat()],
             "parent_id": [None],
             "changelog": ["Rebuilt on selected geospatial topology without legacy grouped-site topology."],
             "notes": [None],
@@ -1470,6 +2294,42 @@ def validate_encoded_region_coverage(
     canonical: CanonicalLinks,
     specs: TechSpecs,
 ) -> None:
+    """Validate region coverage in rebuilt topology-dependent tables.
+
+    This function checks that region references in rebuilt model tables are
+    consistent with the selected geospatial topology. For each topology-dependent
+    table, region IDs are split into node regions and edge regions using the
+    edge-region naming convention. Node regions must belong to the canonical
+    node set, while edge regions must belong to either the valid pipeline-edge
+    set or the valid road-edge set.
+
+    The function also validates transport-specific coverage assumptions:
+    pipeline technologies must have matching region coverage in ``ETLSegment``
+    and ``Efficiency``, while truck technologies must not receive
+    ``ETLSegment`` rows.
+
+    Parameters
+    ----------
+    db_encoded : dict[str, pd.DataFrame]
+        Encoded database table dictionary after geospatial table rebuilding.
+    canonical : CanonicalLinks
+        Canonical node and edge topology containing valid node, pipeline-edge,
+        and road-edge region sets.
+    specs : TechSpecs
+        Transport technology specifications and technology-name sets used to
+        identify pipeline and truck technologies.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    AssertionError
+        If any checked table contains invalid node or edge regions, if pipeline
+        ETLSegment coverage differs from pipeline Efficiency coverage, or if
+        truck technologies have ETLSegment rows.
+    """
     for table_name in ["Efficiency", "CostVariable", "CostInvest", "ETLSegment"]:
         table = db_encoded[table_name].copy()
         if "region" not in table.columns:
@@ -1525,6 +2385,25 @@ def validate_encoded_region_coverage(
 
 
 def clear_output_tables(db_encoded: dict[str, pd.DataFrame]) -> None:
+    """Clear solver output tables while preserving their schemas.
+
+    This function finds all encoded database tables whose names begin with
+    ``"Output"`` and replaces each one with an empty DataFrame containing the
+    same columns. This prevents stale solver results from being carried into a
+    newly exported geospatial input database.
+
+    The input database dictionary is modified in place.
+
+    Parameters
+    ----------
+    db_encoded : dict[str, pd.DataFrame]
+        Mutable encoded database table dictionary containing input and output
+        tables.
+
+    Returns
+    -------
+    None
+    """
     output_tables = [name for name in db_encoded if name.startswith("Output")]
     for table_name in output_tables:
         db_encoded[table_name] = db_encoded[table_name].iloc[0:0].copy()
@@ -1535,6 +2414,24 @@ def export_sqlite(
     db_encoded: dict[str, pd.DataFrame],
     output_sqlite_path: Path,
 ) -> None:
+    """Export rebuilt database tables to a fresh SQLite file.
+
+    This function creates a new CANOE/TEMOA-compatible SQLite database at the
+    requested output path. If a file already exists at that path, it is removed
+    first. The raw SQL schema template is then converted to SQLite, and the
+    rebuilt encoded database tables are written into the new database.
+
+    Parameters
+    ----------
+    db_encoded : dict[str, pd.DataFrame]
+        Rebuilt encoded database table dictionary to write to SQLite.
+    output_sqlite_path : Path
+        Destination path for the exported SQLite database.
+
+    Returns
+    -------
+    None
+    """
     if output_sqlite_path.exists():
         output_sqlite_path.unlink()
 
@@ -1550,6 +2447,42 @@ def verify_exported_sqlite(
     canonical: CanonicalLinks,
     snapped: SnappedInputs,
 ) -> None:
+    """Verify key contents of the exported SQLite database.
+
+    This function reloads the exported SQLite database from disk and performs
+    post-export validation checks on core model tables. It prints table counts,
+    verifies that truck technologies are present with the expected number of
+    efficiency, variable-cost, and investment-cost rows, and validates that
+    CO2 capture capacity was written for every exported region.
+
+    The function also reports summary diagnostics for spatially assignable CO2
+    facilities, dropped zero or negative CO2 records, facilities entering the
+    snapping step, and mapped CO2 facility counts where available.
+
+    Parameters
+    ----------
+    output_sqlite_path : Path
+        Path to the exported SQLite database to reload and validate.
+    specs : TechSpecs
+        Transport technology specifications and technology-name sets used to
+        validate expected truck table coverage.
+    canonical : CanonicalLinks
+        Canonical graph topology used to compute expected road-link coverage.
+    snapped : SnappedInputs
+        Snapped geospatial input tables used to summarize CO2 facility mapping
+        diagnostics.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    AssertionError
+        If truck technology coverage is incomplete, if CO2 capture capacity does
+        not cover every exported region, if CO2 capacity is negative, or if total
+        CO2 capture capacity is zero.
+    """
     db_test = db_mgmt.sqlite_to_dfs(output_sqlite_path)
 
     print("\nExported database table counts:")
@@ -1600,6 +2533,22 @@ def verify_exported_sqlite(
 
 
 def summarize_final_database(db_encoded: dict[str, pd.DataFrame]) -> None:
+    """Print row-count summaries for core encoded database tables.
+
+    This reporting helper prints the final number of rows in the main
+    CANOE/TEMOA input tables after the geospatial schema rebuild. It is intended
+    as a quick run-log summary before export or final verification, rather than
+    a formal validation check.
+
+    Parameters
+    ----------
+    db_encoded : dict[str, pd.DataFrame]
+        Rebuilt encoded database table dictionary to summarize.
+
+    Returns
+    -------
+    None
+    """
     print("\nFinal encoded database summary:")
     for table_name in [
         "Region",
@@ -1619,6 +2568,25 @@ def summarize_final_database(db_encoded: dict[str, pd.DataFrame]) -> None:
 # =============================================================================
 
 def main() -> None:
+    """Run the full geospatial schema rebuild workflow.
+
+    This entry point coordinates the complete database rebuild stage for a
+    selected basemap and road-connection configuration. It creates the processed
+    schema output directory, prompts for the schema configuration, loads all
+    required inputs, builds the canonical node and edge topology, and rebuilds
+    the encoded CANOE/TEMOA database tables on the selected geospatial graph.
+
+    The workflow rebuilds static supporting tables, snapped site attributes,
+    node-level demand, capacity, cost, input-split, and efficiency tables,
+    ETLSegment investment curves, transport technology tables, and edge-based
+    transport efficiency and cost tables. It then validates region coverage,
+    clears stale solver output tables, summarizes the final encoded database,
+    exports a fresh SQLite database, and verifies the exported file from disk.
+
+    Returns
+    -------
+    None
+    """
     PROCESSED_SCHEMA.mkdir(parents=True, exist_ok=True)
 
     config = select_schema_configuration()

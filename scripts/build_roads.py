@@ -80,7 +80,33 @@ FREIGHT_ACCESS_CLASSES = BACKBONE_CLASSES + (
 # =============================================================================
 
 def get_nrn_gpkg_path(province: str) -> Path:
-    """Return the English NRN GeoPackage path for a province or territory."""
+    """Return the raw English NRN GeoPackage path for one province or territory.
+
+    The Stage 3 road preprocessing workflow expects each province or territory
+    directory under ``RAW_NRN`` to contain exactly one English National Road
+    Network GeoPackage matching ``*_en.gpkg``. This function normalizes the
+    province code, checks that the expected directory exists, and fails early if
+    the GeoPackage input is missing or ambiguous.
+
+    Parameters
+    ----------
+    province : str
+        Province or territory code, such as ``"ON"``, ``"AB"``, or ``"YT"``.
+
+    Returns
+    -------
+    Path
+        Path to the single English NRN GeoPackage for the requested province or
+        territory.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the province or territory directory does not exist, or if it
+        contains no English NRN GeoPackage.
+    ValueError
+        If more than one English NRN GeoPackage is found in the directory.
+    """
 
     province = province.upper()
     province_dir = RAW_NRN / province
@@ -108,7 +134,29 @@ def get_nrn_gpkg_path(province: str) -> Path:
 
 
 def get_gpkg_contents(gpkg_path: Path) -> pd.DataFrame:
-    """Return the GeoPackage contents table."""
+    """Read the GeoPackage contents metadata table.
+
+    This function opens a GeoPackage as a SQLite database and returns its
+    ``gpkg_contents`` table. The contents table lists the layers available in
+    the file and is used downstream to identify the provincial ``ROADSEG``
+    layer without hard-coding province-specific table names.
+
+    Parameters
+    ----------
+    gpkg_path : Path
+        Path to the NRN GeoPackage to inspect.
+
+    Returns
+    -------
+    pd.DataFrame
+        GeoPackage contents table listing available layers and associated
+        metadata.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the GeoPackage file does not exist.
+    """
 
     if not gpkg_path.exists():
         raise FileNotFoundError(f"GeoPackage not found: {gpkg_path}")
@@ -126,7 +174,29 @@ def get_gpkg_contents(gpkg_path: Path) -> pd.DataFrame:
 
 
 def get_roadseg_table(gpkg_path: Path) -> str:
-    """Return the ROADSEG table name contained in a provincial GeoPackage."""
+    """Find the NRN road-segment layer name in a provincial GeoPackage.
+
+    Provincial NRN GeoPackages use layer names that can vary by province or
+    release, but the road segment layer is expected to end with ``"_ROADSEG"``.
+    This function reads the GeoPackage contents table and returns the single
+    matching road segment layer name used for road-class filtering.
+
+    Parameters
+    ----------
+    gpkg_path : Path
+        Path to the provincial or territorial NRN GeoPackage.
+
+    Returns
+    -------
+    str
+        Name of the single ``ROADSEG`` layer contained in the GeoPackage.
+
+    Raises
+    ------
+    ValueError
+        If no ``ROADSEG`` layer is found, or if more than one matching layer is
+        present.
+    """
 
     contents = get_gpkg_contents(gpkg_path)
 
@@ -153,7 +223,34 @@ def get_roadclass_counts(
     gpkg_path: Path,
     roadseg_table: str,
 ) -> pd.DataFrame:
-    """Return per-ROADCLASS segment counts for a provincial GeoPackage."""
+    """Count NRN road segments by road class for one GeoPackage.
+
+    This function queries the provincial ``ROADSEG`` layer directly through
+    SQLite and returns the number of road segments in each source ``ROADCLASS``.
+    These counts provide the unfiltered baseline used later to summarize how
+    much of each provincial road network is retained in the backbone and
+    freight-access subsets.
+
+    Parameters
+    ----------
+    gpkg_path : Path
+        Path to the provincial or territorial NRN GeoPackage.
+    roadseg_table : str
+        Name of the ``ROADSEG`` layer to query.
+
+    Returns
+    -------
+    pd.DataFrame
+        Table with one row per ``ROADCLASS`` and a ``segments`` count, sorted
+        from most to fewest segments.
+    """
+    query = f"""
+        SELECT ROADCLASS,
+               COUNT(*) AS segments
+        FROM "{roadseg_table}"
+        GROUP BY ROADCLASS
+        ORDER BY segments DESC;
+    """
 
     query = f"""
         SELECT ROADCLASS,
@@ -173,11 +270,27 @@ def deduplicate_boundary_segments(
     gdf: gpd.GeoDataFrame,
     priority_classes: Sequence[str],
 ) -> gpd.GeoDataFrame:
-    """
-    Remove duplicate geometries introduced across province boundaries.
+    """Remove duplicate road geometries after provincial networks are merged.
 
-    Keeps one row per unique geometry and prefers ROADCLASS values according
-    to priority_classes.
+    Some NRN road segments can appear more than once when provincial and
+    territorial road networks are concatenated, especially near shared
+    boundaries. This function keeps one row per exact geometry and resolves
+    duplicates by preferring lower-index ``ROADCLASS`` values from
+    ``priority_classes``.
+
+    Parameters
+    ----------
+    gdf : gpd.GeoDataFrame
+        Road network GeoDataFrame containing a ``ROADCLASS`` column and road
+        segment geometries.
+    priority_classes : Sequence[str]
+        Ordered road-class priority list. Classes earlier in the sequence are
+        preferred when duplicate geometries are found.
+
+    Returns
+    -------
+    gpd.GeoDataFrame
+        Deduplicated road network with one row per exact road geometry.
     """
 
     priority = {
@@ -212,7 +325,24 @@ def validate_road_network(
     gdf: gpd.GeoDataFrame,
     name: str,
 ) -> None:
-    """Print geometry sanity checks for a road network GeoDataFrame."""
+    """Print geometry quality diagnostics for a road network.
+
+    This function reports basic geometry sanity checks for a filtered road
+    network, including null geometries, empty geometries, invalid geometries,
+    and exact duplicate geometries based on WKT representation. It is intended
+    as a diagnostic check after network filtering or national concatenation.
+
+    Parameters
+    ----------
+    gdf : gpd.GeoDataFrame
+        Road network GeoDataFrame to inspect.
+    name : str
+        Human-readable network name used in printed diagnostics.
+
+    Returns
+    -------
+    None
+    """
 
     print(f"--- {name} ---")
 
@@ -242,7 +372,30 @@ def load_filtered_provincial_networks() -> tuple[
     pd.DataFrame,
     dict[str, object],
 ]:
-    """Load and filter provincial NRN networks."""
+    """Load and filter provincial NRN road networks.
+
+    This function processes each configured province and territory in
+    ``PROVINCES``. For each raw NRN GeoPackage, it finds the road segment
+    layer, records source road-class counts, loads the freight-access subset,
+    derives the nested backbone subset, and stores the source CRS. After all
+    provinces are processed, it verifies that the loaded provincial networks
+    have non-missing and consistent CRS values.
+
+    Returns
+    -------
+    tuple[dict[str, gpd.GeoDataFrame], dict[str, gpd.GeoDataFrame], pd.DataFrame, dict[str, object]]
+        Provincial backbone networks keyed by province code, provincial
+        freight-access networks keyed by province code, combined source
+        road-class counts, and provincial CRS values keyed by province code.
+
+    Raises
+    ------
+    FileNotFoundError
+        If a required provincial NRN directory or English GeoPackage is missing.
+    ValueError
+        If a provincial GeoPackage has an invalid ROADSEG layer structure, a
+        missing CRS, or a CRS inconsistent with the other provinces.
+    """
 
     freight_access_where = (
         "ROADCLASS IN ("
@@ -329,7 +482,31 @@ def build_national_networks(
     provincial_freight_access: dict[str, gpd.GeoDataFrame],
     provincial_crs: dict[str, object],
 ) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
-    """Concatenate, deduplicate, and reproject national road networks."""
+    """Build national backbone and freight-access road networks.
+
+    This function concatenates the filtered provincial and territorial NRN
+    networks into national backbone and freight-access layers. Boundary
+    duplicates are removed using exact geometry matching and road-class
+    priority rules, then both national layers are reprojected to the workflow
+    WGS84 CRS. Geometry diagnostics are printed for each national network.
+
+    Parameters
+    ----------
+    provincial_backbone : dict[str, gpd.GeoDataFrame]
+        Provincial and territorial backbone road networks keyed by province or
+        territory code.
+    provincial_freight_access : dict[str, gpd.GeoDataFrame]
+        Provincial and territorial freight-access road networks keyed by
+        province or territory code.
+    provincial_crs : dict[str, object]
+        Source CRS values for the provincial and territorial NRN files, keyed
+        by province or territory code.
+
+    Returns
+    -------
+    tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]
+        National backbone and freight-access road networks in WGS84.
+    """
 
     source_crs = provincial_crs[PROVINCES[0]]
 
@@ -378,7 +555,30 @@ def build_network_summary(
     canada_backbone: gpd.GeoDataFrame,
     canada_freight_access: gpd.GeoDataFrame,
 ) -> pd.DataFrame:
-    """Build province and national filtered-road summary table."""
+    """Build provincial and national road-network filtering summary.
+
+    This function summarizes how many source NRN road segments are retained in
+    the filtered backbone and freight-access networks for each province and
+    territory. It uses the full source ``ROADCLASS`` counts as the denominator,
+    counts retained segments from the national filtered layers, and reports
+    retention percentages for backbone, arterial, and freight-access segments.
+    A final Canada row aggregates the provincial and territorial totals.
+
+    Parameters
+    ----------
+    roadclass_counts_all : pd.DataFrame
+        Source road-class segment counts for all provinces and territories.
+    canada_backbone : gpd.GeoDataFrame
+        Deduplicated national backbone road network.
+    canada_freight_access : gpd.GeoDataFrame
+        Deduplicated national freight-access road network.
+
+    Returns
+    -------
+    pd.DataFrame
+        Summary table with provincial, territorial, and national segment counts
+        and filtering percentages.
+    """
 
     summary_rows = []
 
@@ -469,7 +669,29 @@ def export_provincial_networks(
     provincial_freight_access: dict[str, gpd.GeoDataFrame],
     output_dir: Path,
 ) -> None:
-    """Export provincial and territorial filtered road networks."""
+    """Export filtered road networks for each province and territory.
+
+    This function writes one GeoPackage per configured province or territory.
+    Each output GeoPackage contains two layers: the filtered ``backbone``
+    network and the broader ``freight_access`` network. Existing provincial
+    output files are removed before new layers are written.
+
+    Parameters
+    ----------
+    provincial_backbone : dict[str, gpd.GeoDataFrame]
+        Provincial and territorial backbone road networks keyed by province or
+        territory code.
+    provincial_freight_access : dict[str, gpd.GeoDataFrame]
+        Provincial and territorial freight-access road networks keyed by
+        province or territory code.
+    output_dir : Path
+        Directory where provincial and territorial GeoPackage outputs are
+        written.
+
+    Returns
+    -------
+    None
+    """
 
     for province in PROVINCES:
         output_path = output_dir / f"{province}_filtered_road_networks.gpkg"
@@ -503,7 +725,26 @@ def export_national_networks(
     canada_freight_access: gpd.GeoDataFrame,
     output_dir: Path,
 ) -> None:
-    """Export national filtered road networks."""
+    """Export national filtered road networks to a GeoPackage.
+
+    This function writes the Canada-wide filtered road networks to a single
+    GeoPackage with two layers: ``backbone`` and ``freight_access``. If a
+    previous national road-network output exists, it is removed before the new
+    layers are written.
+
+    Parameters
+    ----------
+    canada_backbone : gpd.GeoDataFrame
+        Deduplicated national backbone road network.
+    canada_freight_access : gpd.GeoDataFrame
+        Deduplicated national freight-access road network.
+    output_dir : Path
+        Directory where the national road-network GeoPackage is written.
+
+    Returns
+    -------
+    None
+    """
 
     output_path = output_dir / "CANADA_filtered_road_networks.gpkg"
 
@@ -535,7 +776,24 @@ def export_network_summary(
     network_summary: pd.DataFrame,
     output_dir: Path,
 ) -> None:
-    """Export filtered-road summary table."""
+    """Export the filtered road-network summary table.
+
+    This function writes the province, territory, and national road-network
+    filtering summary to CSV. The table records the full source segment counts,
+    retained backbone and freight-access segment counts, arterial segment
+    counts, and filtering percentages.
+
+    Parameters
+    ----------
+    network_summary : pd.DataFrame
+        Summary table produced by ``build_network_summary``.
+    output_dir : Path
+        Directory where the summary CSV is written.
+
+    Returns
+    -------
+    None
+    """
 
     output_path = output_dir / "filtered_road_network_summary.csv"
 
@@ -548,6 +806,18 @@ def export_network_summary(
 
 
 def main() -> None:
+    """Run Stage 3 of the Geospatial-CANOE road preprocessing workflow.
+
+    This entry point prepares the processed NRN output directory, loads and
+    filters the provincial and territorial NRN road networks, builds the
+    deduplicated national backbone and freight-access networks, creates the
+    filtered-road summary table, and exports all provincial, national, and
+    summary outputs.
+
+    Returns
+    -------
+    None
+    """
     PROCESSED_NRN.mkdir(parents=True, exist_ok=True)
 
     (
