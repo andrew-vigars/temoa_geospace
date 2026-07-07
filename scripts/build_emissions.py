@@ -102,6 +102,22 @@ CANADA_LON_MAX = -45
 # =============================================================================
 
 def validate_source_files() -> None:
+    """Verify that the required raw emissions input files exist.
+
+    The emissions preprocessing workflow requires both the source CSV and
+    GeoJSON files before any cleaning, auditing, or spatial processing can be
+    performed. This function checks for those files and fails early if either
+    source is missing.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    FileNotFoundError
+        If the required emissions CSV or GeoJSON file is missing.
+    """
     missing = [path for path in [CO2_CSV_PATH, CO2_JSON_PATH] if not path.exists()]
 
     if missing:
@@ -116,6 +132,19 @@ def validate_source_files() -> None:
 
 
 def load_sources() -> tuple[pd.DataFrame, gpd.GeoDataFrame]:
+    """Load the raw emissions CSV and GeoJSON source files.
+
+    The CSV provides the tabular facility emissions records used for cleaning
+    and standardization. The GeoJSON is loaded alongside it to confirm that the
+    spatial source file is readable and to report basic source metadata such as
+    row count and CRS.
+
+    Returns
+    -------
+    tuple[pd.DataFrame, gpd.GeoDataFrame]
+        Raw emissions CSV as a pandas DataFrame and raw emissions GeoJSON as a
+        GeoPandas GeoDataFrame.
+    """
     co2_csv = pd.read_csv(CO2_CSV_PATH)
     co2_geo = gpd.read_file(CO2_JSON_PATH)
 
@@ -132,6 +161,30 @@ def load_sources() -> tuple[pd.DataFrame, gpd.GeoDataFrame]:
 
 
 def build_column_audit(co2_csv: pd.DataFrame) -> pd.DataFrame:
+    """Build an audit table linking source columns to standardized names.
+
+    This function checks the raw emissions CSV against the expected column map,
+    fails if any required source columns are missing, and records how each
+    source column is standardized for the cleaned dataset. Additional source
+    columns are allowed and preserved in the audit table with a blank
+    standardized-column value.
+
+    Parameters
+    ----------
+    co2_csv : pd.DataFrame
+        Raw emissions CSV loaded from the source file.
+
+    Returns
+    -------
+    pd.DataFrame
+        Column audit table containing the original source column names,
+        standardized column names where applicable, and source data types.
+
+    Raises
+    ------
+    ValueError
+        If one or more expected source columns are missing from the CSV.
+    """
     expected_columns = set(CO2_COLUMN_MAP)
     actual_columns = set(co2_csv.columns)
 
@@ -156,6 +209,24 @@ def build_column_audit(co2_csv: pd.DataFrame) -> pd.DataFrame:
 
 
 def standardize_emissions_table(co2_csv: pd.DataFrame) -> pd.DataFrame:
+    """Standardize the raw emissions table for downstream processing.
+
+    This function applies the canonical emissions column names, coerces known
+    numeric fields to numeric types, and adds an ``is_spatially_assignable``
+    flag. A facility is treated as spatially assignable when its latitude and
+    longitude fall within broad Canada coordinate bounds and are not zero.
+
+    Parameters
+    ----------
+    co2_csv : pd.DataFrame
+        Raw emissions CSV loaded from the source file.
+
+    Returns
+    -------
+    pd.DataFrame
+        Standardized emissions table with renamed columns, numeric fields
+        converted where possible, and a spatial assignment flag.
+    """
     co2 = co2_csv.rename(columns=CO2_COLUMN_MAP).copy()
 
     for col in NUMERIC_COLUMNS:
@@ -171,6 +242,32 @@ def standardize_emissions_table(co2_csv: pd.DataFrame) -> pd.DataFrame:
 
 
 def validate_standardized_table(co2: pd.DataFrame) -> None:
+    """Validate and summarize the standardized emissions table.
+
+    This function reports basic data-quality diagnostics for the cleaned
+    emissions table, including missing identifiers, missing coordinates,
+    missing emissions values, duplicate facility IDs, zero or negative
+    emissions, source units, reported data years, and spatial assignability.
+
+    Rows with coordinates outside the broad Canada coordinate bounds, or with
+    zero latitude or longitude, are summarized as invalid or non-spatial. The
+    function currently treats negative emissions as a hard validation error.
+
+    Parameters
+    ----------
+    co2 : pd.DataFrame
+        Standardized emissions table produced by
+        ``standardize_emissions_table``.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValueError
+        If one or more facilities report negative emissions.
+    """
     checks = {
         "missing_facility_id": int(co2["facility_id"].isna().sum()),
         "missing_facility_name": int(co2["facility_name"].isna().sum()),
@@ -212,6 +309,25 @@ def validate_standardized_table(co2: pd.DataFrame) -> None:
 
 
 def build_spatial_emissions(co2: pd.DataFrame) -> gpd.GeoDataFrame:
+    """Build a spatial emissions layer from assignable facility records.
+
+    This function filters the standardized emissions table to facilities with
+    valid, spatially assignable coordinates and converts those records into
+    point geometries using longitude and latitude. The resulting GeoDataFrame
+    is used for spatial export and downstream assignment to model regions.
+
+    Parameters
+    ----------
+    co2 : pd.DataFrame
+        Standardized emissions table containing longitude, latitude, emissions,
+        and the ``is_spatially_assignable`` flag.
+
+    Returns
+    -------
+    gpd.GeoDataFrame
+        Spatially assignable facility emissions records with point geometries
+        in WGS84.
+    """
     co2_spatial = co2.loc[co2["is_spatially_assignable"]].copy()
 
     co2_spatial = gpd.GeoDataFrame(
@@ -235,6 +351,27 @@ def build_spatial_emissions(co2: pd.DataFrame) -> gpd.GeoDataFrame:
 
 
 def build_metadata(co2: pd.DataFrame, co2_spatial: gpd.GeoDataFrame) -> pd.DataFrame:
+    """Build metadata for the processed emissions dataset.
+
+    This function creates a compact metadata table describing the source
+    dataset, source files, emissions units, geometry type, facility counts, and
+    emissions totals. It also records the split between spatially assignable
+    facilities and non-spatial facilities so downstream users can audit how much
+    of the source inventory is available for geospatial assignment.
+
+    Parameters
+    ----------
+    co2 : pd.DataFrame
+        Standardized emissions table containing all source facility records.
+    co2_spatial : gpd.GeoDataFrame
+        Spatial emissions layer containing only facilities with assignable
+        coordinates.
+
+    Returns
+    -------
+    pd.DataFrame
+        Two-column metadata table with ``field`` and ``value`` columns.
+    """
     return pd.DataFrame(
         {
             "field": [
@@ -282,6 +419,29 @@ def export_outputs(
     column_audit: pd.DataFrame,
     metadata: pd.DataFrame,
 ) -> None:
+    """Export cleaned emissions tables and spatial emissions outputs.
+
+    This function writes the standardized emissions table, column audit table,
+    metadata table, and spatial emissions GeoPackage to the processed emissions
+    directory. If a previous clean GeoPackage exists, it is removed before the
+    new spatial layer is written.
+
+    Parameters
+    ----------
+    co2 : pd.DataFrame
+        Standardized emissions table containing all source facility records.
+    co2_spatial : gpd.GeoDataFrame
+        Spatially assignable emissions records with point geometries.
+    column_audit : pd.DataFrame
+        Audit table mapping original source columns to standardized names.
+    metadata : pd.DataFrame
+        Metadata table describing source provenance, facility counts, and
+        emissions totals.
+
+    Returns
+    -------
+    None
+    """
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
     co2.to_csv(CO2_CLEAN_CSV, index=False)
@@ -309,6 +469,17 @@ def export_outputs(
 # =============================================================================
 
 def main() -> None:
+    """Run the emissions preprocessing workflow.
+
+    This entry point validates the required source files, loads the raw
+    emissions inputs, builds a column audit, standardizes the emissions table,
+    validates the cleaned records, creates the spatial emissions layer, builds
+    metadata, and exports all processed emissions outputs.
+
+    Returns
+    -------
+    None
+    """
     print("=" * 78)
     print("Geospatial-CANOE emissions preprocessing")
     print("=" * 78)
