@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+
 """
 build_region_adjacency.py
 
@@ -77,7 +77,28 @@ NEIGHBOR_MAP = {
 # =============================================================================
 
 def find_basemap_files(basemap_dir: Path) -> list[Path]:
-    """Find Stage 1 basemap GeoPackages."""
+    """Find Stage 1 basemap grid GeoPackages for adjacency building.
+
+    This function searches the processed basemap directory for generated Canada
+    basemap grids and excludes the dissolved national boundary file. The
+    returned files are the region-grid inputs used to build Stage 2 rook
+    adjacency graphs.
+
+    Parameters
+    ----------
+    basemap_dir : Path
+        Directory containing processed Stage 1 basemap GeoPackages.
+
+    Returns
+    -------
+    list[Path]
+        Sorted list of basemap grid GeoPackage paths.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no Stage 1 basemap grid GeoPackages are found.
+    """
 
     basemap_files = sorted(
         basemap_dir.glob("canada_basemap_*deg_*.gpkg")
@@ -105,7 +126,31 @@ def validate_regions(
     regions: gpd.GeoDataFrame,
     basemap_path: Path,
 ) -> None:
-    """Validate required basemap columns."""
+    """Validate that a basemap is suitable for adjacency construction.
+
+    This function checks that a Stage 1 basemap contains the required columns
+    and structural invariants needed to build a rook-adjacency graph. Each
+    region and site ID must be unique, each cell must have a unique centroid,
+    and the file must represent a single grid resolution and retention method.
+
+    Parameters
+    ----------
+    regions : gpd.GeoDataFrame
+        Basemap regions loaded from a Stage 1 GeoPackage.
+    basemap_path : Path
+        Source basemap path, used for informative error messages.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValueError
+        If required columns are missing, region or site IDs are duplicated,
+        centroids are duplicated, or the file contains mixed resolutions or
+        mixed retention methods.
+    """
 
     required_columns = [
         "region",
@@ -160,7 +205,39 @@ def build_region_adjacency(
     basemap_path: Path,
     coord_precision: int = COORD_PRECISION,
 ) -> tuple[gpd.GeoDataFrame, pd.DataFrame]:
-    """Build rook-neighbour graph nodes and directed edge table."""
+    """Build rook-adjacency graph nodes and directed edges for one basemap.
+
+    This function loads a Stage 1 basemap grid, validates the required region
+    fields, and identifies cardinal neighbours using centroid coordinates and
+    the grid resolution. For each region, it records the neighbouring region ID
+    above, below, left, and right when such a neighbour exists. Missing
+    neighbours are assigned the ``NO_NEIGHBOR`` sentinel value.
+
+    The function also computes the number of neighbours per region, estimates
+    centroid-to-centroid geodesic distances for each valid neighbour direction,
+    and converts the neighbour relationships into a directed adjacency edge
+    table.
+
+    Parameters
+    ----------
+    basemap_path : Path
+        Path to a Stage 1 basemap GeoPackage containing region grid cells.
+    coord_precision : int, default COORD_PRECISION
+        Decimal precision used when rounding longitude and latitude centroids
+        for coordinate-based neighbour lookup.
+
+    Returns
+    -------
+    tuple[gpd.GeoDataFrame, pd.DataFrame]
+        A GeoDataFrame of graph nodes with neighbour IDs, neighbour counts, and
+        directional distances, plus a DataFrame of directed adjacency edges.
+
+    Raises
+    ------
+    ValueError
+        If the loaded basemap fails structural validation in
+        ``validate_regions``.
+    """
 
     print("\n" + "=" * 80)
     print(f"Processing basemap: {basemap_path.name}")
@@ -315,7 +392,25 @@ def build_region_adjacency(
 def build_edge_geometries(
     adjacency_edges: pd.DataFrame,
 ) -> gpd.GeoDataFrame:
-    """Convert directed edge table to centroid-to-centroid line geometries."""
+    """Convert adjacency edges into centroid-to-centroid line geometries.
+
+    This function takes the directed adjacency edge table produced by
+    ``build_region_adjacency`` and creates a WGS84 line geometry for each edge
+    using the source and destination region centroids. The resulting
+    GeoDataFrame is used for spatial export and graph preview plotting.
+
+    Parameters
+    ----------
+    adjacency_edges : pd.DataFrame
+        Directed adjacency edge table containing source and destination
+        centroid coordinates.
+
+    Returns
+    -------
+    gpd.GeoDataFrame
+        Directed adjacency edges with ``LineString`` geometries in WGS84. If
+        the input edge table is empty, an empty GeoDataFrame is returned.
+    """
 
     if adjacency_edges.empty:
         return gpd.GeoDataFrame(
@@ -348,7 +443,27 @@ def save_adjacency_preview(
     adjacency_edges: pd.DataFrame,
     png_path: Path,
 ) -> None:
-    """Save a PNG preview of graph nodes, edges, and isolated regions."""
+    """Save a PNG preview of a region adjacency graph.
+
+    The preview plots the basemap regions, centroid-to-centroid adjacency
+    edges, and any isolated regions with no rook neighbours. This provides a
+    visual check that the Stage 2 graph topology is consistent with the
+    underlying basemap resolution and retention method.
+
+    Parameters
+    ----------
+    regions_graph : gpd.GeoDataFrame
+        Graph node layer containing basemap regions, neighbour IDs, and
+        neighbour counts.
+    adjacency_edges : pd.DataFrame
+        Directed adjacency edge table produced by ``build_region_adjacency``.
+    png_path : Path
+        Output path for the saved PNG preview.
+
+    Returns
+    -------
+    None
+    """
 
     edge_gdf = build_edge_geometries(adjacency_edges)
 
@@ -404,7 +519,28 @@ def build_all_adjacency_graphs(
     basemap_files: list[Path],
     output_dir: Path,
 ) -> pd.DataFrame:
-    """Build, export, preview, and summarize all adjacency graphs."""
+    """Build and export adjacency graph products for all basemap variants.
+
+    For each Stage 1 basemap file, this function builds the corresponding
+    rook-adjacency graph, exports graph nodes and directed edges to tabular and
+    spatial formats, saves a PNG preview, and records summary diagnostics. The
+    preview directory is cleared before new previews are written.
+
+    Parameters
+    ----------
+    basemap_files : list[Path]
+        Stage 1 basemap GeoPackages to convert into adjacency graphs.
+    output_dir : Path
+        Directory where graph nodes, graph edges, previews, and summary outputs
+        are written.
+
+    Returns
+    -------
+    pd.DataFrame
+        Summary table with one row per basemap graph, including source basemap,
+        resolution, retention method, node count, directed edge count, average
+        neighbour count, isolated-node count, and output filenames.
+    """
 
     preview_dir = output_dir / "preview"
 
@@ -487,6 +623,17 @@ def build_all_adjacency_graphs(
 
 
 def main() -> None:
+    """Run Stage 2 of the Geospatial-CANOE adjacency workflow.
+
+    This entry point prepares the processed graph output directory, finds the
+    Stage 1 basemap grid files, builds rook-adjacency graph products for each
+    basemap variant, and writes a summary CSV describing the generated graph
+    outputs.
+
+    Returns
+    -------
+    None
+    """
     PROCESSED_GRAPH.mkdir(parents=True, exist_ok=True)
 
     basemap_files = find_basemap_files(PROCESSED_BASEMAP)
