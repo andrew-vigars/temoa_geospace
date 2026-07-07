@@ -88,7 +88,12 @@ def download_file(
     overwrite: bool = False,
     max_retries: int = MAX_RETRIES,
 ) -> Path:
-    """Download a file from a URL, unless it already exists."""
+    """Download a URL to disk using a temporary partial file and retry handling.
+
+    Existing files are reused unless ``overwrite`` is true. Downloads are first
+    written to a ``.part`` file, then atomically moved to ``destination`` after
+    completion so incomplete downloads are not mistaken for valid raw inputs.
+    """
 
     destination.parent.mkdir(parents=True, exist_ok=True)
 
@@ -139,7 +144,14 @@ def extract_geojson_archive(
     output_dir: Path,
     overwrite: bool = False,
 ) -> list[Path]:
-    """Extract the GeoJSON ZIP archive and flatten nested folders."""
+    """Extract, validate, and clean up the emissions GeoJSON archive.
+
+    If the expected GeoJSON already exists and ``overwrite`` is false, the
+    existing file is reused. Otherwise, the ZIP archive is extracted, nested
+    GeoJSON files are moved into ``output_dir``, temporary folders are removed,
+    the expected final GeoJSON file is validated, and the source archive is
+    deleted after successful extraction.
+    """
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -208,7 +220,7 @@ def extract_geojson_archive(
 
 
 def validate_outputs(output_dir: Path) -> tuple[Path, Path]:
-    """Validate expected CSV and GeoJSON files exist."""
+    """Validate that the expected raw emissions CSV and GeoJSON files exist."""
 
     csv_path = output_dir / EMISSIONS_RESOURCE["csv"]["filename"]
     json_path = output_dir / EMISSIONS_RESOURCE["geojson"]["expected_file"]
@@ -224,12 +236,13 @@ def validate_outputs(output_dir: Path) -> tuple[Path, Path]:
     return csv_path, json_path
 
 
-# =============================================================================
-# Main workflow
-# =============================================================================
-
 def get_raw_emissions_data(overwrite: bool = False) -> tuple[Path, Path]:
-    """Download, extract, flatten, clean, and validate raw emissions data."""
+    """Acquire raw large-facility emissions data and return validated file paths.
+
+    Downloads the emissions CSV and GeoJSON ZIP archive, extracts and flattens
+    the GeoJSON file, validates that both expected raw outputs are present, and
+    prints a summary of the acquired files.
+    """
 
     RAW_EMISSIONS.mkdir(parents=True, exist_ok=True)
 
@@ -274,6 +287,7 @@ def get_raw_emissions_data(overwrite: bool = False) -> tuple[Path, Path]:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI options for the raw emissions acquisition workflow."""
     parser = argparse.ArgumentParser(
         description="Download and organize raw emissions data for Geospatial-CANOE."
     )
@@ -284,8 +298,12 @@ def parse_args() -> argparse.Namespace:
     )
     return parser.parse_args()
 
+# =============================================================================
+# Main workflow
+# =============================================================================
 
 def main() -> None:
+    """Run the raw emissions acquisition command-line workflow."""
     args = parse_args()
     get_raw_emissions_data(overwrite=args.overwrite)
 

@@ -92,7 +92,7 @@ BASEMAP_RESOURCE = {
 
 
 def ensure_directory(raw_basemaps: Path) -> None:
-    """Create the raw basemap directory."""
+    """Ensure the raw basemap output directory exists."""
 
     raw_basemaps.mkdir(parents=True, exist_ok=True)
 
@@ -103,7 +103,13 @@ def download_file(
     overwrite: bool = False,
     max_retries: int = MAX_RETRIES,
 ) -> Path:
-    """Download a file from a URL if it does not already exist."""
+    """Download a file to ``destination`` unless an existing file is reused.
+
+    Existing files are skipped by default. When ``overwrite`` is true, the
+    existing destination is deleted before downloading. Failed partial downloads
+    are removed before retrying, and a ``RuntimeError`` is raised if all retry
+    attempts fail.
+    """
 
     destination.parent.mkdir(parents=True, exist_ok=True)
 
@@ -155,10 +161,13 @@ def extract_basemap_archive(
     output_dir: Path,
     overwrite: bool = False,
 ) -> list[Path]:
-    """
-    Extract the Statistics Canada basemap ZIP archive, flatten files into the
-    raw basemap folder, validate the shapefile, then delete temporary archive
-    and nested folders.
+    """Extract, flatten, validate, and clean up the raw basemap archive.
+
+    If a shapefile already exists in ``output_dir`` and ``overwrite`` is false,
+    the existing basemap outputs are validated and reused. Otherwise, the ZIP
+    archive is extracted, nested files are moved into ``output_dir``, temporary
+    folders are removed, required shapefile sidecars are validated, and the
+    source archive is deleted after successful extraction.
     """
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -218,7 +227,7 @@ def extract_basemap_archive(
 
 
 def validate_basemap_outputs(output_dir: Path) -> list[Path]:
-    """Validate final Statistics Canada basemap shapefile outputs."""
+    """Validate that the raw basemap folder contains one complete shapefile."""
 
     final_shapefiles = sorted(output_dir.glob("*.shp"))
 
@@ -255,7 +264,12 @@ def acquire_basemap(
     raw_basemaps: Path = RAW_BASEMAPS,
     overwrite: bool = False,
 ) -> list[Path]:
-    """Download, extract, flatten, clean, and validate the raw basemap files."""
+    """Acquire the raw Statistics Canada basemap and return validated shapefiles.
+
+    The workflow ensures the output directory exists, downloads the source ZIP
+    archive when needed, extracts and flattens the archive contents, validates
+    the final shapefile outputs, and returns the validated shapefile path list.
+    """
 
     ensure_directory(raw_basemaps)
 
@@ -281,7 +295,7 @@ def acquire_basemap(
 
 
 def print_summary(raw_basemaps: Path, basemap_files: list[Path]) -> None:
-    """Print final basemap acquisition summary."""
+    """Print the final raw basemap files and validated shapefile path."""
 
     print("\nBasemap acquisition summary")
     print("---------------------------")
@@ -299,6 +313,8 @@ def print_summary(raw_basemaps: Path, basemap_files: list[Path]) -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for the raw basemap acquisition script."""
+
     parser = argparse.ArgumentParser(
         description="Download, extract, flatten, and validate raw basemap shapefile."
     )
@@ -320,6 +336,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Run the raw basemap acquisition command-line workflow."""
     args = parse_args()
 
     basemap_files = acquire_basemap(

@@ -21,6 +21,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from export_output_tables import export_output_tables
 
 
 # =============================================================================
@@ -28,7 +29,14 @@ from pathlib import Path
 # =============================================================================
 
 def find_project_root() -> Path:
-    """Return repository root from script location or current working directory."""
+    """Find the project root from the script path or current working directory.
+
+    Searches upward from both ``__file__`` and the current working directory,
+    returning the first parent folder containing ``temoa/main.py`` and
+    ``data_files``. Raises ``FileNotFoundError`` if the repository root cannot
+    be located.
+    """
+
     search_starts = [
         Path(__file__).resolve(),
         Path.cwd().resolve(),
@@ -63,12 +71,21 @@ OUTPUT_ROOT = PROJECT_ROOT / "output_files"
 # =============================================================================
 
 def print_header(title: str) -> None:
+    """Print a formatted section header for console output."""
+
     print("\n" + "=" * 78)
     print(title)
     print("=" * 78)
 
 
 def select_file(options: list[Path], label: str) -> Path:
+    """Prompt the user to select one file from a numbered list.
+
+    Prints available paths with optional file sizes, repeatedly asks for a valid
+    integer selection, and returns the selected path. Raises ``FileNotFoundError``
+    if no options are available.
+    """
+
     if not options:
         raise FileNotFoundError(f"No {label} files found.")
 
@@ -95,10 +112,23 @@ def select_file(options: list[Path], label: str) -> Path:
 
 
 def safe_name(path: Path) -> str:
+    """Return a filesystem-friendly schema tag for output folder names.
+
+    Removes the ``CANOE_geospatial_`` prefix from the file stem and replaces
+    spaces with underscores.
+    """
+
     return path.stem.replace("CANOE_geospatial_", "").replace(" ", "_")
 
 
 def validate_required_paths(db_path: Path, config_path: Path) -> None:
+    """Validate required run inputs before starting CANOE/TEMOA.
+
+    Checks that the TEMOA main script, selected SQLite database, and selected
+    config file exist. Prints any missing paths before raising
+    ``FileNotFoundError``.
+    """
+
     required = {
         "TEMOA main script": MAIN_PATH,
         "selected SQLite database": db_path,
@@ -118,7 +148,12 @@ def validate_required_paths(db_path: Path, config_path: Path) -> None:
 # =============================================================================
 
 def sha256_file(path: Path) -> str:
-    """Return SHA256 hash for a file."""
+    """Return the SHA-256 hash for a file.
+
+    Reads the file in 1 MB chunks so large SQLite databases and archived run
+    inputs can be hashed without loading the full file into memory.
+    """
+
     h = hashlib.sha256()
 
     with path.open("rb") as f:
@@ -129,7 +164,12 @@ def sha256_file(path: Path) -> str:
 
 
 def file_record(path: Path) -> dict:
-    """Return basic provenance information for one file."""
+    """Return provenance metadata for one file.
+
+    Records the file path, filename, size in bytes, and SHA-256 hash for use in
+    the run manifest.
+    """
+
     return {
         "path": str(path),
         "name": path.name,
@@ -139,7 +179,13 @@ def file_record(path: Path) -> dict:
 
 
 def run_git_command(args: list[str]) -> str | None:
-    """Run a git command from the project root and return stdout, if available."""
+    """Run a git command from the project root and return cleaned stdout.
+
+    Returns ``None`` if git is unavailable or the command fails, allowing run
+    provenance capture to continue without requiring the repository to be in a
+    valid git environment.
+    """
+
     try:
         result = subprocess.run(
             ["git", *args],
@@ -155,7 +201,13 @@ def run_git_command(args: list[str]) -> str | None:
 
 
 def get_git_record() -> dict:
-    """Return git commit, branch, and dirty-state metadata."""
+    """Return best-effort git commit, branch, and dirty-state metadata.
+
+    Captures the current commit hash, branch name, short status output, and a
+    boolean dirty-state flag for the run manifest. Values may be ``None`` if git
+    is unavailable or a command fails.
+    """
+
     status = run_git_command(["status", "--short"])
 
     return {
@@ -167,12 +219,22 @@ def get_git_record() -> dict:
 
 
 def read_text_file(path: Path) -> str:
-    """Read a text file for manifest archival."""
+    """Read a text file as UTF-8 for manifest archival.
+
+    Invalid characters are replaced so config text can still be captured in the
+    run manifest without failing the model run.
+    """
+
     return path.read_text(encoding="utf-8", errors="replace")
 
 
 def write_manifest(path: Path, manifest: dict) -> None:
-    """Write manifest JSON with stable formatting."""
+    """Write the run manifest to stable, human-readable JSON.
+
+    Serializes the manifest with sorted keys and consistent indentation so run
+    metadata is easy to inspect, compare, and track across model executions.
+    """
+
     path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True),
         encoding="utf-8",
@@ -180,11 +242,13 @@ def write_manifest(path: Path, manifest: dict) -> None:
 
 
 def extract_objective_from_db(db_path: Path) -> list[dict]:
-    """
-    Try to extract objective results from the solved SQLite database.
+    """Extract objective results from a solved SQLite database for the manifest.
 
-    Returns an empty list if the OutputObjective table is absent or unreadable.
+    Reads scenario-level objective values from ``OutputObjective`` and returns
+    them as dictionaries. Returns an empty list if the table is missing,
+    unreadable, or the database cannot be queried.
     """
+
     import sqlite3
 
     query = """
@@ -213,6 +277,16 @@ def extract_objective_from_db(db_path: Path) -> list[dict]:
 # =============================================================================
 
 def main() -> None:
+    """Run CANOE/TEMOA from a selected existing SQLite schema.
+
+    Interactively selects an encoded SQLite database and config file, validates
+    required paths, creates a timestamped output directory, copies and updates an
+    effective run config, archives the input database, writes an initial run
+    manifest, executes TEMOA/CANOE, records failure or success metadata, archives
+    the solved database, extracts objective results when available, and writes
+    the final manifest.
+    """
+
     print_header("CANOE/TEMOA existing-schema run")
     print(f"Project root: {PROJECT_ROOT}")
     print("This runner does not rebuild the database.")
@@ -331,6 +405,21 @@ def main() -> None:
     shutil.copy2(db_path, solved_db_archive)
     print(f"Saved: {solved_db_archive.name}")
 
+    print_header("Exporting solved output workbook")
+
+    exported_output_paths = export_output_tables(
+        db_path=solved_db_archive,
+        output_dir=output_dir,
+    )
+
+    if len(exported_output_paths) != 1:
+        raise RuntimeError(
+            "Expected export_output_tables() to return exactly one Excel workbook path."
+        )
+
+    output_workbook_path = exported_output_paths[0]
+    print(f"Exported output workbook: {output_workbook_path.name}")
+
     manifest["run"]["status"] = "success"
     manifest["run"]["return_code"] = 0
     manifest["run"]["wall_time_seconds"] = elapsed
@@ -338,6 +427,7 @@ def main() -> None:
     manifest["outputs"] = {
         "input_database_archive": file_record(input_db_archive),
         "solved_database_archive": file_record(solved_db_archive),
+        "output_workbook": file_record(output_workbook_path),
     }
 
     manifest["results"]["objectives"] = extract_objective_from_db(solved_db_archive)

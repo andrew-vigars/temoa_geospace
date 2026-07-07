@@ -92,7 +92,7 @@ NRN_PROVINCE_CODES = {
 
 
 def build_nrn_resources(raw_nrn: Path) -> Dict[str, dict]:
-    """Build province/territory NRN download resource metadata."""
+    """Build NRN download metadata for each province and territory."""
 
     return {
         province: {
@@ -110,7 +110,7 @@ def build_nrn_resources(raw_nrn: Path) -> Dict[str, dict]:
 
 
 def ensure_directories(raw_nrn: Path, provinces: Iterable[str]) -> None:
-    """Create the raw NRN directory structure."""
+    """Ensure the raw NRN root and province/territory folders exist."""
 
     raw_nrn.mkdir(parents=True, exist_ok=True)
 
@@ -124,7 +124,12 @@ def download_file(
     overwrite: bool = False,
     max_retries: int = MAX_RETRIES,
 ) -> Path:
-    """Download a file from a URL if it does not already exist."""
+    """Download a URL to disk, with skip, overwrite, and retry handling.
+
+    Existing files are reused unless ``overwrite`` is true. Failed partial
+    downloads are removed before retrying, and a ``RuntimeError`` is raised if
+    all retry attempts fail.
+    """
 
     destination.parent.mkdir(parents=True, exist_ok=True)
 
@@ -176,9 +181,13 @@ def extract_flatten_and_clean(
     output_dir: Path,
     overwrite: bool = False,
 ) -> list[Path]:
-    """
-    Extract an NRN ZIP archive, flatten GeoPackages into the province/territory
-    folder, validate English/French files, then delete temporary archive/folders.
+    """Extract, flatten, validate, and clean up one NRN archive.
+
+    If GeoPackage files already exist and ``overwrite`` is false, the existing
+    province/territory outputs are validated and reused. Otherwise, the archive
+    is extracted, nested GeoPackages are moved into ``output_dir``, temporary
+    folders are removed, English and French NRN outputs are validated, and the
+    source archive is deleted after successful extraction.
     """
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -239,7 +248,7 @@ def extract_flatten_and_clean(
 
 
 def validate_province_outputs(output_dir: Path) -> list[Path]:
-    """Validate final English and French NRN GeoPackages for one province."""
+    """Validate that one English NRN and one French RRN GeoPackage exist."""
 
     province = output_dir.name
 
@@ -261,7 +270,13 @@ def validate_province_outputs(output_dir: Path) -> list[Path]:
 
 
 def acquire_nrn(raw_nrn: Path = RAW_NRN, overwrite: bool = False) -> dict[str, list[Path]]:
-    """Download, extract, flatten, clean, and validate all NRN resources."""
+    """Acquire all raw NRN GeoPackages and return validated file paths by jurisdiction.
+
+    Builds the province/territory download metadata, ensures the raw NRN folder
+    structure exists, downloads each ZIP archive, extracts and flattens each
+    jurisdiction's GeoPackages, validates the final English/French outputs, and
+    returns the acquired files keyed by province or territory code.
+    """
 
     resources = build_nrn_resources(raw_nrn)
     ensure_directories(raw_nrn, resources.keys())
@@ -292,7 +307,7 @@ def acquire_nrn(raw_nrn: Path = RAW_NRN, overwrite: bool = False) -> dict[str, l
 
 
 def print_summary(acquired_files: dict[str, list[Path]]) -> None:
-    """Print final NRN acquisition summary."""
+    """Print the acquired NRN GeoPackages grouped by jurisdiction."""
 
     print("\nNRN acquisition summary")
     print("-----------------------")
@@ -311,6 +326,8 @@ def print_summary(acquired_files: dict[str, list[Path]]) -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI options for the raw NRN acquisition workflow."""
+
     parser = argparse.ArgumentParser(
         description="Download, extract, flatten, and validate raw NRN GeoPackages."
     )
@@ -332,6 +349,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Run the raw NRN acquisition command-line workflow."""
+
     args = parse_args()
 
     acquired_files = acquire_nrn(

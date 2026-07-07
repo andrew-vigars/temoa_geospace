@@ -87,6 +87,12 @@ road_presence_colors = ListedColormap(
 # =============================================================================
 
 def find_graph_node_files() -> list[Path]:
+    """Find and report processed graph node files for road-connectivity mapping.
+
+    Searches the processed graph folder for ``canada_basemap_*_graph_nodes.gpkg``
+    files, raises ``FileNotFoundError`` if none are found, prints the discovered
+    files, and returns them in sorted order.
+    """
     graph_node_files = sorted(
         PROCESSED_GRAPH.glob("canada_basemap_*_graph_nodes.gpkg")
     )
@@ -105,6 +111,11 @@ def find_graph_node_files() -> list[Path]:
 
 
 def infer_graph_edge_path(graph_node_path: Path) -> Path:
+    """Infer the graph edge CSV path paired with a graph node GeoPackage.
+
+    Replaces the ``_graph_nodes.gpkg`` suffix with ``_graph_edges.csv`` and
+    returns the corresponding path in the processed graph directory.
+    """
     return (
         PROCESSED_GRAPH
         / graph_node_path.name.replace(
@@ -115,6 +126,14 @@ def infer_graph_edge_path(graph_node_path: Path) -> Path:
 
 
 def load_static_datasets() -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
+    """Load and validate static road and basemap inputs for road mapping.
+
+    Reads the filtered national road network layer and original Canada basemap,
+    verifies that both datasets have defined coordinate reference systems,
+    reprojects the basemap to the road CRS, validates required road columns, and
+    returns a road-overlay GeoDataFrame with stable ``road_id`` values plus the
+    CRS-aligned Canada basemap.
+    """
     if not ROAD_NETWORK_PATH.exists():
         raise FileNotFoundError(f"Road network not found: {ROAD_NETWORK_PATH}")
 
@@ -184,6 +203,14 @@ def validate_graph_inputs(
     graph_edges: pd.DataFrame,
     roads: gpd.GeoDataFrame,
 ) -> None:
+    """Validate graph-node, graph-edge, and road-overlay inputs.
+
+    Checks that all required columns are present, graph nodes and road overlays
+    have defined and matching coordinate reference systems, graph node region IDs
+    are unique, and every graph edge references known ``region_from`` and
+    ``region_to`` IDs.
+    """
+
     required_region_columns = [
         "region",
         "site_id",
@@ -278,6 +305,8 @@ def build_road_region_overlay(
     roads_overlay: gpd.GeoDataFrame,
     regions: gpd.GeoDataFrame,
 ) -> gpd.GeoDataFrame:
+    """Overlay road segments onto graph regions using spatial intersection."""
+
     graph_nodes_overlay = regions[
         [
             "region",
@@ -304,6 +333,13 @@ def build_region_road_presence(
     regions: gpd.GeoDataFrame,
     road_region_overlay: gpd.GeoDataFrame,
 ) -> pd.DataFrame:
+    """Build a region-level table indicating whether each graph node has roads.
+
+    Counts unique road segments and total road-region intersections for each
+    graph region, fills missing counts with zero for regions without roads, and
+    adds a boolean ``has_road`` flag used by weak road-connectivity logic.
+    """
+
     road_counts_by_region = (
         road_region_overlay
         .groupby("region")
@@ -355,6 +391,14 @@ def build_weak_road_connections(
     graph_edges: pd.DataFrame,
     region_road_presence: pd.DataFrame,
 ) -> pd.DataFrame:
+    """Flag graph edges as weakly road-enabled using endpoint road presence.
+
+    A graph edge is considered weakly road-enabled when both adjacent endpoint
+    regions contain at least one road segment. The returned table preserves the
+    graph-edge records and adds endpoint road-presence flags, a combined
+    ``has_road_connection`` flag, connection-method metadata, and ``region_pair``.
+    """
+
     road_presence_lookup = (
         region_road_presence
         .set_index("region")["has_road"]
@@ -390,6 +434,15 @@ def build_strong_road_connections(
     graph_edges: pd.DataFrame,
     road_region_overlay: gpd.GeoDataFrame,
 ) -> pd.DataFrame:
+    """Flag graph edges as strongly road-enabled using shared road segments.
+
+    A graph edge is considered strongly road-enabled when its adjacent endpoint
+    regions intersect at least one common ``road_id`` in the road-region overlay.
+    The returned table preserves the graph-edge records and adds the shared-road
+    count, a combined ``has_road_connection`` flag, connection-method metadata,
+    and ``region_pair``.
+    """
+
     road_regions = (
         road_region_overlay[
             [
@@ -435,6 +488,8 @@ def build_road_edge_geometries(
     road_edge_connections: pd.DataFrame,
     regions_crs,
 ) -> gpd.GeoDataFrame:
+    """Build centroid-to-centroid geometries for road-enabled graph edges."""
+
     road_edges = (
         road_edge_connections
         .loc[road_edge_connections["has_road_connection"]]
@@ -470,6 +525,14 @@ def export_road_connectivity_outputs(
     road_edge_gdf: gpd.GeoDataFrame,
     road_region_overlay: gpd.GeoDataFrame | None = None,
 ) -> dict:
+    """Export road-connectivity tables and geometries for one graph/method pair.
+
+    Writes region-level road presence, graph-edge road-connection flags, and
+    road-enabled graph-edge geometries to the processed road-connectivity folder.
+    Optionally exports the road-region overlay, then returns output filenames for
+    inclusion in the road-connectivity summary table.
+    """
+
     region_road_presence_path = (
         PROCESSED_ROAD_CONNECTIVITY
         / f"{output_stem}_{connection_method}_region_road_presence.csv"
@@ -549,7 +612,7 @@ def plot_region_road_presence(
     canada_basemap: gpd.GeoDataFrame,
     output_path: Path,
 ) -> None:
-    """Export a PNG showing regions containing roads."""
+    """Export a diagnostic map of graph regions containing road segments."""
 
     regions_with_road_presence = regions.merge(
         region_road_presence,
@@ -625,7 +688,12 @@ def plot_road_edge_connectivity(
     connection_label: str,
     output_path: Path,
 ) -> None:
-    """Export a PNG showing road-enabled graph connectivity."""
+    """Export a diagnostic PNG showing road-enabled graph edges.
+
+    Plots graph regions by ``has_road`` status, overlays the filtered road
+    network and Canada basemap boundary for context, and draws enabled graph-edge
+    geometries for the selected weak or strong road-connectivity method.
+    """
 
     resolution = regions_with_road_presence["resolution_deg"].iloc[0]
     keep_method = regions_with_road_presence["keep_method"].iloc[0]
@@ -697,6 +765,15 @@ def build_road_connectivity_for_graph(
     canada_basemap: gpd.GeoDataFrame,
     plot_outputs: bool = False,
 ) -> dict:
+    """Build weak and strong road-connectivity outputs for one graph.
+
+    Loads the graph nodes and paired graph-edge table, aligns static road and
+    basemap layers to the graph CRS, validates graph and road inputs, overlays
+    roads onto graph regions, derives region-level road presence, builds weak
+    and strong road-enabled graph edges, exports tabular and geospatial outputs,
+    optionally writes diagnostic plots, and returns a summary row for the graph.
+    """
+
     graph_edge_path = infer_graph_edge_path(graph_node_path)
 
     if not graph_edge_path.exists():
@@ -913,6 +990,13 @@ def build_road_connectivity_for_graph(
 
 
 def main() -> None:
+    """Run the road-connectivity mapping workflow for all processed graphs.
+
+    Creates the road-connectivity output folder, discovers processed graph node
+    files, loads static road and basemap datasets, builds weak and strong
+    road-connectivity outputs for each graph, and writes the consolidated
+    road-connectivity summary CSV.
+    """
     PROCESSED_ROAD_CONNECTIVITY.mkdir(parents=True, exist_ok=True)
 
     graph_node_files = find_graph_node_files()
