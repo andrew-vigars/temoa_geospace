@@ -57,6 +57,28 @@ KEEP_METHODS = [
 
 
 def find_boundary_shapefile(raw_basemap_dir: Path) -> Path:
+    """Return the single boundary shapefile in the raw basemap directory.
+
+    The basemap build assumes that the raw boundary input directory contains
+    exactly one ``.shp`` file. This guard prevents accidentally building the
+    national boundary from the wrong file or from an ambiguous set of boundary
+    files.
+
+    Parameters
+    ----------
+    raw_basemap_dir : Path
+        Directory containing the raw Canada boundary shapefile.
+
+    Returns
+    -------
+    Path
+        Path to the only shapefile found in ``raw_basemap_dir``.
+
+    Raises
+    ------
+    ValueError
+        If the directory contains zero shapefiles or more than one shapefile.
+    """
     shapefiles = sorted(raw_basemap_dir.glob("*.shp"))
 
     if len(shapefiles) != 1:
@@ -69,6 +91,28 @@ def find_boundary_shapefile(raw_basemap_dir: Path) -> Path:
 
 
 def build_canada_boundary(boundary_path: Path) -> gpd.GeoDataFrame:
+    """Build a dissolved Canada boundary from a raw province/territory file.
+
+    The input boundary file is expected to contain multiple provincial and/or
+    territorial geometries. This function loads those geometries, projects them
+    to the workflow CRS, and dissolves them into a single national geometry used
+    for later basemap grid filtering.
+
+    Parameters
+    ----------
+    boundary_path : Path
+        Path to the raw boundary shapefile.
+
+    Returns
+    -------
+    gpd.GeoDataFrame
+        One-row GeoDataFrame containing the dissolved Canada geometry in WGS84.
+
+    Raises
+    ------
+    ValueError
+        If the boundary file contains no records.
+    """
     print(f"Loading boundary file: {boundary_path.name}")
 
     provinces = gpd.read_file(boundary_path)
@@ -95,6 +139,45 @@ def build_latlon_grid(
     resolution_deg: float,
     keep_method: str,
 ) -> gpd.GeoDataFrame:
+    """Build a latitude/longitude grid clipped to the Canada boundary.
+
+    Candidate grid cells are first generated across the bounding box of the
+    dissolved Canada geometry. The cells are then filtered using one of two
+    retention methods:
+
+    - ``centroid`` keeps cells whose centroid falls within the Canada boundary.
+    - ``intersects`` keeps cells whose polygon intersects the Canada boundary.
+
+    The centroid method is more conservative and can exclude near-border cells.
+    The intersects method is more inclusive and can retain partial boundary
+    cells. The retained cells are sorted spatially and assigned deterministic
+    ``region`` and ``site_id`` values for downstream CANOE/TEMOA encoding.
+
+    Parameters
+    ----------
+    boundary_geometry
+        Dissolved Canada boundary geometry used to define the candidate grid
+        extent.
+    boundary_gdf : gpd.GeoDataFrame
+        One-row GeoDataFrame containing the Canada boundary used for spatial
+        filtering.
+    resolution_deg : float
+        Grid-cell size in decimal degrees.
+    keep_method : str
+        Boundary retention method. Must be either ``"centroid"`` or
+        ``"intersects"``.
+
+    Returns
+    -------
+    gpd.GeoDataFrame
+        Retained basemap grid cells with region IDs, site IDs, resolution
+        metadata, retention-method metadata, and polygon geometries in WGS84.
+
+    Raises
+    ------
+    ValueError
+        If ``keep_method`` is not ``"centroid"`` or ``"intersects"``.
+    """
 
     if keep_method not in {"centroid", "intersects"}:
         raise ValueError("keep_method must be 'centroid' or 'intersects'.")
@@ -199,6 +282,29 @@ def save_basemap_preview(
     resolution_deg: float,
     keep_method: str,
 ) -> None:
+    """Save a PNG preview of a generated Canada basemap.
+
+    The preview overlays the retained grid cells with the dissolved Canada
+    boundary so the spatial coverage of a given resolution and retention method
+    can be checked visually.
+
+    Parameters
+    ----------
+    basemap : gpd.GeoDataFrame
+        Retained basemap grid cells to plot.
+    canada_boundary : gpd.GeoDataFrame
+        Dissolved Canada boundary used as the visual reference outline.
+    png_path : Path
+        Output path for the saved PNG preview.
+    resolution_deg : float
+        Grid-cell size in decimal degrees, used in the plot title.
+    keep_method : str
+        Boundary retention method, used in the plot title.
+
+    Returns
+    -------
+    None
+    """
     fig, ax = plt.subplots(figsize=(8, 8))
 
     basemap.plot(
@@ -234,8 +340,28 @@ def build_all_basemaps(
     canada_boundary: gpd.GeoDataFrame,
     output_dir: Path,
 ) -> pd.DataFrame:
-    preview_dir = output_dir / "preview"
+    """Build and export all configured Canada basemap variants.
 
+    For each configured grid resolution and boundary retention method, this
+    function builds a basemap grid, exports the retained cells to a GeoPackage,
+    saves a PNG preview, and records summary metadata. Existing preview files
+    are cleared before new previews are generated.
+
+    Parameters
+    ----------
+    canada_boundary : gpd.GeoDataFrame
+        One-row GeoDataFrame containing the dissolved Canada boundary in WGS84.
+    output_dir : Path
+        Directory where basemap GeoPackages, previews, and summary metadata are
+        written.
+
+    Returns
+    -------
+    pd.DataFrame
+        Summary table with one row per basemap variant, including resolution,
+        retention method, number of retained regions, spatial extent, output
+        filename, and preview filename.
+    """
     preview_dir = output_dir / "preview"
 
     if preview_dir.exists():
@@ -295,6 +421,17 @@ def build_all_basemaps(
 
 
 def main() -> None:
+    """Run Stage 1 of the Geospatial-CANOE basemap workflow.
+
+    This entry point prepares the processed basemap directory, loads and
+    dissolves the raw Canada boundary shapefile, exports the WGS84 national
+    boundary, builds all configured basemap variants, and writes a summary CSV
+    describing the generated outputs.
+
+    Returns
+    -------
+    None
+    """
     PROCESSED_BASEMAP.mkdir(parents=True, exist_ok=True)
 
     boundary_path = find_boundary_shapefile(RAW_BASEMAP)
