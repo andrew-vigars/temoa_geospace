@@ -52,7 +52,7 @@ RAW_NRN = DATA_FILES / "raw" / "nrn"
 HEADERS = {
     "User-Agent": (
         "Geospatial-CANOE/0.1.0 "
-        "(University of Toronto; Andrew Vigars)" # Change to your name or organization if desired.
+        "(University of Toronto Academic Research)" # Change to your name or organization if desired.
     )
 }
 
