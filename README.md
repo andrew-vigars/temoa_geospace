@@ -110,9 +110,7 @@ Stage 5 - Encode the CANOE/TEMOA SQLite schema --> build_schema.py
 
 Stage 6 - Execute TEMOA --> main_run.py
 
-Stage 7 - Audit results and generate Canadian supply chain map --> audit_inputs.py, audit_outputs.py, create_map.py
-
-Optional Stage - Compare pyomo results to written sqlite results to validate ETL logic --> etl_diagnostics.py
+Stage 7 - Audit results and generate Canadian supply chain map --> check_inputs.py, check_balance.py, create_map.py
 
 ------------------------------------------------------------------------
 
