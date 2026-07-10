@@ -36,11 +36,12 @@ import sys
 import geopandas as gpd
 import pandas as pd
 import math
-import db_mgmt
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+import db_mgmt # I get an error here if I dont import this after the project root is created.
 
 # =============================================================================
 # Project paths
