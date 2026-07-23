@@ -10,15 +10,15 @@ inspection/debug cells and replacing hardcoded basemap/connectivity choices with
 runtime selection.
 
 Inputs:
-    data_files/processed/basemaps/canada_basemap_*deg_*.gpkg
+    data_files/processed/basemaps/{study_area}_basemap_*{deg|km}_*.gpkg
     data_files/processed/graph/*_graph_nodes.gpkg
     data_files/processed/graph/*_graph_edges.csv
     data_files/processed/road_connectivity/*_road_edge_connections.csv
     data_files/processed/road_connectivity/*_road_edges.gpkg
     data_files/CANOE_geospatial.sqlite
     data_files/canoe_dataset_schema.sql
-    data_files/sites_full.csv
-    data_files/demand.csv
+    data_files/processed/legacy_inputs/sites_full_with_province.csv
+    data_files/processed/legacy_inputs/demand_with_province.csv
     data_files/processed/emissions/co2_large_facilities_2024/co2_large_facilities_2024_clean.gpkg
     data_files/transport_techs.csv
     data_files/generation_efficiency.csv
@@ -29,9 +29,11 @@ Outputs:
     data_files/processed/schema/CANOE_geospatial_{BASEMAP_STEM}_{CONNECTION_METHOD}.sqlite
 """
 
+import argparse
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from time import perf_counter
 import sys
 import geopandas as gpd
 import pandas as pd
@@ -43,6 +45,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 import db_mgmt # I get an error here if I dont import this after the project root is created.
+
+from project_config import (
+    GeospatialBuildConfig,
+    load_geospatial_build_config,
+    print_build_config,
+)
 
 # =============================================================================
 # Project paths
@@ -60,8 +68,9 @@ RAW_BASEMAP_PATH = RAW_BASEMAPS / "lpr_000b21a_e.shp"
 RAW_SCHEMA_PATH = DATA_FILES / "canoe_dataset_schema.sql"
 BASELINE_SQLITE_PATH = DATA_FILES / "CANOE_geospatial.sqlite"
 
-SITES_PATH = DATA_FILES / "sites_full.csv"
-DEMAND_PATH = DATA_FILES / "demand.csv"
+PROCESSED_LEGACY_INPUTS = DATA_FILES / "processed" / "legacy_inputs"
+SITES_PATH = PROCESSED_LEGACY_INPUTS / "sites_full_with_province.csv"
+DEMAND_PATH = PROCESSED_LEGACY_INPUTS / "demand_with_province.csv"
 
 PROCESSED_EMISSIONS_DIR = (
     DATA_FILES
@@ -121,7 +130,7 @@ ETL_SPACING = "log"
 
 
 @dataclass(frozen=True)
-class SchemaConfig:
+class ResolvedSchemaConfig:
     """Resolved file configuration for one schema-building run.
 
     This immutable configuration stores the selected basemap variant, selected
@@ -306,6 +315,15 @@ class TechSpecs:
     transport_techs: set[str]
 
 
+@dataclass(frozen=True)
+class PointAssignmentContext:
+    """Precomputed graph objects reused across point datasets."""
+
+    graph_nodes_native: gpd.GeoDataFrame
+    graph_nodes_metric: gpd.GeoDataFrame
+    max_snap_distance_m: float
+
+
 @dataclass
 class SnappedInputs:
     """Container for point inputs after snapping to graph nodes.
@@ -380,50 +398,124 @@ def select_from_options(options: list[str], label: str) -> str:
         raise ValueError(f"Invalid {label} selection: {choice}") from exc
 
 
-def discover_basemap_stems() -> list[str]:
+def discover_basemap_stems(
+    build_config: GeospatialBuildConfig,
+) -> list[str]:
+    """Discover Stage 1 basemaps belonging to one build profile."""
+
+    pattern = (
+        f"{build_config.study_area.label}_basemap_*_"
+        f"{build_config.basemaps.keep_method}.gpkg"
+    )
+
     basemap_paths = sorted(
-        PROCESSED_BASEMAPS.glob("canada_basemap_*deg_*.gpkg")
-    )
-    return [path.stem for path in basemap_paths]
-
-
-def select_schema_configuration() -> SchemaConfig:
-    """Discover available Stage 1 basemap variants.
-
-    This function searches the processed basemap directory for generated Canada
-    basemap GeoPackages and returns their file stems. The stems are used as
-    selectable configuration identifiers so the schema builder can construct
-    matching graph, road-connectivity, and output SQLite paths for the same
-    basemap variant.
-
-    Returns
-    -------
-    list[str]
-        Sorted basemap file stems available for schema-building selection.
-    """
-    basemap_stem = select_from_options(
-        discover_basemap_stems(),
-        "basemap",
+        path
+        for path in PROCESSED_BASEMAPS.glob(pattern)
+        if "_boundary_" not in path.name
     )
 
-    connection_method = select_from_options(
-        ["weak", "strong"],
-        "road connection method",
-    )
+    stems: list[str] = []
 
-    config = SchemaConfig(
+    for path in basemap_paths:
+        metadata = gpd.read_file(path, rows=1)
+
+        required_columns = {
+            "study_area",
+            "grid_type",
+            "resolution",
+            "resolution_unit",
+            "keep_method",
+        }
+        missing = required_columns - set(metadata.columns)
+
+        if missing:
+            raise ValueError(
+                f"{path.name} is missing basemap metadata columns: "
+                f"{sorted(missing)}"
+            )
+
+        study_area = str(metadata["study_area"].iloc[0])
+        grid_type = str(metadata["grid_type"].iloc[0])
+        keep_method = str(metadata["keep_method"].iloc[0])
+
+        if study_area != build_config.study_area.label:
+            continue
+        if grid_type not in build_config.basemaps.grid_types:
+            continue
+        if keep_method != build_config.basemaps.keep_method:
+            continue
+
+        stems.append(path.stem)
+
+    if not stems:
+        raise FileNotFoundError(
+            "No processed basemaps matched build profile "
+            f"{build_config.study_area.label!r}. Expected pattern: {pattern}"
+        )
+
+    return stems
+
+
+def resolve_schema_configuration(
+    build_config: GeospatialBuildConfig,
+) -> ResolvedSchemaConfig:
+    """Resolve matching Stage 1–4 products for one schema build."""
+
+    available_stems = discover_basemap_stems(build_config)
+
+    if build_config.schema.interactive_basemap_selection:
+        basemap_stem = select_from_options(
+            available_stems,
+            "basemap",
+        )
+    else:
+        basemap_stem = build_config.schema.basemap_stem
+
+        if basemap_stem is None:
+            raise ValueError(
+                "schema.basemap_stem is required when interactive "
+                "selection is disabled."
+            )
+
+        if basemap_stem not in available_stems:
+            raise ValueError(
+                f"Configured basemap_stem {basemap_stem!r} was not found "
+                f"among profile basemaps: {available_stems}"
+            )
+
+    connection_method = build_config.schema.road_connection_method
+
+    if connection_method not in build_config.road_connectivity.methods:
+        raise ValueError(
+            "The schema road connection method was not generated by the "
+            "configured road-connectivity stage."
+        )
+
+    config = ResolvedSchemaConfig(
         basemap_stem=basemap_stem,
         connection_method=connection_method,
         basemap_path=PROCESSED_BASEMAPS / f"{basemap_stem}.gpkg",
-        graph_node_path=PROCESSED_GRAPH / f"{basemap_stem}_graph_nodes.gpkg",
-        graph_edge_path=PROCESSED_GRAPH / f"{basemap_stem}_graph_edges.csv",
+        graph_node_path=(
+            PROCESSED_GRAPH
+            / f"{basemap_stem}_graph_nodes.gpkg"
+        ),
+        graph_edge_path=(
+            PROCESSED_GRAPH
+            / f"{basemap_stem}_graph_edges.csv"
+        ),
         road_edge_connections_path=(
             PROCESSED_ROAD_CONNECTIVITY
-            / f"{basemap_stem}_road_connectivity_{connection_method}_road_edge_connections.csv"
+            / (
+                f"{basemap_stem}_road_connectivity_"
+                f"{connection_method}_road_edge_connections.csv"
+            )
         ),
         road_edges_gpkg_path=(
             PROCESSED_ROAD_CONNECTIVITY
-            / f"{basemap_stem}_road_connectivity_{connection_method}_road_edges.gpkg"
+            / (
+                f"{basemap_stem}_road_connectivity_"
+                f"{connection_method}_road_edges.gpkg"
+            )
         ),
         road_region_overlay_path=(
             PROCESSED_ROAD_CONNECTIVITY
@@ -431,12 +523,16 @@ def select_schema_configuration() -> SchemaConfig:
         ),
         output_sqlite_path=(
             PROCESSED_SCHEMA
-            / f"CANOE_geospatial_{basemap_stem}_{connection_method}.sqlite"
+            / (
+                f"CANOE_geospatial_{basemap_stem}_"
+                f"{connection_method}.sqlite"
+            )
         ),
     )
 
     ensure_baseline_sqlite_exists()
     validate_required_paths(config)
+
     return config
 
 def ensure_baseline_sqlite_exists() -> None:
@@ -472,7 +568,7 @@ def ensure_baseline_sqlite_exists() -> None:
         BASELINE_SQLITE_PATH,
     )
 
-def validate_required_paths(config: SchemaConfig) -> None:
+def validate_required_paths(config: ResolvedSchemaConfig) -> None:
     """Validate that all inputs required for schema building exist.
 
     This function checks the file dependencies needed to encode the selected
@@ -497,7 +593,6 @@ def validate_required_paths(config: SchemaConfig) -> None:
         If one or more required input files are missing.
     """
     required_paths = {
-        "raw_basemap": RAW_BASEMAP_PATH,
         "raw_schema": RAW_SCHEMA_PATH,
         "baseline_sqlite": BASELINE_SQLITE_PATH,
         "sites": SITES_PATH,
@@ -802,7 +897,7 @@ def validate_h2_opex_coefficients(
     )
 
 
-def load_inputs(config: SchemaConfig) -> LoadedInputs:
+def load_inputs(config: ResolvedSchemaConfig) -> LoadedInputs:
     """Load all inputs required for the selected schema configuration.
 
     This function reads the selected basemap, graph topology, road-connectivity
@@ -850,6 +945,20 @@ def load_inputs(config: SchemaConfig) -> LoadedInputs:
         h2_opex_coefficients=pd.read_csv(H2_OPEX_COEFFICIENT_PATH),
     )
 
+    basemap_study_area = str(inputs.basemap["study_area"].iloc[0])
+    node_study_area = str(inputs.graph_nodes["study_area"].iloc[0])
+
+    if basemap_study_area != node_study_area:
+        raise ValueError(
+            "Selected basemap and graph nodes do not share the same "
+            "study_area metadata."
+        )
+
+    if inputs.basemap.crs != inputs.graph_nodes.crs:
+        raise ValueError(
+            "Selected basemap and graph-node CRS values do not match."
+        )
+
     validate_clean_emissions(inputs.co2_raw)
     validate_h2_etlsegment_template(inputs.h2_etlsegment_template)
     validate_h2_opex_coefficients(inputs.h2_opex_coefficients)
@@ -871,7 +980,7 @@ def build_canonical_links(
     graph_nodes: gpd.GeoDataFrame,
     graph_edges: pd.DataFrame,
     road_edge_connections: pd.DataFrame,
-    config: SchemaConfig,
+    config: ResolvedSchemaConfig,
 ) -> CanonicalLinks:
     """Build canonical node and edge regions for schema encoding.
 
@@ -1104,92 +1213,401 @@ def build_tech_specs(transport_techs_raw: pd.DataFrame) -> TechSpecs:
     return specs
 
 
+PROVINCE_NAME_TO_CODE = {
+    "newfoundland and labrador": "NL",
+    "prince edward island": "PE",
+    "nova scotia": "NS",
+    "new brunswick": "NB",
+    "quebec": "QC",
+    "québec": "QC",
+    "ontario": "ON",
+    "manitoba": "MB",
+    "saskatchewan": "SK",
+    "alberta": "AB",
+    "british columbia": "BC",
+    "yukon": "YT",
+    "northwest territories": "NT",
+    "nunavut": "NU",
+}
+
+
+def normalize_province_codes(values: pd.Series) -> pd.Series:
+    """Normalize Canadian province names or abbreviations to two-letter codes."""
+
+    normalized = values.astype("string").str.strip()
+    upper = normalized.str.upper()
+
+    code_mask = upper.str.fullmatch(r"[A-Z]{2}", na=False)
+    output = pd.Series(pd.NA, index=values.index, dtype="string")
+    output.loc[code_mask] = upper.loc[code_mask]
+
+    names = normalized.str.casefold()
+    output.loc[~code_mask] = names.loc[~code_mask].map(
+        PROVINCE_NAME_TO_CODE
+    )
+
+    return output
+
+
+def filter_to_configured_provinces(
+    data: pd.DataFrame,
+    configured_provinces: tuple[str, ...],
+    dataset_label: str,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Filter a mapped point table to the profile's province codes."""
+
+    if "province" not in data.columns:
+        raise ValueError(
+            f"{dataset_label} is missing the required 'province' column. "
+            "Run map_legacy_inputs.py before build_schema.py."
+        )
+
+    working = data.copy()
+    working["province"] = normalize_province_codes(working["province"])
+
+    if working["province"].isna().any():
+        examples = (
+            data.loc[working["province"].isna(), "province"]
+            .astype(str)
+            .drop_duplicates()
+            .head(10)
+            .tolist()
+        )
+        raise ValueError(
+            f"{dataset_label} contains unrecognized province values: "
+            f"{examples}"
+        )
+
+    selected = {
+        str(code).upper().strip()
+        for code in configured_provinces
+    }
+    keep_mask = working["province"].isin(selected)
+
+    included = working.loc[keep_mask].copy()
+    excluded = working.loc[~keep_mask].copy()
+
+    print(
+        f"{dataset_label}: retained {len(included):,} row(s) in configured "
+        f"provinces and excluded {len(excluded):,} row(s)."
+    )
+
+    return included, excluded
+
+
+def estimate_max_snap_distance_m(
+    graph_nodes: gpd.GeoDataFrame,
+    max_snap_distance_factor: float,
+) -> float:
+    """Calculate the configured nearest-node fallback threshold."""
+
+    grid_type = str(graph_nodes["grid_type"].iloc[0])
+    resolution = float(graph_nodes["resolution"].iloc[0])
+    resolution_unit = str(graph_nodes["resolution_unit"].iloc[0])
+
+    if grid_type == "geographic" or resolution_unit == "degree":
+        nominal_resolution_m = resolution * 111_000.0
+    elif grid_type == "projected" or resolution_unit == "km":
+        nominal_resolution_m = resolution * 1_000.0
+    else:
+        raise ValueError(
+            "Cannot estimate snap threshold from graph metadata: "
+            f"grid_type={grid_type!r}, resolution_unit={resolution_unit!r}."
+        )
+
+    return max_snap_distance_factor * nominal_resolution_m
+
+
+def build_point_assignment_context(
+    graph_nodes: gpd.GeoDataFrame,
+    max_snap_distance_factor: float,
+) -> PointAssignmentContext:
+    """Precompute graph reprojection, spatial indexes, and snap distance."""
+
+    total_start = perf_counter()
+    print("\nPreparing reusable graph-assignment context...", flush=True)
+
+    graph_nodes_native = graph_nodes[["region", "geometry"]].copy()
+    graph_nodes_metric = graph_nodes_native.to_crs(
+        STAT_CANADA_LAMPERT_CRS
+    )
+
+    max_snap_distance_m = estimate_max_snap_distance_m(
+        graph_nodes=graph_nodes,
+        max_snap_distance_factor=max_snap_distance_factor,
+    )
+
+    print("  Building native graph-node spatial index...", flush=True)
+    _ = graph_nodes_native.sindex
+    print("  Building metric graph-node spatial index...", flush=True)
+    _ = graph_nodes_metric.sindex
+
+    print(
+        f"  Maximum nearest fallback distance: "
+        f"{max_snap_distance_m:,.0f} m",
+        flush=True,
+    )
+    print(
+        f"  Graph-assignment context prepared in "
+        f"{perf_counter() - total_start:.1f} s.",
+        flush=True,
+    )
+
+    return PointAssignmentContext(
+        graph_nodes_native=graph_nodes_native,
+        graph_nodes_metric=graph_nodes_metric,
+        max_snap_distance_m=max_snap_distance_m,
+    )
+
+
 def snap_points_to_graph_nodes(
     points: pd.DataFrame | gpd.GeoDataFrame,
-    graph_nodes: gpd.GeoDataFrame,
+    context: PointAssignmentContext,
     lon_col: str = "lon",
     lat_col: str = "lat",
+    dataset_label: str = "points",
 ) -> pd.DataFrame:
-    """Assign point records to selected graph-node regions.
+    """Assign province-filtered WGS84 points to selected graph regions."""
 
-    This function converts input records with longitude and latitude columns
-    into point geometries and spatially joins them to the selected graph-node
-    polygons. Points that fall within a graph node are assigned directly. Points
-    that do not fall within any node are assigned to the nearest graph node
-    using a projected Canada-wide CRS for distance calculation.
+    total_start = perf_counter()
 
-    The returned table drops geometry and preserves the original point
-    attributes with an added ``region`` assignment.
-
-    Parameters
-    ----------
-    points : pd.DataFrame | gpd.GeoDataFrame
-        Input point records to assign to graph-node regions.
-    graph_nodes : gpd.GeoDataFrame
-        Selected graph-node polygons containing ``region`` and ``geometry``.
-    lon_col : str, default "lon"
-        Name of the longitude column in ``points``.
-    lat_col : str, default "lat"
-        Name of the latitude column in ``points``.
-
-    Returns
-    -------
-    pd.DataFrame
-        Input point records with graph-node ``region`` assignments and no
-        geometry column.
-    """
     points_df = (
         pd.DataFrame(points.drop(columns="geometry"))
         if isinstance(points, gpd.GeoDataFrame)
         else points.copy()
     )
 
-    points_gdf = gpd.GeoDataFrame(
-        points_df,
-        geometry=gpd.points_from_xy(points_df[lon_col], points_df[lat_col]),
-        crs="EPSG:4326",
+    for column in [lon_col, lat_col]:
+        if column not in points_df.columns:
+            raise ValueError(
+                f"{dataset_label} is missing coordinate column {column!r}."
+            )
+
+    print(
+        f"\n{dataset_label}: assigning {len(points_df):,} point(s) "
+        "to graph regions...",
+        flush=True,
     )
 
-    nodes_gdf = graph_nodes[["region", "geometry"]].copy()
+    points_wgs84 = gpd.GeoDataFrame(
+        points_df,
+        geometry=gpd.points_from_xy(
+            pd.to_numeric(points_df[lon_col], errors="raise"),
+            pd.to_numeric(points_df[lat_col], errors="raise"),
+        ),
+        crs="EPSG:4326",
+    )
+    points_native = points_wgs84.to_crs(
+        context.graph_nodes_native.crs
+    )
 
+    step_start = perf_counter()
+    print(
+        f"{dataset_label}: running direct point-in-polygon join...",
+        flush=True,
+    )
     snapped = gpd.sjoin(
-        points_gdf,
-        nodes_gdf,
+        points_native,
+        context.graph_nodes_native,
         how="left",
         predicate="within",
     ).drop(columns="index_right")
+    print(
+        f"{dataset_label}: direct join complete "
+        f"({perf_counter() - step_start:.1f} s).",
+        flush=True,
+    )
 
     unmatched_mask = snapped["region"].isna()
     n_unmatched = int(unmatched_mask.sum())
 
-    if n_unmatched > 0:
-        unmatched_gdf = points_gdf.loc[unmatched_mask].copy()
+    print(
+        f"{dataset_label}: direct join assigned "
+        f"{len(snapped) - n_unmatched:,}; nearest fallback required for "
+        f"{n_unmatched:,}.",
+        flush=True,
+    )
 
+    if n_unmatched > 0:
+        step_start = perf_counter()
+        nearest_points = points_native.loc[unmatched_mask].to_crs(
+            STAT_CANADA_LAMPERT_CRS
+        )
+
+        print(
+            f"{dataset_label}: running bounded nearest-region join...",
+            flush=True,
+        )
         snapped_nearest = gpd.sjoin_nearest(
-            unmatched_gdf.to_crs(STAT_CANADA_LAMPERT_CRS),
-            nodes_gdf.to_crs(STAT_CANADA_LAMPERT_CRS),
+            nearest_points,
+            context.graph_nodes_metric,
             how="left",
             distance_col="snap_distance_m",
-        ).to_crs("EPSG:4326")
-
+        )
         snapped_nearest = snapped_nearest.loc[
             ~snapped_nearest.index.duplicated(keep="first")
         ]
-
-        snapped.loc[unmatched_mask, "region"] = snapped_nearest["region"].values
-
         print(
-            f"Nearest fallback assigned {n_unmatched:,} points "
-            f"(max {snapped_nearest['snap_distance_m'].max():,.0f} m, "
-            f"mean {snapped_nearest['snap_distance_m'].mean():,.0f} m)."
+            f"{dataset_label}: nearest join complete "
+            f"({perf_counter() - step_start:.1f} s).",
+            flush=True,
         )
 
-    return pd.DataFrame(snapped.drop(columns="geometry"))
+        too_far = (
+            snapped_nearest["snap_distance_m"]
+            > context.max_snap_distance_m
+        )
+        excluded_outlier_indices: list[int] = []
+
+        if too_far.any():
+            diagnostic_columns = [
+                column
+                for column in [
+                    "lon",
+                    "lat",
+                    "longitude",
+                    "latitude",
+                    "province",
+                    "province_name",
+                    "province_assignment_method",
+                    "province_distance_km",
+                    "region",
+                    "snap_distance_m",
+                ]
+                if column in snapped_nearest.columns
+            ]
+
+            diagnostic = pd.DataFrame(
+                snapped_nearest.loc[too_far, diagnostic_columns]
+            ).copy()
+            diagnostic["snap_distance_km"] = (
+                diagnostic["snap_distance_m"] / 1_000.0
+            )
+
+            safe_label = (
+                dataset_label.lower()
+                .replace(" ", "_")
+                .replace("+", "and")
+            )
+            diagnostic_path = (
+                PROCESSED_LEGACY_INPUTS
+                / f"{safe_label}_graph_snap_distance_audit.csv"
+            )
+            try:
+                diagnostic.to_csv(diagnostic_path, index=False)
+            except PermissionError:
+                timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+                diagnostic_path = (
+                PROCESSED_LEGACY_INPUTS
+                / (
+                    f"{safe_label}_graph_snap_distance_audit_"
+                    f"{timestamp}.csv"
+                )
+            )
+            diagnostic.to_csv(diagnostic_path, index=False)
+
+            print(
+                "The default audit CSV is open or locked. "
+                "Wrote a timestamped audit file instead.",
+                flush=True,
+            )
+
+            largest_distances = (
+                diagnostic["snap_distance_km"]
+                .sort_values(ascending=False)
+                .round(1)
+                .tolist()
+            )
+
+            print(
+                f"\n{dataset_label}: {int(too_far.sum()):,} point(s) exceed "
+                f"the graph snap limit of "
+                f"{context.max_snap_distance_m / 1_000.0:,.1f} km.",
+                flush=True,
+            )
+            print(
+                f"Actual distances: {largest_distances} km.",
+                flush=True,
+            )
+            print(
+                f"Audit written to: {diagnostic_path}",
+                flush=True,
+            )
+            print(
+                "Review the audit file before deciding whether to continue.",
+                flush=True,
+            )
+
+            while True:
+                response = input(
+                    "Continue the schema build and exclude these outliers? "
+                    "[y/n]: "
+                ).strip().lower()
+
+                if response in {"y", "yes"}:
+                    excluded_outlier_indices = (
+                        snapped_nearest.index[too_far].tolist()
+                    )
+                    print(
+                        f"{dataset_label}: excluding "
+                        f"{len(excluded_outlier_indices):,} outlier point(s) "
+                        "and continuing.",
+                        flush=True,
+                    )
+                    break
+
+                if response in {"n", "no"}:
+                    raise ValueError(
+                        f"{dataset_label}: schema build stopped by user after "
+                        f"{int(too_far.sum()):,} graph-snap outlier(s) were "
+                        f"identified. Audit: {diagnostic_path}"
+                    )
+
+                print("Please enter y or n.", flush=True)
+
+        accepted_nearest = snapped_nearest.loc[~too_far]
+
+        snapped.loc[
+            accepted_nearest.index,
+            "region",
+        ] = accepted_nearest["region"]
+
+        if excluded_outlier_indices:
+            snapped = snapped.drop(
+                index=excluded_outlier_indices,
+                errors="ignore",
+            )
+
+        if not accepted_nearest.empty:
+            print(
+                f"{dataset_label}: accepted nearest fallback distance "
+                f"(max {accepted_nearest['snap_distance_m'].max():,.0f} m, "
+                f"mean {accepted_nearest['snap_distance_m'].mean():,.0f} m).",
+                flush=True,
+            )
+
+    if snapped["region"].isna().any():
+        raise ValueError(
+            f"{dataset_label}: one or more points could not be assigned."
+        )
+
+    output = pd.DataFrame(
+        snapped.drop(columns="geometry", errors="ignore")
+    )
+
+    print(
+        f"{dataset_label}: assignment complete in "
+        f"{perf_counter() - total_start:.1f} s.",
+        flush=True,
+    )
+
+    return output
 
 
 def build_site_attributes(
     inputs: LoadedInputs,
     canonical: CanonicalLinks,
+    build_config: GeospatialBuildConfig,
 ) -> SnappedInputs:
     """Snap point inputs to graph nodes and build node-level attributes.
 
@@ -1221,6 +1639,13 @@ def build_site_attributes(
     """
     print("\nSnapping demand, electricity, and CO2 inputs to selected graph nodes...")
 
+    assignment_context = build_point_assignment_context(
+        graph_nodes=inputs.graph_nodes,
+        max_snap_distance_factor=(
+            build_config.schema.max_snap_distance_factor
+        ),
+    )
+
     raw_points_non_co2 = pd.concat(
         [inputs.sites_raw, inputs.demand_raw],
         ignore_index=True,
@@ -1229,9 +1654,18 @@ def build_site_attributes(
     numeric_cols = raw_points_non_co2.select_dtypes(include="number").columns
     raw_points_non_co2[numeric_cols] = raw_points_non_co2[numeric_cols].fillna(0)
 
+    raw_points_non_co2, excluded_non_co2 = (
+        filter_to_configured_provinces(
+            data=raw_points_non_co2,
+            configured_provinces=build_config.study_area.provinces,
+            dataset_label="sites_full + demand",
+        )
+    )
+
     snapped_non_co2 = snap_points_to_graph_nodes(
-        raw_points_non_co2,
-        inputs.graph_nodes,
+        points=raw_points_non_co2,
+        context=assignment_context,
+        dataset_label="sites_full + demand",
     )
 
     co2_facilities = inputs.co2_raw.copy()
@@ -1242,11 +1676,18 @@ def build_site_attributes(
 
     co2_facilities = co2_facilities.loc[co2_facilities["co2"] > 0].copy()
 
+    co2_facilities, excluded_co2 = filter_to_configured_provinces(
+        data=co2_facilities,
+        configured_provinces=build_config.study_area.provinces,
+        dataset_label="CO2 facilities",
+    )
+
     snapped_co2 = snap_points_to_graph_nodes(
-        co2_facilities,
-        inputs.graph_nodes,
+        points=co2_facilities,
+        context=assignment_context,
         lon_col="longitude",
         lat_col="latitude",
+        dataset_label="CO2 facilities",
     )
 
     co2_region = (
@@ -1295,6 +1736,19 @@ def build_site_attributes(
         f"CO2 facilities dropped (zero/negative emissions): "
         f"{len(inputs.co2_raw) - len(co2_facilities):,}"
     )
+    print(
+        "Non-CO2 point rows excluded outside configured provinces: "
+        f"{len(excluded_non_co2):,}"
+    )
+    print(
+        "Positive-emissions CO2 facilities excluded outside configured provinces: "
+        f"{len(excluded_co2):,}"
+    )
+    if not excluded_co2.empty and "co2" in excluded_co2.columns:
+        print(
+            "CO2 excluded outside configured provinces: "
+            f"{excluded_co2['co2'].sum():,.2f} t CO2e/year"
+        )
 
     return SnappedInputs(
         site_attributes=site_attributes,
@@ -3065,14 +3519,36 @@ def summarize_final_database(db_encoded: dict[str, pd.DataFrame]) -> None:
 # Main
 # =============================================================================
 
-def main() -> None:
-    """Run the single-period geospatial schema rebuild workflow."""
+def parse_args() -> argparse.Namespace:
+    """Parse the schema build-profile path."""
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "Build a CANOE/TEMOA SQLite database from one geospatial "
+            "preprocessing profile."
+        )
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        required=True,
+        help=(
+            "Path to a geospatial preprocessing TOML build profile."
+        ),
+    )
+    return parser.parse_args()
+
+
+def run_schema_build(
+    build_config: GeospatialBuildConfig,
+) -> Path:
+    """Run the single-period schema rebuild for one build profile."""
 
     PROCESSED_SCHEMA.mkdir(parents=True, exist_ok=True)
 
-    config = select_schema_configuration()
+    config = resolve_schema_configuration(build_config)
 
-    print("\nSelected configuration:")
+    print("\nSelected schema configuration:")
     print(f"Basemap: {config.basemap_stem}")
     print(f"Road connection method: {config.connection_method}")
     print(f"Output SQLite: {config.output_sqlite_path.name}")
@@ -3112,7 +3588,11 @@ def main() -> None:
     )
 
     print("\nPreparing spatial node attributes...")
-    snapped = build_site_attributes(inputs, canonical)
+    snapped = build_site_attributes(
+        inputs=inputs,
+        canonical=canonical,
+        build_config=build_config,
+    )
 
     print("\nRebuilding process definitions...")
     rebuild_demand(
@@ -3160,7 +3640,10 @@ def main() -> None:
         canonical=canonical,
         specs=specs,
     )
-    remove_pipeline_ordinary_costinvest(db_encoded, specs.pipe_techs)
+    remove_pipeline_ordinary_costinvest(
+        db_encoded,
+        specs.pipe_techs,
+    )
 
     print("\nRebuilding constraint parameters...")
     rebuild_capacity_limits(
@@ -3201,8 +3684,19 @@ def main() -> None:
         snapped,
     )
 
-    print("\nStage complete.")
+    print("\nStage 6 complete.")
     print(f"Output database: {config.output_sqlite_path}")
+
+    return config.output_sqlite_path
+
+
+def main() -> None:
+    """Load a TOML profile and run the schema-building endpoint."""
+
+    args = parse_args()
+    build_config = load_geospatial_build_config(args.config)
+    print_build_config(build_config)
+    run_schema_build(build_config)
 
 
 if __name__ == "__main__":
