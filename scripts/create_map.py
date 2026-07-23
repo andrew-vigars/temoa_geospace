@@ -81,8 +81,8 @@ MIN_TRANSPORT_FLOW = 1e-3
 MIN_PROCESS_FLOW = 1e-3
 
 PLOT_WEB_TILES = True
-PLOT_ROAD_OVERLAY = True
-PLOT_ROAD_EDGE_LAYER = True
+PLOT_ROAD_OVERLAY = False
+PLOT_ROAD_EDGE_LAYER = False
 PLOT_PARALLEL_TRANSPORT_ARCS = True
 
 TECH_STYLE: TypeAlias = tuple[pd.DataFrame, str, str, float]
@@ -143,8 +143,6 @@ class GeospatialPaths:
         Path to the graph-edge CSV for the inferred basemap.
     basemap_path : Path
         Path to the processed basemap polygon GeoPackage.
-    road_overlay_path : Path | None
-        Optional path to the road-overlay GeoPackage, if available.
     road_edge_gpkg_path : Path | None
         Optional path to the road-enabled graph-edge GeoPackage, if available.
     figure_dir : Path
@@ -157,7 +155,6 @@ class GeospatialPaths:
     node_path: Path
     edge_path: Path
     basemap_path: Path
-    road_overlay_path: Path | None
     road_edge_gpkg_path: Path | None
     figure_dir: Path
     fig_stem: str
@@ -223,8 +220,6 @@ class GeospatialData:
         model regions.
     basemap : gpd.GeoDataFrame
         Processed basemap polygons used as geographic context.
-    road_overlay : gpd.GeoDataFrame | None
-        Optional road-overlay geometries used as contextual background.
     road_edge_layer : gpd.GeoDataFrame | None
         Optional road-enabled graph-edge geometries used to show available
         road-connected corridors.
@@ -233,7 +228,6 @@ class GeospatialData:
     sites: gpd.GeoDataFrame
     edges: pd.DataFrame
     basemap: gpd.GeoDataFrame
-    road_overlay: gpd.GeoDataFrame | None
     road_edge_layer: gpd.GeoDataFrame | None
 
 
@@ -433,7 +427,8 @@ def infer_basemap_stem(db_path: Path) -> str:
     Returns
     -------
     str
-        Matched basemap stem, such as ``canada_basemap_1deg_centroid`` or
+        Matched basemap stem, such as
+        ``provinces_only_basemap_75km_centroid`` or
         ``canada_basemap_0.5deg_intersects``.
 
     Raises
@@ -453,7 +448,9 @@ def infer_basemap_stem(db_path: Path) -> str:
         text = re.sub(r"^CANOE_geospatial_", "", text)
 
         match = re.search(
-            r"canada_basemap_\d+(?:\.\d+)?deg_(?:centroid|intersects)",
+            r"[A-Za-z0-9_]+_basemap_"
+            r"\d+(?:\.\d+)?(?:deg|km)_"
+            r"(?:centroid|intersects)",
             text,
         )
 
@@ -536,14 +533,12 @@ def infer_geospatial_paths(
     edge_path = graph_dir / f"{basemap_stem}_graph_edges.csv"
     basemap_path = basemap_dir / f"{basemap_stem}.gpkg"
 
-    road_overlay_candidates = sorted(
-        road_connectivity_dir.glob(f"*__{basemap_stem}_graph_nodes*_road_overlay.gpkg")
-    )
     road_edge_candidates = sorted(
-        road_connectivity_dir.glob(f"*__{basemap_stem}_graph_nodes*_road_edges.gpkg")
+        road_connectivity_dir.glob(
+            f"{basemap_stem}_road_connectivity_*_road_edges.gpkg"
+        )
     )
 
-    road_overlay_path = road_overlay_candidates[0] if road_overlay_candidates else None
     road_edge_gpkg_path = road_edge_candidates[0] if road_edge_candidates else None
 
     required_paths = {
@@ -569,7 +564,6 @@ def infer_geospatial_paths(
         node_path=node_path,
         edge_path=edge_path,
         basemap_path=basemap_path,
-        road_overlay_path=road_overlay_path,
         road_edge_gpkg_path=road_edge_gpkg_path,
         figure_dir=figure_dir,
         fig_stem=build_figure_stem(selected_run),
@@ -579,10 +573,6 @@ def infer_geospatial_paths(
     print(f"  Graph nodes:       {paths.node_path.name}")
     print(f"  Graph edges:       {paths.edge_path.name}")
     print(f"  Basemap polygons:  {paths.basemap_path.name}")
-    print(
-        "  Road overlay:      "
-        f"{paths.road_overlay_path.name if paths.road_overlay_path else 'not found'}"
-    )
     print(
         "  Road edge layer:   "
         f"{paths.road_edge_gpkg_path.name if paths.road_edge_gpkg_path else 'not found'}"
@@ -632,7 +622,7 @@ def load_geospatial_data(paths: GeospatialPaths) -> GeospatialData:
     """Load and normalize geospatial layers for mapping.
 
     Reads graph-node polygons, graph-edge records, processed basemap polygons,
-    and optional road-context layers from the resolved geospatial paths. Region
+    and the optional road-enabled edge layer from the resolved paths. Region
     identifiers are coerced to strings, graph nodes are indexed by ``region``,
     and all geospatial context layers are reprojected to match the graph-node
     CRS.
@@ -645,8 +635,8 @@ def load_geospatial_data(paths: GeospatialPaths) -> GeospatialData:
     Returns
     -------
     GeospatialData
-        Loaded graph nodes, graph edges, basemap polygons, and optional road
-        overlay layers prepared for downstream plotting.
+        Loaded graph nodes, graph edges, basemap polygons, and optional
+        road-enabled edge geometry prepared for downstream plotting.
 
     Raises
     ------
@@ -660,10 +650,6 @@ def load_geospatial_data(paths: GeospatialPaths) -> GeospatialData:
     sites = gpd.read_file(paths.node_path)
     edges = pd.read_csv(paths.edge_path)
     basemap = gpd.read_file(paths.basemap_path)
-
-    road_overlay = None
-    if paths.road_overlay_path and paths.road_overlay_path.exists():
-        road_overlay = gpd.read_file(paths.road_overlay_path)
 
     road_edge_layer = None
     if paths.road_edge_gpkg_path and paths.road_edge_gpkg_path.exists():
@@ -679,8 +665,6 @@ def load_geospatial_data(paths: GeospatialPaths) -> GeospatialData:
 
     if basemap.crs != sites.crs:
         basemap = basemap.to_crs(sites.crs)
-    if road_overlay is not None and road_overlay.crs != sites.crs:
-        road_overlay = road_overlay.to_crs(sites.crs)
     if road_edge_layer is not None and road_edge_layer.crs != sites.crs:
         road_edge_layer = road_edge_layer.to_crs(sites.crs)
 
@@ -688,9 +672,36 @@ def load_geospatial_data(paths: GeospatialPaths) -> GeospatialData:
         sites=sites,
         edges=edges,
         basemap=basemap,
-        road_overlay=road_overlay,
         road_edge_layer=road_edge_layer,
     )
+
+
+def build_point_geodataframe(
+    frame: pd.DataFrame,
+    target_crs,
+    lon_col: str = "lon",
+    lat_col: str = "lat",
+) -> gpd.GeoDataFrame:
+    """Create WGS84 point geometry and reproject it to a target CRS."""
+
+    points = frame.copy()
+    points[lon_col] = pd.to_numeric(points[lon_col], errors="coerce")
+    points[lat_col] = pd.to_numeric(points[lat_col], errors="coerce")
+    points = points.dropna(subset=[lon_col, lat_col]).copy()
+
+    return gpd.GeoDataFrame(
+        points,
+        geometry=gpd.points_from_xy(points[lon_col], points[lat_col]),
+        crs="EPSG:4326",
+    ).to_crs(target_crs)
+
+
+def native_plot_crs(geodata: GeospatialData):
+    """Return the graph-node CRS used for the native-coordinate figure."""
+
+    if geodata.sites.crs is None:
+        raise ValueError("Graph-node layer has no CRS.")
+    return geodata.sites.crs
 
 
 def infer_degree_resolution(basemap_stem: str) -> float | None:
@@ -719,34 +730,46 @@ def infer_degree_resolution(basemap_stem: str) -> float | None:
 
 
 def infer_centroid_spacing_deg(sites_gdf: gpd.GeoDataFrame) -> float:
-    """Estimate grid spacing in degrees from model-region centroids.
+    """Estimate representative grid spacing in degrees from graph centroids."""
 
-    Computes the median spacing between unique longitude and latitude centroid
-    coordinates, then returns the smallest positive finite spacing as a fallback
-    grid resolution. If no valid spacing can be inferred, defaults to ``1.0``
-    degree.
+    if sites_gdf.crs is None:
+        raise ValueError("Cannot infer plot spacing from a layer without a CRS.")
 
-    Parameters
-    ----------
-    sites_gdf : gpd.GeoDataFrame
-        Graph-node/model-region GeoDataFrame containing numeric ``lon`` and
-        ``lat`` centroid coordinate columns.
+    if {"lon", "lat"}.issubset(sites_gdf.columns):
+        lon_vals = np.sort(
+            pd.to_numeric(
+                sites_gdf["lon"],
+                errors="coerce",
+            ).dropna().unique()
+        )
+        lat_vals = np.sort(
+            pd.to_numeric(
+                sites_gdf["lat"],
+                errors="coerce",
+            ).dropna().unique()
+        )
+    else:
+        centroids = sites_gdf.geometry.centroid
+        centroid_gdf = gpd.GeoDataFrame(
+            geometry=centroids,
+            crs=sites_gdf.crs,
+        ).to_crs(epsg=4326)
+        lon_vals = np.sort(centroid_gdf.geometry.x.unique())
+        lat_vals = np.sort(centroid_gdf.geometry.y.unique())
 
-    Returns
-    -------
-    float
-        Estimated model-region grid spacing in decimal degrees.
-    """
+    lon_diffs = np.diff(lon_vals)
+    lat_diffs = np.diff(lat_vals)
 
-    lon_vals = np.sort(
-        pd.to_numeric(sites_gdf["lon"], errors="coerce").dropna().unique()
+    lon_step = (
+        np.median(lon_diffs[lon_diffs > 1e-9])
+        if np.any(lon_diffs > 1e-9)
+        else np.nan
     )
-    lat_vals = np.sort(
-        pd.to_numeric(sites_gdf["lat"], errors="coerce").dropna().unique()
+    lat_step = (
+        np.median(lat_diffs[lat_diffs > 1e-9])
+        if np.any(lat_diffs > 1e-9)
+        else np.nan
     )
-
-    lon_step = np.median(np.diff(lon_vals)) if len(lon_vals) > 1 else np.nan
-    lat_step = np.median(np.diff(lat_vals)) if len(lat_vals) > 1 else np.nan
 
     candidates = [
         abs(step)
@@ -846,8 +869,8 @@ def print_loaded_data_summary(
     print(f"Graph-node polygons: {len(geodata.sites):,}")
     print(f"Graph edges: {len(geodata.edges):,}")
     print(f"Basemap polygons: {len(geodata.basemap):,}")
-    if geodata.road_overlay is not None:
-        print(f"Road-overlay geometries: {len(geodata.road_overlay):,}")
+    print(f"Native map CRS: {geodata.sites.crs}")
+    print("Web map CRS: EPSG:3857")
     if geodata.road_edge_layer is not None:
         print(f"Road-enabled edge geometries: {len(geodata.road_edge_layer):,}")
 
@@ -1212,12 +1235,11 @@ def plot_context_layers_schematic(
     ax: plt.Axes,
     geodata: GeospatialData,
 ) -> None:
-    """Plot schematic geographic context layers in lon/lat coordinates.
+    """Plot context layers in the selected graph's native CRS.
 
-    Draws processed basemap boundaries, model-region polygons, and optional
-    road-context layers onto an existing Matplotlib axis. Layers are plotted in
-    their loaded CRS without web-tile reprojection, making this suitable for the
-    polygon-context schematic figure.
+    Draws only processed Canada/province boundaries in the graph-node CRS.
+    This supports both geographic
+    degree grids and projected kilometre grids without mixing coordinate units.
 
     Parameters
     ----------
@@ -1241,32 +1263,6 @@ def plot_context_layers_schematic(
         zorder=0,
     )
 
-    geodata.sites.plot(
-        ax=ax,
-        color="none",
-        edgecolor="0.85",
-        linewidth=0.25,
-        alpha=0.75,
-        zorder=1,
-    )
-
-    if PLOT_ROAD_OVERLAY and geodata.road_overlay is not None:
-        geodata.road_overlay.plot(
-            ax=ax,
-            color="0.35",
-            linewidth=0.15,
-            alpha=0.10,
-            zorder=2,
-        )
-
-    if PLOT_ROAD_EDGE_LAYER and geodata.road_edge_layer is not None:
-        geodata.road_edge_layer.plot(
-            ax=ax,
-            color="0.15",
-            linewidth=0.35,
-            alpha=0.30,
-            zorder=3,
-        )
 
 
 def plot_context_layers_web(
@@ -1275,8 +1271,8 @@ def plot_context_layers_web(
 ) -> None:
     """Plot geographic context layers in Web Mercator coordinates.
 
-    Reprojects processed basemap polygons, model-region polygons, and optional
-    road-context layers to EPSG:3857 before drawing them on an existing
+    Reprojects processed Canada/province polygons to EPSG:3857 before
+    drawing them on an existing
     Matplotlib axis. This prepares the context layers to align with optional
     web-tile basemaps added by Contextily.
 
@@ -1294,8 +1290,6 @@ def plot_context_layers_web(
     """
 
     basemap_web = geodata.basemap.to_crs(epsg=3857)
-    sites_web_poly = geodata.sites.to_crs(epsg=3857)
-
     basemap_web.plot(
         ax=ax,
         color="none",
@@ -1305,32 +1299,6 @@ def plot_context_layers_web(
         zorder=1,
     )
 
-    sites_web_poly.plot(
-        ax=ax,
-        color="none",
-        edgecolor="0.80",
-        linewidth=0.25,
-        alpha=0.75,
-        zorder=2,
-    )
-
-    if PLOT_ROAD_OVERLAY and geodata.road_overlay is not None:
-        geodata.road_overlay.to_crs(epsg=3857).plot(
-            ax=ax,
-            color="0.25",
-            linewidth=0.15,
-            alpha=0.12,
-            zorder=3,
-        )
-
-    if PLOT_ROAD_EDGE_LAYER and geodata.road_edge_layer is not None:
-        geodata.road_edge_layer.to_crs(epsg=3857).plot(
-            ax=ax,
-            color="0.10",
-            linewidth=0.35,
-            alpha=0.35,
-            zorder=4,
-        )
 
 
 # =============================================================================
@@ -1570,14 +1538,15 @@ def plot_transport_lines_schematic(
     ax: plt.Axes,
     tech_links: dict[str, TECH_STYLE],
     spacing: PlotSpacing,
+    target_crs,
 ) -> None:
-    """Plot transport lines in lon/lat schematic mode."""
+    """Plot transport lines in the graph layer's native CRS."""
 
     transport_gdf_3857 = combined_transport_links(tech_links, spacing)
     if transport_gdf_3857.empty:
         return
 
-    transport_gdf = transport_gdf_3857.to_crs(epsg=4326)
+    transport_gdf = transport_gdf_3857.to_crs(target_crs)
 
     for _, group in transport_gdf.groupby("display_name", sort=False):
         max_flow = group["flow"].max()
@@ -1586,7 +1555,9 @@ def plot_transport_lines_schematic(
 
         for row in group.itertuples(index=False):
             x_vals, y_vals = row.geometry.xy
-            linewidth = row.width_factor * (0.5 + 2.5 * np.sqrt(row.flow / max_flow))
+            linewidth = row.width_factor * (
+                0.5 + 2.5 * np.sqrt(row.flow / max_flow)
+            )
             ax.plot(
                 x_vals,
                 y_vals,
@@ -1603,7 +1574,7 @@ def plot_transport_lines_web(
     tech_links: dict[str, TECH_STYLE],
     spacing: PlotSpacing,
 ) -> None:
-    """Plot transport-flow lines on the lon/lat schematic map.
+    """Plot transport-flow lines in EPSG:3857 Web Mercator.
 
     Builds combined offset transport geometries, converts them back to
     EPSG:4326, and draws each transport layer on an existing Matplotlib axis.
@@ -1708,17 +1679,14 @@ def build_legend(
     ]
 
     context_proxies = [
-        Line2D([0], [0], color="0.70", lw=0.8, label="Canada/province polygons"),
-        Line2D([0], [0], color="0.80", lw=0.8, label="Model region polygons"),
+        Line2D(
+            [0],
+            [0],
+            color="0.70",
+            lw=0.8,
+            label="Canada/province polygons",
+        ),
     ]
-    if geodata.road_overlay is not None:
-        context_proxies.append(
-            Line2D([0], [0], color="0.35", lw=0.8, label="Road overlay")
-        )
-    if geodata.road_edge_layer is not None:
-        context_proxies.append(
-            Line2D([0], [0], color="0.10", lw=0.8, label="Road-enabled graph edges")
-        )
 
     handles2 = context_proxies + list(by_label.values()) + proxies
     labels2 = (
@@ -1739,45 +1707,25 @@ def build_legend(
     )
 
 
-def plot_points_lonlat(
+def plot_points_native(
     ax: plt.Axes,
     tech_points: dict[str, POINT_STYLE],
     demand_pts: pd.DataFrame,
     size_demand: pd.Series,
     spacing: PlotSpacing,
+    target_crs,
 ) -> None:
-    """Plot demand and process-point layers in lon/lat coordinates.
-
-    Draws demand markers at their model-region centroid coordinates and draws
-    process-technology markers with reproducible random jitter to reduce visual
-    overlap. Process marker sizes are square-root-scaled within each technology
-    layer using relative positive flow magnitude.
-
-    Parameters
-    ----------
-    ax : plt.Axes
-        Matplotlib axis on which point layers are drawn.
-    tech_points : dict[str, POINT_STYLE]
-        Process-point layers keyed by display name. Each value contains a
-        coordinate-enriched DataFrame and plotting color.
-    demand_pts : pd.DataFrame
-        Demand-point table containing ``lon``, ``lat``, and ``demand`` columns.
-    size_demand : pd.Series
-        Precomputed demand marker sizes.
-    spacing : PlotSpacing
-        Resolution-aware plotting parameters controlling process-point jitter.
-
-    Returns
-    -------
-    None
-        This function draws directly onto ``ax``.
-    """
+    """Plot demand and process points in the graph layer's native CRS."""
 
     if not demand_pts.empty:
+        demand_gdf = build_point_geodataframe(
+            demand_pts,
+            target_crs=target_crs,
+        )
         ax.scatter(
-            demand_pts["lon"],
-            demand_pts["lat"],
-            s=size_demand * 0.3,
+            demand_gdf.geometry.x,
+            demand_gdf.geometry.y,
+            s=size_demand.loc[demand_gdf.index] * 0.3,
             linewidth=1.5,
             alpha=1,
             marker="x",
@@ -1793,12 +1741,14 @@ def plot_points_lonlat(
             continue
 
         points_plot = points_df[["lon", "lat", "flow"]].dropna().copy()
-        if points_plot.empty:
-            continue
+        points_plot["flow"] = pd.to_numeric(
+            points_plot["flow"],
+            errors="coerce",
+        )
+        points_plot = points_plot.loc[
+            points_plot["flow"] > 0
+        ].dropna(subset=["flow"])
 
-        points_plot["flow"] = pd.to_numeric(points_plot["flow"], errors="coerce")
-        points_plot = points_plot.dropna(subset=["flow"])
-        points_plot = points_plot.loc[points_plot["flow"] > 0].copy()
         if points_plot.empty:
             continue
 
@@ -1812,12 +1762,21 @@ def plot_points_lonlat(
             spacing.jitter_deg,
             size=len(points_plot),
         )
-        size = np.sqrt(points_plot["flow"] / points_plot["flow"].max()) * 150
+
+        points_gdf = build_point_geodataframe(
+            points_plot,
+            target_crs=target_crs,
+            lon_col="lon_plot",
+            lat_col="lat_plot",
+        )
+        sizes = np.sqrt(
+            points_gdf["flow"] / points_gdf["flow"].max()
+        ) * 150
 
         ax.scatter(
-            points_plot["lon_plot"],
-            points_plot["lat_plot"],
-            s=size,
+            points_gdf.geometry.x,
+            points_gdf.geometry.y,
+            s=sizes,
             alpha=0.65,
             label=name,
             c=color,
@@ -1938,8 +1897,8 @@ def save_polygon_context_figure(
 ) -> Path:
     """Build, display, and save the polygon-context schematic figure.
 
-    Creates a lon/lat schematic map showing basemap boundaries, model-region
-    polygons, region centroids, process and demand points, and transport-flow
+    Creates a native-CRS schematic map showing Canada/province boundaries,
+    region centroids, process and demand points, and transport-flow
     lines. The figure is saved as a PNG in the selected run's figure directory.
 
     Parameters
@@ -1965,9 +1924,12 @@ def save_polygon_context_figure(
 
     plot_context_layers_schematic(ax, geodata)
 
+    target_crs = native_plot_crs(geodata)
+    site_centroids = geodata.sites.geometry.centroid
+
     ax.scatter(
-        geodata.sites["lon"],
-        geodata.sites["lat"],
+        site_centroids.x,
+        site_centroids.y,
         s=3,
         alpha=0.12,
         label="Region centroid",
@@ -1975,14 +1937,20 @@ def save_polygon_context_figure(
         zorder=10,
     )
 
-    plot_points_lonlat(
+    plot_points_native(
         ax,
         layers.tech_points,
         layers.demand_pts,
         layers.size_demand,
         spacing,
+        target_crs,
     )
-    plot_transport_lines_schematic(ax, layers.tech_links, spacing)
+    plot_transport_lines_schematic(
+        ax,
+        layers.tech_links,
+        spacing,
+        target_crs,
+    )
 
     build_legend(
         ax=ax,
@@ -1998,7 +1966,15 @@ def save_polygon_context_figure(
     sns.despine(top=True, right=True, bottom=True, left=True)
     plt.tight_layout()
 
-    fig_path = paths.figure_dir / f"{paths.fig_stem}_polygon_context.png"
+    crs_tag = (
+        f"epsg{target_crs.to_epsg()}"
+        if target_crs.to_epsg() is not None
+        else "native_crs"
+    )
+    fig_path = (
+        paths.figure_dir
+        / f"{paths.fig_stem}_polygon_context_{crs_tag}.png"
+    )
     plt.savefig(fig_path, dpi=300, bbox_inches="tight")
     plt.show()
     print(f"Saved polygon-context figure: {fig_path}")
