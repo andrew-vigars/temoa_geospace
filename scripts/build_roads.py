@@ -3,11 +3,7 @@ build_roads.py
 
 Stage 3 of the Geospatial-CANOE workflow.
 
-This script takes the downloaded raw national road network (NRN) GeoPackage files for each province and territory
-and filters them to create two nested road network representations, 
-and exports the results as new GeoPackage files and a summary CSV.
-All provinces and terrirories are processed, and the resulting national networks are also exported
-in addition to the provincial networks
+This script reads the downloaded raw National Road Network (NRN) GeoPackages for the provinces and territories selected in a shared TOML build profile. It filters and merges those jurisdictions into two nested study-area road-network representations and exports profile-labelled GeoPackage and summary products.
 
 Source: https://open.canada.ca/data/en/dataset/3d282116-e556-400c-9306-ca1a3cada77f
 Both English and French versions of the NRN are available, but this script uses the English version only.
@@ -30,17 +26,24 @@ Inputs:
 
 Outputs:
     data_files/processed/nrn/
-        {PROVINCE}_filtered_road_networks.gpkg
-        CANADA_filtered_road_networks.gpkg
-        filtered_road_network_summary.csv
+        {PROVINCE}_filtered_road_networks.gpkg  [optional]
+        {study_area}_filtered_road_networks.gpkg
+        {study_area}_filtered_road_network_summary.csv
 """
 
+import argparse
 from pathlib import Path
 import sqlite3
 from collections.abc import Sequence
 
 import geopandas as gpd
 import pandas as pd
+
+from project_config import (
+    GeospatialBuildConfig,
+    load_geospatial_build_config,
+    print_build_config,
+)
 
 
 # =============================================================================
@@ -54,25 +57,12 @@ PROCESSED_NRN = PROJECT_ROOT / "data_files" / "processed" / "nrn"
 
 
 # =============================================================================
-# Settings
+# Road-processing implementation constants
 # =============================================================================
 
-PROVINCES = [
-    "AB", "BC", "MB", "NB", "NL", "NS",
-    "NT", "NU", "ON", "PE", "QC", "SK", "YT",
-]
-
-WGS84_CRS = "EPSG:4326"
-
-BACKBONE_CLASSES = (
-    "Freeway",
-    "Expressway / Highway",
-    "Ramp",
-)
-
-FREIGHT_ACCESS_CLASSES = BACKBONE_CLASSES + (
-    "Arterial",
-)
+# Road class names and jurisdiction selection are supplied by the TOML profile.
+# The raw NRN file structure and ROADSEG discovery logic remain implementation
+# details in this module.
 
 
 # =============================================================================
@@ -252,14 +242,6 @@ def get_roadclass_counts(
         ORDER BY segments DESC;
     """
 
-    query = f"""
-        SELECT ROADCLASS,
-               COUNT(*) AS segments
-        FROM "{roadseg_table}"
-        GROUP BY ROADCLASS
-        ORDER BY segments DESC;
-    """
-
     with sqlite3.connect(gpkg_path) as conn:
         counts = pd.read_sql_query(query, conn)
 
@@ -366,49 +348,32 @@ def validate_road_network(
     print()
 
 
-def load_filtered_provincial_networks() -> tuple[
+def load_filtered_provincial_networks(
+    config: GeospatialBuildConfig,
+) -> tuple[
     dict[str, gpd.GeoDataFrame],
     dict[str, gpd.GeoDataFrame],
     pd.DataFrame,
     dict[str, object],
 ]:
-    """Load and filter provincial NRN road networks.
+    """Load and filter NRN networks for the configured study area."""
 
-    This function processes each configured province and territory in
-    ``PROVINCES``. For each raw NRN GeoPackage, it finds the road segment
-    layer, records source road-class counts, loads the freight-access subset,
-    derives the nested backbone subset, and stores the source CRS. After all
-    provinces are processed, it verifies that the loaded provincial networks
-    have non-missing and consistent CRS values.
-
-    Returns
-    -------
-    tuple[dict[str, gpd.GeoDataFrame], dict[str, gpd.GeoDataFrame], pd.DataFrame, dict[str, object]]
-        Provincial backbone networks keyed by province code, provincial
-        freight-access networks keyed by province code, combined source
-        road-class counts, and provincial CRS values keyed by province code.
-
-    Raises
-    ------
-    FileNotFoundError
-        If a required provincial NRN directory or English GeoPackage is missing.
-    ValueError
-        If a provincial GeoPackage has an invalid ROADSEG layer structure, a
-        missing CRS, or a CRS inconsistent with the other provinces.
-    """
+    selected_provinces = list(config.study_area.provinces)
+    backbone_classes = config.roads.classes.backbone
+    freight_access_classes = config.roads.classes.freight_access
 
     freight_access_where = (
         "ROADCLASS IN ("
-        + ", ".join(repr(cls) for cls in FREIGHT_ACCESS_CLASSES)
+        + ", ".join(repr(cls) for cls in freight_access_classes)
         + ")"
     )
 
-    provincial_freight_access = {}
-    provincial_backbone = {}
-    provincial_roadclass_counts = []
-    provincial_crs = {}
+    provincial_freight_access: dict[str, gpd.GeoDataFrame] = {}
+    provincial_backbone: dict[str, gpd.GeoDataFrame] = {}
+    provincial_roadclass_counts: list[pd.DataFrame] = []
+    provincial_crs: dict[str, object] = {}
 
-    for province in PROVINCES:
+    for province in selected_provinces:
         gpkg_path = get_nrn_gpkg_path(province)
         roadseg_table = get_roadseg_table(gpkg_path)
 
@@ -420,7 +385,7 @@ def load_filtered_provincial_networks() -> tuple[
         roadclass_counts.insert(0, "province", province)
         provincial_roadclass_counts.append(roadclass_counts)
 
-        full_count = roadclass_counts["segments"].sum()
+        full_count = int(roadclass_counts["segments"].sum())
 
         freight_access = gpd.read_file(
             gpkg_path,
@@ -428,11 +393,25 @@ def load_filtered_provincial_networks() -> tuple[
             where=freight_access_where,
         )
 
-        freight_access["province"] = province
+        if freight_access.empty:
+            raise ValueError(
+                f"No configured freight-access road classes were found for "
+                f"{province}."
+            )
 
-        backbone = freight_access[
-            freight_access["ROADCLASS"].isin(BACKBONE_CLASSES)
+        freight_access["province"] = province
+        freight_access["study_area"] = config.study_area.label
+        freight_access["province_codes"] = ",".join(selected_provinces)
+
+        backbone = freight_access.loc[
+            freight_access["ROADCLASS"].isin(backbone_classes)
         ].copy()
+
+        if backbone.empty:
+            raise ValueError(
+                f"No configured backbone road classes were found for "
+                f"{province}."
+            )
 
         provincial_freight_access[province] = freight_access
         provincial_backbone[province] = backbone
@@ -450,10 +429,16 @@ def load_filtered_provincial_networks() -> tuple[
         ignore_index=True,
     )
 
-    if any(crs is None for crs in provincial_crs.values()):
+    missing_crs = [
+        province
+        for province, crs in provincial_crs.items()
+        if crs is None
+    ]
+
+    if missing_crs:
         raise ValueError(
-            f"Some provincial GeoPackages have missing CRS: "
-            f"{[p for p, c in provincial_crs.items() if c is None]}"
+            f"Selected provincial GeoPackages have missing CRS: "
+            f"{missing_crs}"
         )
 
     unique_crs = {
@@ -463,11 +448,11 @@ def load_filtered_provincial_networks() -> tuple[
 
     if len(unique_crs) != 1:
         raise ValueError(
-            f"Provincial GeoPackages do not share a common CRS: "
+            "Selected provincial GeoPackages do not share a common CRS: "
             f"{ {p: c.to_string() for p, c in provincial_crs.items()} }"
         )
 
-    print(f"\nAll provinces share CRS: {unique_crs.pop()}")
+    print(f"\nAll selected jurisdictions share CRS: {unique_crs.pop()}")
 
     return (
         provincial_backbone,
@@ -477,112 +462,80 @@ def load_filtered_provincial_networks() -> tuple[
     )
 
 
-def build_national_networks(
+def build_study_area_networks(
     provincial_backbone: dict[str, gpd.GeoDataFrame],
     provincial_freight_access: dict[str, gpd.GeoDataFrame],
     provincial_crs: dict[str, object],
+    config: GeospatialBuildConfig,
 ) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
-    """Build national backbone and freight-access road networks.
+    """Merge selected jurisdictions into study-area road networks."""
 
-    This function concatenates the filtered provincial and territorial NRN
-    networks into national backbone and freight-access layers. Boundary
-    duplicates are removed using exact geometry matching and road-class
-    priority rules, then both national layers are reprojected to the workflow
-    WGS84 CRS. Geometry diagnostics are printed for each national network.
+    selected_provinces = list(config.study_area.provinces)
+    source_crs = provincial_crs[selected_provinces[0]]
 
-    Parameters
-    ----------
-    provincial_backbone : dict[str, gpd.GeoDataFrame]
-        Provincial and territorial backbone road networks keyed by province or
-        territory code.
-    provincial_freight_access : dict[str, gpd.GeoDataFrame]
-        Provincial and territorial freight-access road networks keyed by
-        province or territory code.
-    provincial_crs : dict[str, object]
-        Source CRS values for the provincial and territorial NRN files, keyed
-        by province or territory code.
-
-    Returns
-    -------
-    tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]
-        National backbone and freight-access road networks in WGS84.
-    """
-
-    source_crs = provincial_crs[PROVINCES[0]]
-
-    canada_backbone_raw = gpd.GeoDataFrame(
-        pd.concat(provincial_backbone.values(), ignore_index=True),
+    study_area_backbone_raw = gpd.GeoDataFrame(
+        pd.concat(
+            provincial_backbone.values(),
+            ignore_index=True,
+        ),
         geometry="geometry",
         crs=source_crs,
     )
 
-    canada_freight_access_raw = gpd.GeoDataFrame(
-        pd.concat(provincial_freight_access.values(), ignore_index=True),
+    study_area_freight_access_raw = gpd.GeoDataFrame(
+        pd.concat(
+            provincial_freight_access.values(),
+            ignore_index=True,
+        ),
         geometry="geometry",
         crs=source_crs,
     )
 
-    canada_backbone = deduplicate_boundary_segments(
-        canada_backbone_raw,
-        BACKBONE_CLASSES,
-    ).to_crs(WGS84_CRS)
+    study_area_backbone = deduplicate_boundary_segments(
+        study_area_backbone_raw,
+        config.roads.classes.backbone,
+    ).to_crs(config.roads.output_crs)
 
-    canada_freight_access = deduplicate_boundary_segments(
-        canada_freight_access_raw,
-        FREIGHT_ACCESS_CLASSES,
-    ).to_crs(WGS84_CRS)
+    study_area_freight_access = deduplicate_boundary_segments(
+        study_area_freight_access_raw,
+        config.roads.classes.freight_access,
+    ).to_crs(config.roads.output_crs)
 
     print(
-        f"National backbone network: "
-        f"{canada_backbone.shape[0]:,} segments "
-        f"(CRS: {canada_backbone.crs})"
+        f"{config.study_area.label} backbone network: "
+        f"{len(study_area_backbone):,} segments "
+        f"(CRS: {study_area_backbone.crs})"
     )
 
     print(
-        f"National freight-access network: "
-        f"{canada_freight_access.shape[0]:,} segments "
-        f"(CRS: {canada_freight_access.crs})"
+        f"{config.study_area.label} freight-access network: "
+        f"{len(study_area_freight_access):,} segments "
+        f"(CRS: {study_area_freight_access.crs})"
     )
 
-    validate_road_network(canada_backbone, "Backbone")
-    validate_road_network(canada_freight_access, "Freight-access")
+    validate_road_network(
+        study_area_backbone,
+        f"{config.study_area.label} backbone",
+    )
+    validate_road_network(
+        study_area_freight_access,
+        f"{config.study_area.label} freight-access",
+    )
 
-    return canada_backbone, canada_freight_access
+    return study_area_backbone, study_area_freight_access
 
 
 def build_network_summary(
     roadclass_counts_all: pd.DataFrame,
-    canada_backbone: gpd.GeoDataFrame,
-    canada_freight_access: gpd.GeoDataFrame,
+    study_area_backbone: gpd.GeoDataFrame,
+    study_area_freight_access: gpd.GeoDataFrame,
+    config: GeospatialBuildConfig,
 ) -> pd.DataFrame:
-    """Build provincial and national road-network filtering summary.
+    """Build jurisdiction and combined study-area road summary rows."""
 
-    This function summarizes how many source NRN road segments are retained in
-    the filtered backbone and freight-access networks for each province and
-    territory. It uses the full source ``ROADCLASS`` counts as the denominator,
-    counts retained segments from the national filtered layers, and reports
-    retention percentages for backbone, arterial, and freight-access segments.
-    A final Canada row aggregates the provincial and territorial totals.
+    summary_rows: list[dict[str, object]] = []
 
-    Parameters
-    ----------
-    roadclass_counts_all : pd.DataFrame
-        Source road-class segment counts for all provinces and territories.
-    canada_backbone : gpd.GeoDataFrame
-        Deduplicated national backbone road network.
-    canada_freight_access : gpd.GeoDataFrame
-        Deduplicated national freight-access road network.
-
-    Returns
-    -------
-    pd.DataFrame
-        Summary table with provincial, territorial, and national segment counts
-        and filtering percentages.
-    """
-
-    summary_rows = []
-
-    for province in PROVINCES:
+    for province in config.study_area.provinces:
         full_segments = int(
             roadclass_counts_all.loc[
                 roadclass_counts_all["province"] == province,
@@ -591,75 +544,107 @@ def build_network_summary(
         )
 
         backbone_segments = int(
-            (canada_backbone["province"] == province).sum()
+            (study_area_backbone["province"] == province).sum()
         )
 
         freight_access_segments = int(
-            (canada_freight_access["province"] == province).sum()
+            (study_area_freight_access["province"] == province).sum()
         )
 
         arterial_segments = int(
             (
-                (canada_freight_access["province"] == province)
-                & (canada_freight_access["ROADCLASS"] == "Arterial")
+                (study_area_freight_access["province"] == province)
+                & (
+                    study_area_freight_access["ROADCLASS"]
+                    == "Arterial"
+                )
             ).sum()
         )
 
         summary_rows.append(
             {
-                "province": province,
+                "study_area": config.study_area.label,
+                "jurisdiction": province,
                 "full_segments": full_segments,
                 "backbone_segments": backbone_segments,
                 "arterial_segments": arterial_segments,
                 "freight_access_segments": freight_access_segments,
-                "backbone_percent": round(
-                    100 * backbone_segments / full_segments,
-                    1,
-                ) if full_segments else 0.0,
-                "arterial_percent": round(
-                    100 * arterial_segments / full_segments,
-                    1,
-                ) if full_segments else 0.0,
-                "freight_access_percent": round(
-                    100 * freight_access_segments / full_segments,
-                    1,
-                ) if full_segments else 0.0,
+                "backbone_percent": (
+                    round(100 * backbone_segments / full_segments, 1)
+                    if full_segments
+                    else 0.0
+                ),
+                "arterial_percent": (
+                    round(100 * arterial_segments / full_segments, 1)
+                    if full_segments
+                    else 0.0
+                ),
+                "freight_access_percent": (
+                    round(
+                        100 * freight_access_segments / full_segments,
+                        1,
+                    )
+                    if full_segments
+                    else 0.0
+                ),
             }
         )
 
-    national_row = {
-        "province": "Canada",
-        "full_segments": sum(row["full_segments"] for row in summary_rows),
-        "backbone_segments": sum(row["backbone_segments"] for row in summary_rows),
-        "arterial_segments": sum(row["arterial_segments"] for row in summary_rows),
-        "freight_access_segments": sum(
-            row["freight_access_segments"]
+    combined_row = {
+        "study_area": config.study_area.label,
+        "jurisdiction": "STUDY_AREA",
+        "full_segments": sum(
+            int(row["full_segments"])
             for row in summary_rows
+        ),
+        "backbone_segments": len(study_area_backbone),
+        "arterial_segments": int(
+            (
+                study_area_freight_access["ROADCLASS"]
+                == "Arterial"
+            ).sum()
+        ),
+        "freight_access_segments": len(
+            study_area_freight_access
         ),
     }
 
-    national_row["backbone_percent"] = round(
-        100
-        * national_row["backbone_segments"]
-        / national_row["full_segments"],
-        1,
+    full_segments = int(combined_row["full_segments"])
+
+    combined_row["backbone_percent"] = (
+        round(
+            100
+            * int(combined_row["backbone_segments"])
+            / full_segments,
+            1,
+        )
+        if full_segments
+        else 0.0
     )
 
-    national_row["arterial_percent"] = round(
-        100
-        * national_row["arterial_segments"]
-        / national_row["full_segments"],
-        1,
+    combined_row["arterial_percent"] = (
+        round(
+            100
+            * int(combined_row["arterial_segments"])
+            / full_segments,
+            1,
+        )
+        if full_segments
+        else 0.0
     )
 
-    national_row["freight_access_percent"] = round(
-        100
-        * national_row["freight_access_segments"]
-        / national_row["full_segments"],
-        1,
+    combined_row["freight_access_percent"] = (
+        round(
+            100
+            * int(combined_row["freight_access_segments"])
+            / full_segments,
+            1,
+        )
+        if full_segments
+        else 0.0
     )
 
-    summary_rows.append(national_row)
+    summary_rows.append(combined_row)
 
     return pd.DataFrame(summary_rows)
 
@@ -668,6 +653,7 @@ def export_provincial_networks(
     provincial_backbone: dict[str, gpd.GeoDataFrame],
     provincial_freight_access: dict[str, gpd.GeoDataFrame],
     output_dir: Path,
+    selected_provinces: tuple[str, ...],
 ) -> None:
     """Export filtered road networks for each province and territory.
 
@@ -693,7 +679,7 @@ def export_provincial_networks(
     None
     """
 
-    for province in PROVINCES:
+    for province in selected_provinces:
         output_path = output_dir / f"{province}_filtered_road_networks.gpkg"
 
         if output_path.exists():
@@ -720,62 +706,51 @@ def export_provincial_networks(
         )
 
 
-def export_national_networks(
-    canada_backbone: gpd.GeoDataFrame,
-    canada_freight_access: gpd.GeoDataFrame,
+def export_study_area_networks(
+    study_area_backbone: gpd.GeoDataFrame,
+    study_area_freight_access: gpd.GeoDataFrame,
     output_dir: Path,
-) -> None:
-    """Export national filtered road networks to a GeoPackage.
+    config: GeospatialBuildConfig,
+) -> Path:
+    """Export the merged study-area road network GeoPackage."""
 
-    This function writes the Canada-wide filtered road networks to a single
-    GeoPackage with two layers: ``backbone`` and ``freight_access``. If a
-    previous national road-network output exists, it is removed before the new
-    layers are written.
-
-    Parameters
-    ----------
-    canada_backbone : gpd.GeoDataFrame
-        Deduplicated national backbone road network.
-    canada_freight_access : gpd.GeoDataFrame
-        Deduplicated national freight-access road network.
-    output_dir : Path
-        Directory where the national road-network GeoPackage is written.
-
-    Returns
-    -------
-    None
-    """
-
-    output_path = output_dir / "CANADA_filtered_road_networks.gpkg"
+    output_path = (
+        output_dir
+        / f"{config.study_area.label}_filtered_road_networks.gpkg"
+    )
 
     if output_path.exists():
         output_path.unlink()
 
-    canada_backbone.to_file(
-        output_path,
-        layer="backbone",
-        driver="GPKG",
-    )
+    if "backbone" in config.roads.networks:
+        study_area_backbone.to_file(
+            output_path,
+            layer="backbone",
+            driver="GPKG",
+        )
 
-    canada_freight_access.to_file(
-        output_path,
-        layer="freight_access",
-        driver="GPKG",
-    )
+    if "freight_access" in config.roads.networks:
+        study_area_freight_access.to_file(
+            output_path,
+            layer="freight_access",
+            driver="GPKG",
+        )
 
-    print(f"Canada: exported {output_path.name}")
     print(
-        f"Canada: "
-        f"{len(canada_backbone):,} backbone | "
-        f"{len(canada_freight_access):,} freight-access "
+        f"{config.study_area.label}: "
+        f"{len(study_area_backbone):,} backbone | "
+        f"{len(study_area_freight_access):,} freight-access "
         f"→ {output_path.name}"
     )
+
+    return output_path
 
 
 def export_network_summary(
     network_summary: pd.DataFrame,
     output_dir: Path,
-) -> None:
+    study_area_label: str,
+) -> Path:
     """Export the filtered road-network summary table.
 
     This function writes the province, territory, and national road-network
@@ -795,7 +770,10 @@ def export_network_summary(
     None
     """
 
-    output_path = output_dir / "filtered_road_network_summary.csv"
+    output_path = (
+        output_dir
+        / f"{study_area_label}_filtered_road_network_summary.csv"
+    )
 
     network_summary.to_csv(
         output_path,
@@ -803,21 +781,33 @@ def export_network_summary(
     )
 
     print(f"Exported network summary table → {output_path.name}")
+    return output_path
 
 
-def main() -> None:
-    """Run Stage 3 of the Geospatial-CANOE road preprocessing workflow.
+def parse_args() -> argparse.Namespace:
+    """Parse the Stage 3 build-profile path."""
 
-    This entry point prepares the processed NRN output directory, loads and
-    filters the provincial and territorial NRN road networks, builds the
-    deduplicated national backbone and freight-access networks, creates the
-    filtered-road summary table, and exports all provincial, national, and
-    summary outputs.
+    parser = argparse.ArgumentParser(
+        description=(
+            "Build configured Geospatial-CANOE processed road networks."
+        )
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        required=True,
+        help=(
+            "Path to a geospatial preprocessing TOML build profile."
+        ),
+    )
+    return parser.parse_args()
 
-    Returns
-    -------
-    None
-    """
+
+def run_road_build(
+    config: GeospatialBuildConfig,
+) -> pd.DataFrame:
+    """Run Stage 3 using an already loaded build profile."""
+
     PROCESSED_NRN.mkdir(parents=True, exist_ok=True)
 
     (
@@ -825,38 +815,58 @@ def main() -> None:
         provincial_freight_access,
         roadclass_counts_all,
         provincial_crs,
-    ) = load_filtered_provincial_networks()
+    ) = load_filtered_provincial_networks(config)
 
-    canada_backbone, canada_freight_access = build_national_networks(
+    (
+        study_area_backbone,
+        study_area_freight_access,
+    ) = build_study_area_networks(
         provincial_backbone=provincial_backbone,
         provincial_freight_access=provincial_freight_access,
         provincial_crs=provincial_crs,
+        config=config,
     )
 
     network_summary = build_network_summary(
         roadclass_counts_all=roadclass_counts_all,
-        canada_backbone=canada_backbone,
-        canada_freight_access=canada_freight_access,
+        study_area_backbone=study_area_backbone,
+        study_area_freight_access=study_area_freight_access,
+        config=config,
     )
 
-    export_provincial_networks(
-        provincial_backbone=provincial_backbone,
-        provincial_freight_access=provincial_freight_access,
-        output_dir=PROCESSED_NRN,
-    )
+    if config.roads.export_individual_provinces:
+        export_provincial_networks(
+            provincial_backbone=provincial_backbone,
+            provincial_freight_access=provincial_freight_access,
+            output_dir=PROCESSED_NRN,
+            selected_provinces=config.study_area.provinces,
+        )
 
-    export_national_networks(
-        canada_backbone=canada_backbone,
-        canada_freight_access=canada_freight_access,
+    export_study_area_networks(
+        study_area_backbone=study_area_backbone,
+        study_area_freight_access=study_area_freight_access,
         output_dir=PROCESSED_NRN,
+        config=config,
     )
 
     export_network_summary(
         network_summary=network_summary,
         output_dir=PROCESSED_NRN,
+        study_area_label=config.study_area.label,
     )
 
     print("\nStage 3 complete.")
+
+    return network_summary
+
+
+def main() -> None:
+    """Load a TOML profile and run Stage 3."""
+
+    args = parse_args()
+    config = load_geospatial_build_config(args.config)
+    print_build_config(config)
+    run_road_build(config)
 
 
 if __name__ == "__main__":

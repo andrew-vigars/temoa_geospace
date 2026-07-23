@@ -3,18 +3,14 @@ map_roads.py
 
 Stage 4 of the Geospatial-CANOE workflow.
 
-This script takes the filtered national road network (NRN) GeoPackage file and the original Canada basemap shapefile,
-and overlays the road network onto the graph regions for each resolution and keep method combination.
-A weak and strong road connectivity analysis is performed for each graph
-whereby weak connectivity is defined as both regions having at least one road segment present,
-and strong connectivity is defined as regions having a direct road connection given they exist in both adjacent regions.
+This script takes the profile-specific filtered road-network GeoPackage and profile-specific Stage 2 graph products, then overlays the configured road layer onto each matching graph. Weak and/or strong connectivity products are generated according to the shared TOML build profile.
 
 Inputs:
-    data_files/processed/nrn/CANADA_filtered_road_networks.gpkg
-    data_files/raw/basemaps/lpr_000b21a_e.shp
+    data_files/processed/nrn/{study_area}_filtered_road_networks.gpkg
+    data_files/processed/basemaps/{study_area}_boundary_wgs84.gpkg
     data_files/processed/graph/
-        canada_basemap_*_graph_nodes.gpkg
-        canada_basemap_*_graph_edges.csv
+        study_area_boundary_*_graph_nodes.gpkg
+        study_area_boundary_*_graph_edges.csv
 
 Outputs:
     data_files/processed/road_connectivity/
@@ -25,9 +21,10 @@ Outputs:
         *_strong_road_edge_connections.csv
         *_strong_road_edges.gpkg
         *_road_region_overlay.gpkg
-        road_connectivity_summary.csv
+        {study_area}_road_connectivity_summary.csv
 """
 
+import argparse
 from pathlib import Path
 
 import geopandas as gpd
@@ -35,6 +32,12 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.colors import ListedColormap
 from shapely.geometry import LineString
+
+from project_config import (
+    GeospatialBuildConfig,
+    load_geospatial_build_config,
+    print_build_config,
+)
 
 
 # =============================================================================
@@ -57,22 +60,8 @@ PROCESSED_ROAD_CONNECTIVITY = (
 
 
 # =============================================================================
-# Settings
+# Plotting constants
 # =============================================================================
-
-ROAD_NETWORK_PATH = (
-    PROCESSED_NRN
-    / "CANADA_filtered_road_networks.gpkg"
-)
-
-ORIGINAL_BASEMAP_PATH = (
-    RAW_BASEMAPS
-    / "lpr_000b21a_e.shp"
-)
-
-ROAD_LAYER = "freight_access"
-
-PLOT_OUTPUTS = True
 
 road_presence_colors = ListedColormap(
     [
@@ -86,23 +75,31 @@ road_presence_colors = ListedColormap(
 # Load helpers
 # =============================================================================
 
-def find_graph_node_files() -> list[Path]:
-    """Find and report processed graph node files for road-connectivity mapping.
+def find_graph_node_files(
+    config: GeospatialBuildConfig,
+) -> list[Path]:
+    """Find graph-node files belonging to the selected build profile."""
 
-    Searches the processed graph folder for ``canada_basemap_*_graph_nodes.gpkg``
-    files, raises ``FileNotFoundError`` if none are found, prints the discovered
-    files, and returns them in sorted order.
-    """
+    pattern = (
+        f"{config.study_area.label}_basemap_*_"
+        f"{config.basemaps.keep_method}_graph_nodes.gpkg"
+    )
+
     graph_node_files = sorted(
-        PROCESSED_GRAPH.glob("canada_basemap_*_graph_nodes.gpkg")
+        PROCESSED_GRAPH.glob(pattern)
     )
 
     if not graph_node_files:
         raise FileNotFoundError(
-            f"No graph node files found in {PROCESSED_GRAPH}"
+            "No graph node files were found for build profile "
+            f"{config.study_area.label!r} in {PROCESSED_GRAPH}. "
+            f"Expected pattern: {pattern}"
         )
 
-    print(f"Found {len(graph_node_files):,} graph node files:")
+    print(
+        f"Found {len(graph_node_files):,} graph node files for "
+        f"profile {config.study_area.label!r}:"
+    )
 
     for graph_node_file in graph_node_files:
         print(f"  - {graph_node_file.name}")
@@ -125,73 +122,107 @@ def infer_graph_edge_path(graph_node_path: Path) -> Path:
     )
 
 
-def load_static_datasets() -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
-    """Load and validate static road and basemap inputs for road mapping.
+def load_static_datasets(
+    config: GeospatialBuildConfig,
+) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
+    """Load the configured road layer and processed study-area boundary."""
 
-    Reads the filtered national road network layer and original Canada basemap,
-    verifies that both datasets have defined coordinate reference systems,
-    reprojects the basemap to the road CRS, validates required road columns, and
-    returns a road-overlay GeoDataFrame with stable ``road_id`` values plus the
-    CRS-aligned Canada basemap.
-    """
-    if not ROAD_NETWORK_PATH.exists():
-        raise FileNotFoundError(f"Road network not found: {ROAD_NETWORK_PATH}")
-
-    if not ORIGINAL_BASEMAP_PATH.exists():
-        raise FileNotFoundError(f"Original basemap not found: {ORIGINAL_BASEMAP_PATH}")
-
-    print(f"Using road network: {ROAD_NETWORK_PATH.name}")
-    print(f"Using original basemap: {ORIGINAL_BASEMAP_PATH.name}")
-
-    roads = gpd.read_file(
-        ROAD_NETWORK_PATH,
-        layer=ROAD_LAYER,
+    road_network_path = (
+        PROCESSED_NRN
+        / f"{config.study_area.label}_filtered_road_networks.gpkg"
     )
 
-    canada_basemap = gpd.read_file(
-        ORIGINAL_BASEMAP_PATH,
+    boundary_path = (
+        DATA_FILES
+        / "processed"
+        / "basemaps"
+        / f"{config.study_area.label}_boundary_wgs84.gpkg"
+    )
+
+    if not road_network_path.exists():
+        raise FileNotFoundError(
+            f"Configured road network not found: {road_network_path}"
+        )
+
+    if not boundary_path.exists():
+        raise FileNotFoundError(
+            f"Configured study-area boundary not found: {boundary_path}"
+        )
+
+    print(f"Using road network: {road_network_path.name}")
+    print(f"Using road layer: {config.road_connectivity.road_layer}")
+    print(f"Using study-area boundary: {boundary_path.name}")
+
+    roads = gpd.read_file(
+        road_network_path,
+        layer=config.road_connectivity.road_layer,
+    )
+
+    study_area_boundary = gpd.read_file(
+        boundary_path,
+        layer="study_area_boundary",
     )
 
     if roads.crs is None:
         raise ValueError("Road network CRS is undefined.")
 
-    if canada_basemap.crs is None:
-        raise ValueError("Original Canada basemap CRS is undefined.")
-
-    canada_basemap = canada_basemap.to_crs(roads.crs)
+    if study_area_boundary.crs is None:
+        raise ValueError("Study-area boundary CRS is undefined.")
 
     required_road_columns = [
         "ROADCLASS",
+        "province",
+        "study_area",
+        "province_codes",
         "geometry",
     ]
 
     missing_road_columns = [
-        column for column in required_road_columns
+        column
+        for column in required_road_columns
         if column not in roads.columns
     ]
 
     if missing_road_columns:
         raise ValueError(
-            f"Road network is missing required columns: {missing_road_columns}"
+            "Road network is missing required columns: "
+            f"{missing_road_columns}"
+        )
+
+    study_areas = set(roads["study_area"].astype(str).unique())
+
+    if study_areas != {config.study_area.label}:
+        raise ValueError(
+            f"Road file contains study_area values {sorted(study_areas)}, "
+            f"expected only {config.study_area.label!r}."
         )
 
     roads_overlay = (
         roads[
             [
                 "ROADCLASS",
+                "province",
+                "study_area",
+                "province_codes",
                 "geometry",
             ]
         ]
         .copy()
-        .reset_index(drop=False)
-        .rename(columns={"index": "road_id"})
+        .reset_index(drop=True)
+    )
+
+    roads_overlay.insert(
+        0,
+        "road_id",
+        range(len(roads_overlay)),
     )
 
     print(f"Loaded road segments: {len(roads):,}")
     print(f"Prepared road overlay geometries: {len(roads_overlay):,}")
     print(f"Road CRS: {roads_overlay.crs}")
 
-    return roads_overlay, canada_basemap
+    return roads_overlay, study_area_boundary
+
 
 
 # =============================================================================
@@ -216,7 +247,10 @@ def validate_graph_inputs(
         "site_id",
         "lon",
         "lat",
-        "resolution_deg",
+        "study_area",
+        "grid_type",
+        "resolution",
+        "resolution_unit",
         "keep_method",
         "geometry",
     ]
@@ -354,7 +388,10 @@ def build_region_road_presence(
         regions[
             [
                 "region",
-                "resolution_deg",
+                "study_area",
+                "grid_type",
+                "resolution",
+                "resolution_unit",
                 "keep_method",
             ]
         ]
@@ -488,7 +525,36 @@ def build_road_edge_geometries(
     road_edge_connections: pd.DataFrame,
     regions_crs,
 ) -> gpd.GeoDataFrame:
-    """Build centroid-to-centroid geometries for road-enabled graph edges."""
+    """Build road-enabled edge geometries in the graph's native CRS.
+
+    Stage 2 graph edges store both native graph coordinates
+    (``x_from``, ``y_from``, ``x_to``, ``y_to``) and WGS84 display
+    coordinates (``lon_from``, ``lat_from``, ``lon_to``, ``lat_to``).
+
+    Geometry must be constructed from the native coordinates because the
+    output GeoDataFrame is assigned the graph-node CRS. Using longitude and
+    latitude values with a projected CRS places the lines near the projected
+    origin and makes them effectively invisible on kilometre-grid plots.
+    """
+
+    required_native_columns = [
+        "x_from",
+        "y_from",
+        "x_to",
+        "y_to",
+    ]
+
+    missing_columns = [
+        column
+        for column in required_native_columns
+        if column not in road_edge_connections.columns
+    ]
+
+    if missing_columns:
+        raise ValueError(
+            "Road-edge connections are missing native coordinate columns: "
+            f"{missing_columns}"
+        )
 
     road_edges = (
         road_edge_connections
@@ -499,8 +565,14 @@ def build_road_edge_geometries(
     road_edges["geometry"] = road_edges.apply(
         lambda row: LineString(
             [
-                (row["lon_from"], row["lat_from"]),
-                (row["lon_to"], row["lat_to"]),
+                (
+                    float(row["x_from"]),
+                    float(row["y_from"]),
+                ),
+                (
+                    float(row["x_to"]),
+                    float(row["y_to"]),
+                ),
             ]
         ),
         axis=1,
@@ -518,6 +590,7 @@ def build_road_edge_geometries(
 # =============================================================================
 
 def export_road_connectivity_outputs(
+    output_dir: Path,
     output_stem: str,
     connection_method: str,
     region_road_presence: pd.DataFrame,
@@ -534,17 +607,17 @@ def export_road_connectivity_outputs(
     """
 
     region_road_presence_path = (
-        PROCESSED_ROAD_CONNECTIVITY
+        output_dir
         / f"{output_stem}_{connection_method}_region_road_presence.csv"
     )
 
     road_edge_connections_path = (
-        PROCESSED_ROAD_CONNECTIVITY
+        output_dir
         / f"{output_stem}_{connection_method}_road_edge_connections.csv"
     )
 
     road_edge_gpkg_path = (
-        PROCESSED_ROAD_CONNECTIVITY
+        output_dir
         / f"{output_stem}_{connection_method}_road_edges.gpkg"
     )
 
@@ -580,7 +653,7 @@ def export_road_connectivity_outputs(
 
     if road_region_overlay is not None:
         road_overlay_path = (
-            PROCESSED_ROAD_CONNECTIVITY
+            output_dir
             / f"{output_stem}_road_region_overlay.gpkg"
         )
 
@@ -609,7 +682,7 @@ def plot_region_road_presence(
     regions: gpd.GeoDataFrame,
     region_road_presence: pd.DataFrame,
     roads_overlay: gpd.GeoDataFrame,
-    canada_basemap: gpd.GeoDataFrame,
+    study_area_boundary: gpd.GeoDataFrame,
     output_path: Path,
 ) -> None:
     """Export a diagnostic map of graph regions containing road segments."""
@@ -618,7 +691,10 @@ def plot_region_road_presence(
         region_road_presence,
         on=[
             "region",
-            "resolution_deg",
+            "study_area",
+            "grid_type",
+            "resolution",
+            "resolution_unit",
             "keep_method",
         ],
         how="left",
@@ -630,8 +706,13 @@ def plot_region_road_presence(
         .astype(bool)
     )
 
-    resolution = regions_with_road_presence["resolution_deg"].iloc[0]
-    keep_method = regions_with_road_presence["keep_method"].iloc[0]
+    resolution = float(regions_with_road_presence["resolution"].iloc[0])
+    resolution_unit = str(
+        regions_with_road_presence["resolution_unit"].iloc[0]
+    )
+    grid_type = str(regions_with_road_presence["grid_type"].iloc[0])
+    keep_method = str(regions_with_road_presence["keep_method"].iloc[0])
+    display_unit = "°" if resolution_unit == "degree" else f" {resolution_unit}"
 
     fig, ax = plt.subplots(
         figsize=(12, 12),
@@ -656,7 +737,7 @@ def plot_region_road_presence(
         zorder=2,
     )
 
-    canada_basemap.boundary.plot(
+    study_area_boundary.boundary.plot(
         ax=ax,
         color="black",
         linewidth=0.5,
@@ -664,7 +745,8 @@ def plot_region_road_presence(
     )
 
     ax.set_title(
-        f"Road Presence by Graph Region ({resolution:g}° {keep_method})",
+        f"Road Presence by Graph Region "
+        f"({resolution:g}{display_unit} {grid_type} {keep_method})",
         fontsize=16,
     )
 
@@ -684,7 +766,7 @@ def plot_road_edge_connectivity(
     regions_with_road_presence: gpd.GeoDataFrame,
     roads_overlay: gpd.GeoDataFrame,
     road_edge_gdf: gpd.GeoDataFrame,
-    canada_basemap: gpd.GeoDataFrame,
+    study_area_boundary: gpd.GeoDataFrame,
     connection_label: str,
     output_path: Path,
 ) -> None:
@@ -695,8 +777,13 @@ def plot_road_edge_connectivity(
     geometries for the selected weak or strong road-connectivity method.
     """
 
-    resolution = regions_with_road_presence["resolution_deg"].iloc[0]
-    keep_method = regions_with_road_presence["keep_method"].iloc[0]
+    resolution = float(regions_with_road_presence["resolution"].iloc[0])
+    resolution_unit = str(
+        regions_with_road_presence["resolution_unit"].iloc[0]
+    )
+    grid_type = str(regions_with_road_presence["grid_type"].iloc[0])
+    keep_method = str(regions_with_road_presence["keep_method"].iloc[0])
+    display_unit = "°" if resolution_unit == "degree" else f" {resolution_unit}"
 
     fig, ax = plt.subplots(
         figsize=(12, 12),
@@ -730,7 +817,7 @@ def plot_road_edge_connectivity(
             zorder=3,
         )
 
-    canada_basemap.boundary.plot(
+    study_area_boundary.boundary.plot(
         ax=ax,
         color="black",
         linewidth=0.5,
@@ -739,7 +826,7 @@ def plot_road_edge_connectivity(
 
     ax.set_title(
         f"{connection_label} Road-Enabled Graph Edge Connectivity "
-        f"({resolution:g}° {keep_method})",
+        f"({resolution:g}{display_unit} {grid_type} {keep_method})",
         fontsize=16,
     )
 
@@ -762,8 +849,8 @@ def plot_road_edge_connectivity(
 def build_road_connectivity_for_graph(
     graph_node_path: Path,
     roads_overlay: gpd.GeoDataFrame,
-    canada_basemap: gpd.GeoDataFrame,
-    plot_outputs: bool = False,
+    study_area_boundary: gpd.GeoDataFrame,
+    config: GeospatialBuildConfig,
 ) -> dict:
     """Build weak and strong road-connectivity outputs for one graph.
 
@@ -793,10 +880,10 @@ def build_road_connectivity_for_graph(
     else:
         roads_for_overlay = roads_overlay.copy()
 
-    if canada_basemap.crs != regions.crs:
-        canada_for_plot = canada_basemap.to_crs(regions.crs)
+    if study_area_boundary.crs != regions.crs:
+        boundary_for_plot = study_area_boundary.to_crs(regions.crs)
     else:
-        canada_for_plot = canada_basemap.copy()
+        boundary_for_plot = study_area_boundary.copy()
 
     validate_graph_inputs(
         regions=regions,
@@ -804,8 +891,17 @@ def build_road_connectivity_for_graph(
         roads=roads_for_overlay,
     )
 
-    resolution = float(regions["resolution_deg"].iloc[0])
+    study_area = str(regions["study_area"].iloc[0])
+    grid_type = str(regions["grid_type"].iloc[0])
+    resolution = float(regions["resolution"].iloc[0])
+    resolution_unit = str(regions["resolution_unit"].iloc[0])
     keep_method = str(regions["keep_method"].iloc[0])
+
+    if study_area != config.study_area.label:
+        raise ValueError(
+            f"{graph_node_path.name} belongs to study area "
+            f"{study_area!r}, expected {config.study_area.label!r}."
+        )
 
     graph_stem = graph_node_path.name.replace(
         "_graph_nodes.gpkg",
@@ -828,7 +924,10 @@ def build_road_connectivity_for_graph(
         region_road_presence,
         on=[
             "region",
-            "resolution_deg",
+            "study_area",
+            "grid_type",
+            "resolution",
+            "resolution_unit",
             "keep_method",
         ],
         how="left",
@@ -840,45 +939,62 @@ def build_road_connectivity_for_graph(
         .astype(bool)
     )
 
-    weak_connections = build_weak_road_connections(
-        graph_edges=graph_edges,
-        region_road_presence=region_road_presence,
-    )
+    method_results: dict[str, dict[str, object]] = {}
+    exported_files: dict[str, str] = {}
 
-    strong_connections = build_strong_road_connections(
-        graph_edges=graph_edges,
-        road_region_overlay=road_region_overlay,
-    )
+    for method in config.road_connectivity.methods:
+        if method == "weak":
+            connections = build_weak_road_connections(
+                graph_edges=graph_edges,
+                region_road_presence=region_road_presence,
+            )
+        elif method == "strong":
+            connections = build_strong_road_connections(
+                graph_edges=graph_edges,
+                road_region_overlay=road_region_overlay,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported road-connectivity method: {method!r}"
+            )
 
-    weak_edge_gdf = build_road_edge_geometries(
-        road_edge_connections=weak_connections,
-        regions_crs=regions.crs,
-    )
+        edge_gdf = build_road_edge_geometries(
+            road_edge_connections=connections,
+            regions_crs=regions.crs,
+        )
 
-    strong_edge_gdf = build_road_edge_geometries(
-        road_edge_connections=strong_connections,
-        regions_crs=regions.crs,
-    )
+        method_outputs = export_road_connectivity_outputs(
+            output_dir=PROCESSED_ROAD_CONNECTIVITY,
+            output_stem=output_stem,
+            connection_method=method,
+            region_road_presence=region_road_presence,
+            road_edge_connections=connections,
+            road_edge_gdf=edge_gdf,
+            road_region_overlay=(
+                road_region_overlay
+                if method == config.road_connectivity.methods[0]
+                else None
+            ),
+        )
 
-    weak_output_files = export_road_connectivity_outputs(
-        output_stem=output_stem,
-        connection_method="weak",
-        region_road_presence=region_road_presence,
-        road_edge_connections=weak_connections,
-        road_edge_gdf=weak_edge_gdf,
-        road_region_overlay=road_region_overlay,
-    )
+        enabled_edges = int(
+            connections["has_road_connection"].sum()
+        )
+        edge_share = (
+            enabled_edges / len(connections)
+            if len(connections) > 0
+            else 0.0
+        )
 
-    strong_output_files = export_road_connectivity_outputs(
-        output_stem=output_stem,
-        connection_method="strong",
-        region_road_presence=region_road_presence,
-        road_edge_connections=strong_connections,
-        road_edge_gdf=strong_edge_gdf,
-        road_region_overlay=None,
-    )
+        method_results[method] = {
+            "connections": connections,
+            "edge_gdf": edge_gdf,
+            "enabled_edges": enabled_edges,
+            "edge_share": edge_share,
+        }
+        exported_files.update(method_outputs)
 
-    if plot_outputs:
+    if config.road_connectivity.plot_outputs:
         plot_dir = PROCESSED_ROAD_CONNECTIVITY / "plots"
         plot_dir.mkdir(parents=True, exist_ok=True)
 
@@ -887,60 +1003,42 @@ def build_road_connectivity_for_graph(
             / f"{graph_stem}_road_presence.png"
         )
 
-        weak_connectivity_plot_path = (
-            plot_dir
-            / f"{graph_stem}_weak_connectivity.png"
-        )
-
-        strong_connectivity_plot_path = (
-            plot_dir
-            / f"{graph_stem}_strong_connectivity.png"
-        )
 
         plot_region_road_presence(
             regions=regions,
             region_road_presence=region_road_presence,
             roads_overlay=roads_for_overlay,
-            canada_basemap=canada_for_plot,
+            study_area_boundary=boundary_for_plot,
             output_path=road_presence_plot_path,
         )
 
-        plot_road_edge_connectivity(
-            regions_with_road_presence=regions_with_road_presence,
-            roads_overlay=roads_for_overlay,
-            road_edge_gdf=weak_edge_gdf,
-            canada_basemap=canada_for_plot,
-            connection_label="Weak",
-            output_path=weak_connectivity_plot_path,
-        )
+        connectivity_plot_files: dict[str, str] = {}
 
-        plot_road_edge_connectivity(
-            regions_with_road_presence=regions_with_road_presence,
-            roads_overlay=roads_for_overlay,
-            road_edge_gdf=strong_edge_gdf,
-            canada_basemap=canada_for_plot,
-            connection_label="Strong",
-            output_path=strong_connectivity_plot_path,
-        )
+        for method, result in method_results.items():
+            connectivity_plot_path = (
+                plot_dir
+                / f"{graph_stem}_{method}_connectivity.png"
+            )
+
+            plot_road_edge_connectivity(
+                regions_with_road_presence=regions_with_road_presence,
+                roads_overlay=roads_for_overlay,
+                road_edge_gdf=result["edge_gdf"],
+                study_area_boundary=boundary_for_plot,
+                connection_label=method.title(),
+                output_path=connectivity_plot_path,
+            )
+
+            connectivity_plot_files[
+                f"{method}_connectivity_plot_file"
+            ] = connectivity_plot_path.name
 
         print(f"Exported plot: {road_presence_plot_path.name}")
-        print(f"Exported plot: {weak_connectivity_plot_path.name}")
-        print(f"Exported plot: {strong_connectivity_plot_path.name}")
+        for plot_file in connectivity_plot_files.values():
+            print(f"Exported plot: {plot_file}")
 
-    regions_with_roads = int(region_road_presence["has_road"].sum())
-    weak_edges = int(weak_connections["has_road_connection"].sum())
-    strong_edges = int(strong_connections["has_road_connection"].sum())
-
-    weak_edge_share = (
-        weak_edges / len(weak_connections)
-        if len(weak_connections) > 0
-        else 0
-    )
-
-    strong_edge_share = (
-        strong_edges / len(strong_connections)
-        if len(strong_connections) > 0
-        else 0
+    regions_with_roads = int(
+        region_road_presence["has_road"].sum()
     )
 
     print(
@@ -948,98 +1046,127 @@ def build_road_connectivity_for_graph(
         f"{regions_with_roads:,} / {len(region_road_presence):,}"
     )
 
-    print(
-        f"Weak road-enabled edges: "
-        f"{weak_edges:,} / {len(weak_connections):,}"
-    )
-
-    print(
-        f"Strong road-enabled edges: "
-        f"{strong_edges:,} / {len(strong_connections):,}"
-    )
+    for method, result in method_results.items():
+        print(
+            f"{method.title()} road-enabled edges: "
+            f"{result['enabled_edges']:,} / "
+            f"{len(result['connections']):,}"
+        )
 
     summary = {
+        "study_area": study_area,
         "graph_file": graph_node_path.name,
         "edge_file": graph_edge_path.name,
-        "resolution_deg": resolution,
+        "grid_type": grid_type,
+        "resolution": resolution,
+        "resolution_unit": resolution_unit,
         "keep_method": keep_method,
+        "road_layer": config.road_connectivity.road_layer,
         "regions": len(regions),
         "graph_edges": len(graph_edges),
         "road_overlay_rows": len(road_region_overlay),
         "unique_roads_matched": road_region_overlay["road_id"].nunique(),
         "regions_with_roads": regions_with_roads,
-        "weak_road_edges": weak_edges,
-        "strong_road_edges": strong_edges,
-        "weak_road_edge_share": weak_edge_share,
-        "strong_road_edge_share": strong_edge_share,
     }
 
-    summary.update(weak_output_files)
-    summary.update(strong_output_files)
+    for method, result in method_results.items():
+        summary[f"{method}_road_edges"] = result["enabled_edges"]
+        summary[f"{method}_road_edge_share"] = result["edge_share"]
 
-    if plot_outputs:
-        summary.update(
-            {
-                "road_presence_plot_file": road_presence_plot_path.name,
-                "weak_connectivity_plot_file": weak_connectivity_plot_path.name,
-                "strong_connectivity_plot_file": strong_connectivity_plot_path.name,
-            }
+    summary.update(exported_files)
+
+    if config.road_connectivity.plot_outputs:
+        summary["road_presence_plot_file"] = (
+            road_presence_plot_path.name
         )
+        summary.update(connectivity_plot_files)
 
     return summary
 
 
-def main() -> None:
-    """Run the road-connectivity mapping workflow for all processed graphs.
+def parse_args() -> argparse.Namespace:
+    """Parse the Stage 4 build-profile path."""
 
-    Creates the road-connectivity output folder, discovers processed graph node
-    files, loads static road and basemap datasets, builds weak and strong
-    road-connectivity outputs for each graph, and writes the consolidated
-    road-connectivity summary CSV.
-    """
-    PROCESSED_ROAD_CONNECTIVITY.mkdir(parents=True, exist_ok=True)
+    parser = argparse.ArgumentParser(
+        description=(
+            "Map configured processed roads onto configured region graphs."
+        )
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        required=True,
+        help=(
+            "Path to a geospatial preprocessing TOML build profile."
+        ),
+    )
+    return parser.parse_args()
 
-    graph_node_files = find_graph_node_files()
 
-    roads_overlay, canada_basemap = load_static_datasets()
+def run_road_connectivity_build(
+    config: GeospatialBuildConfig,
+) -> pd.DataFrame:
+    """Run Stage 4 using an already loaded build profile."""
 
-    road_connectivity_summary_rows = []
+    PROCESSED_ROAD_CONNECTIVITY.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    graph_node_files = find_graph_node_files(config)
+
+    roads_overlay, study_area_boundary = load_static_datasets(
+        config
+    )
+
+    summary_rows: list[dict] = []
 
     for graph_node_path in graph_node_files:
         summary = build_road_connectivity_for_graph(
             graph_node_path=graph_node_path,
             roads_overlay=roads_overlay,
-            canada_basemap=canada_basemap,
-            plot_outputs=PLOT_OUTPUTS,
+            study_area_boundary=study_area_boundary,
+            config=config,
         )
+        summary_rows.append(summary)
 
-        road_connectivity_summary_rows.append(summary)
-
-    road_connectivity_summary = pd.DataFrame(road_connectivity_summary_rows)
+    road_connectivity_summary = pd.DataFrame(summary_rows)
 
     road_connectivity_summary = (
         road_connectivity_summary
         .sort_values(
             by=[
-                "resolution_deg",
+                "grid_type",
+                "resolution",
                 "keep_method",
             ]
         )
         .reset_index(drop=True)
     )
 
-    road_connectivity_summary_path = (
+    summary_path = (
         PROCESSED_ROAD_CONNECTIVITY
-        / "road_connectivity_summary.csv"
+        / f"{config.study_area.label}_road_connectivity_summary.csv"
     )
 
     road_connectivity_summary.to_csv(
-        road_connectivity_summary_path,
+        summary_path,
         index=False,
     )
 
     print("\nRoad connectivity processing complete.")
-    print(f"Exported summary: {road_connectivity_summary_path.name}")
+    print(f"Exported summary: {summary_path.name}")
+
+    return road_connectivity_summary
+
+
+def main() -> None:
+    """Load a TOML profile and run Stage 4."""
+
+    args = parse_args()
+    config = load_geospatial_build_config(args.config)
+    print_build_config(config)
+    run_road_connectivity_build(config)
 
 
 if __name__ == "__main__":

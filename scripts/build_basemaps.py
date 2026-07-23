@@ -1,4 +1,3 @@
-
 """
 build_basemaps.py
 
@@ -29,13 +28,14 @@ data_files/processed/basemaps/
     {study_area}_basemap_{resolution}km_centroid.gpkg
     basemap_summary.csv
 
-Configuration is currently defined in this script. It can later be moved into a
-project-level graph-build configuration file without changing the core build
-functions.
+Configuration is loaded from a project-level TOML build profile through
+project_config.py. The same profile is shared by downstream graph, road,
+connectivity, and schema-building stages.
 """
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 import shutil
 
@@ -45,6 +45,12 @@ import numpy as np
 import pandas as pd
 from shapely.geometry import Point, box
 from tqdm.auto import tqdm
+
+from project_config import (
+    GeospatialBuildConfig,
+    load_geospatial_build_config,
+    print_build_config,
+)
 
 
 # =============================================================================
@@ -58,13 +64,14 @@ PROCESSED_BASEMAP = PROJECT_ROOT / "data_files" / "processed" / "basemaps"
 
 
 # =============================================================================
-# Basemap configuration
+# Basemap implementation constants
 # =============================================================================
 
 WGS84_CRS = "EPSG:4326"
 STAT_CANADA_LAMBERT_CRS = "EPSG:3347"
 
-# Statistics Canada province and territory identifiers.
+# Statistics Canada province and territory identifiers. These are source-schema
+# mappings and remain implementation constants rather than build-profile values.
 PROVINCE_NAME_TO_CODE = {
     "Newfoundland and Labrador": "NL",
     "Prince Edward Island": "PE",
@@ -81,74 +88,13 @@ PROVINCE_NAME_TO_CODE = {
     "Nunavut": "NU",
 }
 
-ALL_PROVINCE_CODES = list(PROVINCE_NAME_TO_CODE.values())
-
-# Select the provinces and territories that form one combined study area.
-# Comment out any jurisdictions that should not be included.
-#
-# Examples:
-#   Ontario only:          ["ON"]
-#   Ontario and Quebec:    ["ON", "QC"]
-#   Atlantic Canada:       ["NL", "PE", "NS", "NB"]
-#   Alberta and BC:        ["AB", "BC"]
-#   Full Canada:           leave all entries enabled
-SELECTED_PROVINCES = [
-    "NL",
-    "PE",
-    "NS",
-    "NB",
-    "QC",
-    "ON",
-    "MB",
-    "SK",
-    "AB",
-    "BC",
-    #"YT",
-    #"NT",
-    #"NU",
-]
-
-# Optional explicit filename label. Leave as None to generate one automatically:
-#   all provinces -> "canada"
-#   one province  -> "on"
-#   several       -> "on_qc", "ab_bc", etc.
-STUDY_AREA_LABEL: str | None = "province_only"
-
-# Select which grid family or families to build.
-# Valid values: "geographic", "projected".
-GRID_TYPES_TO_BUILD = [
-    "geographic",
-    "projected",
-]
-
-# Geographic grid resolutions are expressed in decimal degrees.
-GEOGRAPHIC_RESOLUTIONS_DEG = [
-    0.1,
-    0.25,
-    0.5,
-    0.75,
-    1.0,
-]
-
-# Projected grid resolutions are expressed in kilometres. Internally, grid
-# construction uses metres because EPSG:3347 has metre coordinate units.
-PROJECTED_RESOLUTIONS_KM = [
-    10,
-    25,
-    50,
-    75,
-    100,
-]
-
-KEEP_METHOD = "centroid"
-COORD_PRECISION = 6
-
-GRID_CONFIG = {
+# Stable grid-family definitions. The TOML profile selects grid types,
+# resolutions, retention method, and coordinate precision.
+GRID_SYSTEMS = {
     "geographic": {
         "crs": WGS84_CRS,
         "resolution_unit": "degree",
         "filename_unit": "deg",
-        "resolutions": GEOGRAPHIC_RESOLUTIONS_DEG,
         "native_scale": 1.0,
         "native_unit": "degree",
     },
@@ -156,7 +102,6 @@ GRID_CONFIG = {
         "crs": STAT_CANADA_LAMBERT_CRS,
         "resolution_unit": "km",
         "filename_unit": "km",
-        "resolutions": PROJECTED_RESOLUTIONS_KM,
         "native_scale": 1000.0,
         "native_unit": "m",
     },
@@ -269,67 +214,6 @@ def load_province_boundaries(
     )
 
 
-def validate_study_area_configuration() -> None:
-    """Validate selected province and territory abbreviations."""
-
-    if not SELECTED_PROVINCES:
-        raise ValueError(
-            "SELECTED_PROVINCES must contain at least one province "
-            "or territory code."
-        )
-
-    normalized_codes = [
-        str(code).upper().strip()
-        for code in SELECTED_PROVINCES
-    ]
-
-    if len(normalized_codes) != len(set(normalized_codes)):
-        raise ValueError(
-            "SELECTED_PROVINCES contains duplicate codes: "
-            f"{normalized_codes}"
-        )
-
-    unknown_codes = sorted(
-        set(normalized_codes) - set(ALL_PROVINCE_CODES)
-    )
-
-    if unknown_codes:
-        raise ValueError(
-            f"Unknown province/territory codes: {unknown_codes}. "
-            f"Valid codes are: {ALL_PROVINCE_CODES}"
-        )
-
-
-def resolve_study_area_label() -> str:
-    """Return a deterministic filename-safe study-area label."""
-
-    if STUDY_AREA_LABEL is not None:
-        label = STUDY_AREA_LABEL.strip().lower().replace("-", "_").replace(" ", "_")
-
-        if not label:
-            raise ValueError(
-                "STUDY_AREA_LABEL cannot be blank when explicitly supplied."
-            )
-
-        return label
-
-    selected = {
-        str(code).upper().strip()
-        for code in SELECTED_PROVINCES
-    }
-
-    if selected == set(ALL_PROVINCE_CODES):
-        return "canada"
-
-    ordered_codes = [
-        code.lower()
-        for code in ALL_PROVINCE_CODES
-        if code in selected
-    ]
-
-    return "_".join(ordered_codes)
-
-
 def build_study_area_boundary(
     provinces: gpd.GeoDataFrame,
     selected_provinces: list[str],
@@ -379,37 +263,6 @@ def build_study_area_boundary(
 # =============================================================================
 
 
-def validate_grid_configuration() -> None:
-    """Validate the in-script grid configuration before building outputs."""
-
-    unknown_grid_types = sorted(set(GRID_TYPES_TO_BUILD) - set(GRID_CONFIG))
-
-    if unknown_grid_types:
-        raise ValueError(
-            f"Unknown grid type(s): {unknown_grid_types}. "
-            f"Valid values are: {sorted(GRID_CONFIG)}"
-        )
-
-    if not GRID_TYPES_TO_BUILD:
-        raise ValueError("GRID_TYPES_TO_BUILD must contain at least one grid type.")
-
-    for grid_type in GRID_TYPES_TO_BUILD:
-        resolutions = GRID_CONFIG[grid_type]["resolutions"]
-
-        if not resolutions:
-            raise ValueError(f"No resolutions configured for {grid_type} grids.")
-
-        if any(float(resolution) <= 0 for resolution in resolutions):
-            raise ValueError(
-                f"All {grid_type} grid resolutions must be positive: {resolutions}"
-            )
-
-        if len(resolutions) != len(set(resolutions)):
-            raise ValueError(
-                f"Duplicate {grid_type} grid resolutions found: {resolutions}"
-            )
-
-
 def align_bounds_to_grid(
     bounds: tuple[float, float, float, float],
     cell_size_native: float,
@@ -435,18 +288,31 @@ def build_candidate_grid(
     boundary_gdf: gpd.GeoDataFrame,
     grid_type: str,
     resolution: float,
+    keep_method: str,
+    coordinate_precision: int,
 ) -> gpd.GeoDataFrame:
     """Build all candidate square cells covering the boundary extent."""
 
-    config = GRID_CONFIG[grid_type]
-    grid_crs = str(config["crs"])
-    cell_size_native = float(resolution) * float(config["native_scale"])
+    grid_system = GRID_SYSTEMS[grid_type]
+    grid_crs = str(grid_system["crs"])
+    cell_size_native = float(resolution) * float(grid_system["native_scale"])
 
     boundary_native = boundary_gdf.to_crs(grid_crs)
+
+    raw_bounds = boundary_native.total_bounds
+
+    boundary_bounds: tuple[float, float, float, float] = (
+        float(raw_bounds[0]),
+        float(raw_bounds[1]),
+        float(raw_bounds[2]),
+        float(raw_bounds[3]),
+    )
+
     aligned_bounds = align_bounds_to_grid(
-        boundary_native.total_bounds,
+        boundary_bounds,
         cell_size_native,
     )
+
     min_x, min_y, max_x, max_y = aligned_bounds
 
     x_values = np.arange(min_x, max_x, cell_size_native)
@@ -457,10 +323,10 @@ def build_candidate_grid(
 
     print(
         f"\nBuilding {resolution:g}{display_symbol} {grid_type} grid "
-        f"using {KEEP_METHOD!r} retention..."
+        f"using {keep_method!r} retention..."
     )
     print(f"Grid CRS: {grid_crs}")
-    native_unit = str(config["native_unit"])
+    native_unit = str(grid_system["native_unit"])
     if grid_type == "projected":
         print(
             f"Native cell size: {cell_size_native:,.0f} {native_unit} "
@@ -477,14 +343,18 @@ def build_candidate_grid(
     progress = tqdm(
         total=total_cells,
         desc=(
-            f"{resolution:g}{config['filename_unit']} "
-            f"{KEEP_METHOD}"
+            f"{resolution:g}{grid_system['filename_unit']} "
+            f"{keep_method}"
         ),
         unit="cells",
     )
 
-    for x_min in x_values:
-        for y_min in y_values:
+    for x_value in x_values:
+        x_min = float(x_value)
+
+        for y_value in y_values:
+            y_min = float(y_value)
+
             x_max = x_min + cell_size_native
             y_max = y_min + cell_size_native
             x_center = x_min + cell_size_native / 2
@@ -492,14 +362,22 @@ def build_candidate_grid(
 
             grid_cells.append(
                 {
-                    "x_min": round(float(x_min), COORD_PRECISION),
-                    "x_max": round(float(x_max), COORD_PRECISION),
-                    "y_min": round(float(y_min), COORD_PRECISION),
-                    "y_max": round(float(y_max), COORD_PRECISION),
-                    "centroid_x": round(float(x_center), COORD_PRECISION),
-                    "centroid_y": round(float(y_center), COORD_PRECISION),
-                    "geometry": box(x_min, y_min, x_max, y_max),
-                    "centroid_geometry": Point(x_center, y_center),
+                    "x_min": round(x_min, coordinate_precision),
+                    "x_max": round(x_max, coordinate_precision),
+                    "y_min": round(y_min, coordinate_precision),
+                    "y_max": round(y_max, coordinate_precision),
+                    "centroid_x": round(x_center, coordinate_precision),
+                    "centroid_y": round(y_center, coordinate_precision),
+                    "geometry": box(
+                        x_min,
+                        y_min,
+                        x_max,
+                        y_max,
+                    ),
+                    "centroid_geometry": Point(
+                        x_center,
+                        y_center,
+                    ),
                 }
             )
 
@@ -552,11 +430,13 @@ def add_coordinate_metadata(
     boundary_gdf: gpd.GeoDataFrame,
     grid_type: str,
     resolution: float,
+    keep_method: str,
+    coordinate_precision: int,
 ) -> gpd.GeoDataFrame:
     """Add canonical IDs, native coordinates, and WGS84 display coordinates."""
 
-    config = GRID_CONFIG[grid_type]
-    grid_crs = str(config["crs"])
+    grid_system = GRID_SYSTEMS[grid_type]
+    grid_crs = str(grid_system["crs"])
 
     centroid_native = gpd.GeoDataFrame(
         grid[["centroid_x", "centroid_y"]].copy(),
@@ -570,8 +450,8 @@ def add_coordinate_metadata(
     centroid_wgs84 = centroid_native.to_crs(WGS84_CRS)
 
     grid = grid.copy()
-    grid["lon"] = centroid_wgs84.geometry.x.round(COORD_PRECISION)
-    grid["lat"] = centroid_wgs84.geometry.y.round(COORD_PRECISION)
+    grid["lon"] = centroid_wgs84.geometry.x.round(coordinate_precision)
+    grid["lat"] = centroid_wgs84.geometry.y.round(coordinate_precision)
 
     # Sort in the native coordinate system so IDs remain deterministic for a
     # given grid configuration.
@@ -586,11 +466,11 @@ def add_coordinate_metadata(
     grid["grid_type"] = grid_type
     grid["grid_crs"] = grid_crs
     grid["resolution"] = float(resolution)
-    grid["resolution_unit"] = str(config["resolution_unit"])
+    grid["resolution_unit"] = str(grid_system["resolution_unit"])
     grid["cell_size_native"] = (
-        float(resolution) * float(config["native_scale"])
+        float(resolution) * float(grid_system["native_scale"])
     )
-    grid["keep_method"] = KEEP_METHOD
+    grid["keep_method"] = keep_method
 
     # Compatibility fields ease the staged downstream refactor. New code should
     # use the generic resolution and centroid_x/centroid_y fields.
@@ -632,18 +512,22 @@ def build_grid(
     boundary_gdf: gpd.GeoDataFrame,
     grid_type: str,
     resolution: float,
+    keep_method: str,
+    coordinate_precision: int,
 ) -> gpd.GeoDataFrame:
     """Build one centroid-retained geographic or projected study-area grid."""
 
-    if grid_type not in GRID_CONFIG:
+    if grid_type not in GRID_SYSTEMS:
         raise ValueError(
-            f"Unknown grid type {grid_type!r}. Valid values: {sorted(GRID_CONFIG)}"
+            f"Unknown grid type {grid_type!r}. Valid values: {sorted(GRID_SYSTEMS)}"
         )
 
     candidate_grid = build_candidate_grid(
         boundary_gdf=boundary_gdf,
         grid_type=grid_type,
         resolution=resolution,
+        keep_method=keep_method,
+        coordinate_precision=coordinate_precision,
     )
 
     study_area_label = str(boundary_gdf["study_area"].iloc[0])
@@ -659,11 +543,13 @@ def build_grid(
         boundary_gdf=boundary_gdf,
         grid_type=grid_type,
         resolution=resolution,
+        keep_method=keep_method,
+        coordinate_precision=coordinate_precision,
     )
 
     print(
         f"Completed {grid_type} grid at {resolution:g} "
-        f"{GRID_CONFIG[grid_type]['resolution_unit']}: "
+        f"{GRID_SYSTEMS[grid_type]['resolution_unit']}: "
         f"{len(retained_grid):,} retained cells."
     )
 
@@ -675,11 +561,15 @@ def build_grid(
 # =============================================================================
 
 
-def basemap_key(grid_type: str, resolution: float) -> str:
+def basemap_key(
+    grid_type: str,
+    resolution: float,
+    keep_method: str,
+) -> str:
     """Return the canonical filename key for one grid configuration."""
 
-    filename_unit = GRID_CONFIG[grid_type]["filename_unit"]
-    return f"{resolution:g}{filename_unit}_{KEEP_METHOD}"
+    filename_unit = GRID_SYSTEMS[grid_type]["filename_unit"]
+    return f"{resolution:g}{filename_unit}_{keep_method}"
 
 
 def save_basemap_preview(
@@ -688,6 +578,7 @@ def save_basemap_preview(
     png_path: Path,
     grid_type: str,
     resolution: float,
+    keep_method: str,
 ) -> None:
     """Save a preview using boundary geometry reprojected to the grid CRS."""
 
@@ -695,7 +586,6 @@ def save_basemap_preview(
         raise ValueError("Basemap CRS is undefined.")
 
     boundary_native = study_area_boundary.to_crs(basemap.crs)
-    unit = GRID_CONFIG[grid_type]["resolution_unit"]
     symbol = "°" if grid_type == "geographic" else " km"
 
     fig, ax = plt.subplots(figsize=(8, 8))
@@ -715,7 +605,7 @@ def save_basemap_preview(
 
     ax.set_title(
         f"{str(study_area_boundary['study_area'].iloc[0])} "
-        f"{grid_type} basemap: {resolution:g}{symbol} {KEEP_METHOD}\n"
+        f"{grid_type} basemap: {resolution:g}{symbol} {keep_method}\n"
         f"{len(basemap):,} retained cells | {basemap.crs.to_string()}"
     )
     ax.set_axis_off()
@@ -735,29 +625,42 @@ def summarize_basemap(
     resolution: float,
     gpkg_path: Path,
     png_path: Path,
+    keep_method: str,
 ) -> dict:
     """Return one summary record for an exported basemap."""
 
-    min_x, min_y, max_x, max_y = basemap.total_bounds
+    if basemap.crs is None:
+        raise ValueError("Cannot summarize basemap because its CRS is undefined.")
+
+    raw_bounds = basemap.total_bounds
+
+    min_x = float(raw_bounds[0])
+    min_y = float(raw_bounds[1])
+    max_x = float(raw_bounds[2])
+    max_y = float(raw_bounds[3])
 
     return {
         "study_area": str(basemap["study_area"].iloc[0]),
         "province_codes": str(basemap["province_codes"].iloc[0]),
         "grid_type": grid_type,
         "grid_crs": basemap.crs.to_string(),
-        "resolution": resolution,
-        "resolution_unit": GRID_CONFIG[grid_type]["resolution_unit"],
-        "cell_size_native": float(basemap["cell_size_native"].iloc[0]),
-        "keep_method": KEEP_METHOD,
+        "resolution": float(resolution),
+        "resolution_unit": str(
+            GRID_SYSTEMS[grid_type]["resolution_unit"]
+        ),
+        "cell_size_native": float(
+            basemap["cell_size_native"].iloc[0]
+        ),
+        "keep_method": keep_method,
         "regions": len(basemap),
         "native_x_min": min_x,
         "native_x_max": max_x,
         "native_y_min": min_y,
         "native_y_max": max_y,
-        "lon_min": basemap["lon"].min(),
-        "lon_max": basemap["lon"].max(),
-        "lat_min": basemap["lat"].min(),
-        "lat_max": basemap["lat"].max(),
+        "lon_min": float(basemap["lon"].min()),
+        "lon_max": float(basemap["lon"].max()),
+        "lat_min": float(basemap["lat"].min()),
+        "lat_max": float(basemap["lat"].max()),
         "output_file": gpkg_path.name,
         "preview_file": png_path.name,
     }
@@ -767,8 +670,9 @@ def build_all_basemaps(
     study_area_boundary: gpd.GeoDataFrame,
     study_area_label: str,
     output_dir: Path,
+    config: GeospatialBuildConfig,
 ) -> pd.DataFrame:
-    """Build and export all grid types and resolutions selected in config."""
+    """Build and export all basemaps selected by one build profile."""
 
     preview_dir = output_dir / "preview"
 
@@ -779,17 +683,26 @@ def build_all_basemaps(
 
     summary_rows: list[dict] = []
 
-    for grid_type in GRID_TYPES_TO_BUILD:
-        config = GRID_CONFIG[grid_type]
+    resolution_lookup = {
+        "geographic": config.basemaps.geographic_resolutions_deg,
+        "projected": config.basemaps.projected_resolutions_km,
+    }
 
-        for resolution in config["resolutions"]:
+    for grid_type in config.basemaps.grid_types:
+        for resolution in resolution_lookup[grid_type]:
             basemap = build_grid(
                 boundary_gdf=study_area_boundary,
                 grid_type=grid_type,
                 resolution=float(resolution),
+                keep_method=config.basemaps.keep_method,
+                coordinate_precision=config.basemaps.coordinate_precision,
             )
 
-            key = basemap_key(grid_type, float(resolution))
+            key = basemap_key(
+                grid_type=grid_type,
+                resolution=float(resolution),
+                keep_method=config.basemaps.keep_method,
+            )
             gpkg_path = output_dir / f"{study_area_label}_basemap_{key}.gpkg"
             png_path = preview_dir / f"{study_area_label}_basemap_{key}.png"
 
@@ -805,6 +718,7 @@ def build_all_basemaps(
                 png_path=png_path,
                 grid_type=grid_type,
                 resolution=float(resolution),
+                keep_method=config.basemaps.keep_method,
             )
 
             print(f"Exported: {gpkg_path.name} ({len(basemap):,} regions)")
@@ -817,6 +731,7 @@ def build_all_basemaps(
                     resolution=float(resolution),
                     gpkg_path=gpkg_path,
                     png_path=png_path,
+                    keep_method=config.basemaps.keep_method,
                 )
             )
 
@@ -828,21 +743,45 @@ def build_all_basemaps(
 # =============================================================================
 
 
-def main() -> None:
-    """Run Stage 1 of the Geospatial-CANOE basemap workflow."""
+def parse_args() -> argparse.Namespace:
+    """Parse the Stage 1 build-profile path."""
 
-    validate_study_area_configuration()
-    validate_grid_configuration()
+    parser = argparse.ArgumentParser(
+        description=(
+            "Build configured Geospatial-CANOE study-area basemaps."
+        )
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        required=True,
+        help=(
+            "Path to a geospatial preprocessing TOML build profile, "
+            "for example config/build_profiles/provinces_only.toml."
+        ),
+    )
+    return parser.parse_args()
+
+
+def run_basemap_build(
+    config: GeospatialBuildConfig,
+) -> pd.DataFrame:
+    """Run Stage 1 using an already loaded build profile."""
+
+    if config.basemaps.keep_method != "centroid":
+        raise ValueError(
+            "build_basemaps.py currently supports only centroid retention."
+        )
+
     PROCESSED_BASEMAP.mkdir(parents=True, exist_ok=True)
 
-    study_area_label = resolve_study_area_label()
     boundary_path = find_boundary_shapefile(RAW_BASEMAP)
     provinces = load_province_boundaries(boundary_path)
 
     study_area_boundary_wgs84 = build_study_area_boundary(
         provinces=provinces,
-        selected_provinces=SELECTED_PROVINCES,
-        study_area_label=study_area_label,
+        selected_provinces=list(config.study_area.provinces),
+        study_area_label=config.study_area.label,
     )
     study_area_boundary_epsg3347 = study_area_boundary_wgs84.to_crs(
         STAT_CANADA_LAMBERT_CRS
@@ -850,11 +789,11 @@ def main() -> None:
 
     boundary_wgs84_output = (
         PROCESSED_BASEMAP
-        / f"{study_area_label}_boundary_wgs84.gpkg"
+        / f"{config.study_area.label}_boundary_wgs84.gpkg"
     )
     boundary_epsg3347_output = (
         PROCESSED_BASEMAP
-        / f"{study_area_label}_boundary_epsg3347.gpkg"
+        / f"{config.study_area.label}_boundary_epsg3347.gpkg"
     )
 
     study_area_boundary_wgs84.to_file(
@@ -868,21 +807,36 @@ def main() -> None:
         driver="GPKG",
     )
 
-    print(f"Study-area label: {study_area_label}")
+    print(f"Study-area label: {config.study_area.label}")
     print(f"Exported: {boundary_wgs84_output.name}")
     print(f"Exported: {boundary_epsg3347_output.name}")
 
     basemap_summary = build_all_basemaps(
         study_area_boundary=study_area_boundary_wgs84,
-        study_area_label=study_area_label,
+        study_area_label=config.study_area.label,
         output_dir=PROCESSED_BASEMAP,
+        config=config,
     )
 
-    summary_path = PROCESSED_BASEMAP / "basemap_summary.csv"
+    summary_path = (
+        PROCESSED_BASEMAP
+        / f"{config.study_area.label}_basemap_summary.csv"
+    )
     basemap_summary.to_csv(summary_path, index=False)
 
     print("\nStage 1 complete.")
     print(f"Exported summary: {summary_path}")
+
+    return basemap_summary
+
+
+def main() -> None:
+    """Load a TOML profile and run Stage 1."""
+
+    args = parse_args()
+    config = load_geospatial_build_config(args.config)
+    print_build_config(config)
+    run_basemap_build(config)
 
 
 if __name__ == "__main__":
