@@ -98,11 +98,31 @@ DEFAULT_COST_MODEL_VERSION = "v1"
 # =============================================================================
 
 def find_project_root(start_path: Path | None = None) -> Path:
-    """Find the Geospatial-CANOE repository root.
+    """Locate and return the Geospatial-CANOE repository root.
 
-    Searches upward from the script location and current working directory, or
-    from ``start_path`` when explicitly supplied. The first directory containing
-    both ``scripts`` and ``data_files`` is treated as the project root.
+    The search begins from ``start_path`` when provided. Otherwise, it begins from
+    both the current script location and the current working directory. Each starting
+    location and its parent directories are inspected in order, and the first
+    directory containing both ``scripts/`` and ``data_files/`` is treated as the
+    repository root.
+
+    Parameters
+    ----------
+    start_path : Path | None, optional
+        Explicit file or directory from which to begin the upward search. File paths
+        are converted to their parent directory before searching. When omitted, the
+        script location and current working directory are searched.
+
+    Returns
+    -------
+    Path
+        Absolute path to the detected Geospatial-CANOE repository root.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no searched directory contains both the expected ``scripts/`` and
+        ``data_files/`` directories.
     """
 
     search_starts: list[Path] = []
@@ -134,7 +154,19 @@ def find_project_root(start_path: Path | None = None) -> Path:
 
 
 def default_workbook_path(project_root: Path) -> Path:
-    """Return the canonical H2 pipeline master workbook path."""
+    """Construct the canonical H2 pipeline master-workbook path.
+
+    Parameters
+    ----------
+    project_root : Path
+        Root directory of the Geospatial-CANOE repository.
+
+    Returns
+    -------
+    Path
+        Path to the controlled H2 pipeline master cost workbook under
+        ``data_files/models/cost_models/transport/master_files/``.
+    """
 
     return (
         project_root
@@ -148,7 +180,19 @@ def default_workbook_path(project_root: Path) -> Path:
 
 
 def default_output_path(project_root: Path) -> Path:
-    """Return the canonical processed H2 pipeline capacity-cost CSV path."""
+    """Construct the canonical processed H2 pipeline capacity-cost CSV path.
+
+    Parameters
+    ----------
+    project_root : Path
+        Root directory of the Geospatial-CANOE repository.
+
+    Returns
+    -------
+    Path
+        Path to the normalized H2 pipeline capacity-cost CSV under
+        ``data_files/processed/costs/transport/pipelines/h2_pipeline/``.
+    """
 
     return (
         project_root
@@ -167,7 +211,29 @@ def default_output_path(project_root: Path) -> Path:
 # =============================================================================
 
 def list_workbook_sheets(workbook_path: Path) -> list[str]:
-    """Return worksheet names from an Excel workbook."""
+    """Return the worksheet names defined in an Excel workbook.
+
+    The workbook is validated before being opened. Worksheet identifiers are then
+    read through ``pandas.ExcelFile`` and checked to ensure every identifier is a
+    string before the names are returned in workbook order.
+
+    Parameters
+    ----------
+    workbook_path : Path
+        Path to the Excel workbook to inspect.
+
+    Returns
+    -------
+    list[str]
+        Worksheet names in the order they appear in the workbook.
+
+    Raises
+    ------
+    FileNotFoundError
+        If ``workbook_path`` does not exist.
+    ValueError
+        If the workbook contains a worksheet identifier that is not a string.
+    """
 
     if not workbook_path.exists():
         raise FileNotFoundError(f"Workbook not found: {workbook_path}")
@@ -198,7 +264,30 @@ def validate_required_sheets(
     available_sheets: list[str],
     sheet_map: dict[str, str],
 ) -> None:
-    """Validate that all configured normalized worksheets are present."""
+    """Validate that all configured normalized cost worksheets are available.
+
+    Each worksheet name referenced by ``sheet_map`` is checked against the workbook
+    worksheet names in ``available_sheets``. Validation succeeds silently when all
+    required worksheets are present.
+
+    Parameters
+    ----------
+    available_sheets : list[str]
+        Worksheet names available in the source workbook.
+    sheet_map : dict[str, str]
+        Mapping from canonical cost-component labels to their required worksheet
+        names.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValueError
+        If one or more configured worksheet names are absent from
+        ``available_sheets``.
+    """
 
     missing_sheets = [
         sheet_name
@@ -217,7 +306,34 @@ def load_normalized_cost_sheets(
     workbook_path: Path,
     sheet_map: dict[str, str],
 ) -> dict[str, pd.DataFrame]:
-    """Load and lightly clean normalized pipeline cost worksheets."""
+    """Load and lightly clean the configured normalized cost worksheets.
+
+    The source workbook is opened once through ``pandas.ExcelFile``. Each worksheet
+    referenced by ``sheet_map`` is validated, loaded into a DataFrame, stripped of
+    fully empty rows and columns, and reindexed. The cleaned tables are returned
+    using their canonical cost-component labels as dictionary keys.
+
+    Parameters
+    ----------
+    workbook_path : Path
+        Path to the H2 pipeline master cost workbook.
+    sheet_map : dict[str, str]
+        Mapping from canonical cost-component labels, such as ``"capex"``, to the
+        corresponding workbook worksheet names.
+
+    Returns
+    -------
+    dict[str, pd.DataFrame]
+        Cleaned worksheet tables keyed by canonical cost-component label.
+
+    Raises
+    ------
+    FileNotFoundError
+        If ``workbook_path`` does not exist.
+    ValueError
+        If ``sheet_map`` is empty, a required worksheet is missing, or a loaded
+        worksheet contains no usable data after empty rows and columns are removed.
+    """
 
     if not workbook_path.exists():
         raise FileNotFoundError(
@@ -230,8 +346,28 @@ def load_normalized_cost_sheets(
     cost_tables: dict[str, pd.DataFrame] = {}
 
     with pd.ExcelFile(workbook_path) as workbook:
+        workbook_sheet_names = list(workbook.sheet_names)
+
+        non_string_sheets = [
+            sheet_name
+            for sheet_name in workbook_sheet_names
+            if not isinstance(sheet_name, str)
+        ]
+
+        if non_string_sheets:
+            raise ValueError(
+                "Workbook contains worksheet identifiers that are not strings: "
+                f"{non_string_sheets}"
+            )
+
+        available_sheets = [
+            sheet_name
+            for sheet_name in workbook_sheet_names
+            if isinstance(sheet_name, str)
+        ]
+
         validate_required_sheets(
-            available_sheets=list(workbook.sheet_names),
+            available_sheets=available_sheets,
             sheet_map=sheet_map,
         )
 
@@ -267,7 +403,37 @@ def standardize_cost_table_columns(
     common_column_map: dict[str, str],
     cost_column_maps: dict[str, dict[str, str]],
 ) -> dict[str, pd.DataFrame]:
-    """Standardize normalized pipeline cost-table column names."""
+    """Standardize column names across normalized pipeline cost tables.
+
+    For each cost component, this function combines the shared engineering-column
+    mapping with the corresponding cost-specific mapping, validates that all source
+    columns are present, and selects and renames only those required columns. The
+    standardized tables retain the same dictionary keys as the input tables.
+
+    Parameters
+    ----------
+    cost_tables : dict[str, pd.DataFrame]
+        Normalized cost tables keyed by canonical cost-component label, such as
+        ``"capex"``, ``"fixed_opex"``, or ``"variable_opex"``.
+    common_column_map : dict[str, str]
+        Mapping from source column names shared by all cost tables to their
+        canonical column names.
+    cost_column_maps : dict[str, dict[str, str]]
+        Cost-component-specific mappings from source cost-column names to canonical
+        cost-column names.
+
+    Returns
+    -------
+    dict[str, pd.DataFrame]
+        Standardized cost tables keyed by their original cost-component labels.
+
+    Raises
+    ------
+    ValueError
+        If a cost component has no corresponding cost-column mapping, a required
+        source column is missing, or a combined mapping produces duplicate
+        standardized column names.
+    """
 
     standardized_tables: dict[str, pd.DataFrame] = {}
 
@@ -317,7 +483,29 @@ def standardize_cost_table_columns(
 def coerce_and_validate_numeric_columns(
     cost_tables: dict[str, pd.DataFrame],
 ) -> dict[str, pd.DataFrame]:
-    """Coerce all standardized engineering and cost columns to numeric values."""
+    """Coerce standardized engineering and cost columns to positive numeric values.
+
+    Each column in every cost table is converted with ``pandas.to_numeric``. Values
+    that cannot be converted are treated as missing and rejected. The function also
+    requires every numeric value to be strictly greater than zero before returning
+    validated copies of the input tables.
+
+    Parameters
+    ----------
+    cost_tables : dict[str, pd.DataFrame]
+        Standardized cost tables keyed by canonical cost-component label.
+
+    Returns
+    -------
+    dict[str, pd.DataFrame]
+        Validated numeric cost tables keyed by their original cost-component labels.
+
+    Raises
+    ------
+    ValueError
+        If any column contains missing or non-numeric values after coercion, or if
+        any value is zero or negative.
+    """
 
     validated_tables: dict[str, pd.DataFrame] = {}
 
@@ -353,7 +541,35 @@ def validate_matching_cost_table_keys(
     reference_cost_type: str,
     key_columns: list[str],
 ) -> None:
-    """Validate that all cost tables contain the same engineering cases."""
+    """Validate that all cost tables describe the same engineering cases.
+
+    The table identified by ``reference_cost_type`` defines the expected set of
+    engineering cases. Each table is checked for duplicate key combinations and
+    then compared against the reference using ``key_columns``. When a mismatch is
+    found, the error reports cases missing from the comparison table and cases that
+    appear only in that table.
+
+    Parameters
+    ----------
+    cost_tables : dict[str, pd.DataFrame]
+        Cost tables keyed by canonical cost-component label.
+    reference_cost_type : str
+        Cost-component label identifying the table used as the reference case set.
+    key_columns : list[str]
+        Column names that jointly identify one engineering case, such as pipeline
+        diameter and annual capacity.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValueError
+        If the reference table is absent, any table contains duplicate engineering
+        cases based on ``key_columns``, or a table's key set differs from the
+        reference key set.
+    """
 
     if reference_cost_type not in cost_tables:
         raise ValueError(
@@ -445,7 +661,40 @@ def merge_normalized_cost_tables(
     cost_tables: dict[str, pd.DataFrame],
     key_columns: list[str],
 ) -> pd.DataFrame:
-    """Merge normalized pipeline cost tables into one canonical table."""
+    """Merge normalized pipeline cost components into one canonical table.
+
+    The CAPEX table provides the initial engineering cases and key columns.
+    Variable- and fixed-OPEX columns are then joined sequentially using validated
+    one-to-one inner merges. The completed table is sorted by annual hydrogen
+    capacity and returned with a clean integer index.
+
+    Parameters
+    ----------
+    cost_tables : dict[str, pd.DataFrame]
+        Standardized and validated cost tables keyed by canonical cost-component
+        labels. The mapping must include ``"capex"``, ``"variable_opex"``, and
+        ``"fixed_opex"``.
+    key_columns : list[str]
+        Column names that jointly identify one engineering case and are shared
+        across all cost tables.
+
+    Returns
+    -------
+    pd.DataFrame
+        Canonical capacity-cost table containing the engineering keys and all CAPEX,
+        variable-OPEX, and fixed-OPEX columns, sorted by
+        ``capacity_t_h2_per_year``.
+
+    Raises
+    ------
+    ValueError
+        If one or more required cost-component tables are absent.
+    pandas.errors.MergeError
+        If a merge violates the required one-to-one relationship between
+        engineering cases.
+    KeyError
+        If a required key or sorting column is absent.
+    """
 
     required_cost_types = [
         "capex",
@@ -496,7 +745,43 @@ def add_cost_model_metadata(
     source_workbook: str,
     cost_model_version: str,
 ) -> pd.DataFrame:
-    """Add traceable metadata to a pipeline capacity-cost table."""
+    """Add provenance and model-identification metadata to a cost table.
+
+    The input table is copied before modification. Technology and commodity labels
+    are inserted as the leading columns, while currency, source-workbook, and
+    cost-model version fields are appended. The completed table is validated
+    against ``OUTPUT_COLUMNS`` and returned in that canonical column order.
+
+    Parameters
+    ----------
+    cost_table : pd.DataFrame
+        Merged pipeline capacity-cost table containing the standardized engineering
+        and cost columns.
+    technology : str
+        Canonical technology identifier associated with the cost model.
+    commodity : str
+        Canonical commodity identifier transported by the technology.
+    currency : str
+        Currency code used for all monetary values.
+    currency_year : int
+        Reference year of the monetary values.
+    source_workbook : str
+        Name or identifier of the workbook from which the cost data were derived.
+    cost_model_version : str
+        Version identifier for the processed cost model.
+
+    Returns
+    -------
+    pd.DataFrame
+        Metadata-enriched pipeline capacity-cost table restricted to the canonical
+        ``OUTPUT_COLUMNS`` order.
+
+    Raises
+    ------
+    ValueError
+        If one or more columns required by ``OUTPUT_COLUMNS`` are absent after the
+        metadata fields are added.
+    """
 
     output_table = cost_table.copy()
 
@@ -531,7 +816,33 @@ def export_cost_table(
     cost_table: pd.DataFrame,
     output_path: Path,
 ) -> Path:
-    """Export a processed pipeline capacity-cost table to CSV."""
+    """Validate and export a processed pipeline capacity-cost table to CSV.
+
+    The table is checked for non-empty content, duplicate column names, and exact
+    agreement with the canonical ``OUTPUT_COLUMNS`` schema before export. The
+    destination directory is created when necessary, the table is written as a
+    UTF-8 CSV without an index, and the resulting file is verified to exist.
+
+    Parameters
+    ----------
+    cost_table : pd.DataFrame
+        Processed pipeline capacity-cost table to export.
+    output_path : Path
+        Destination path for the output CSV file.
+
+    Returns
+    -------
+    Path
+        Path to the successfully created CSV file.
+
+    Raises
+    ------
+    ValueError
+        If ``cost_table`` is empty, contains duplicate column names, or does not
+        match the canonical output-column order.
+    OSError
+        If the CSV file does not exist after the export operation completes.
+    """
 
     if cost_table.empty:
         raise ValueError("Cannot export an empty pipeline cost table.")
@@ -588,7 +899,53 @@ def build_h2_pipeline_capacity_costs(
     currency_year: int = DEFAULT_CURRENCY_YEAR,
     cost_model_version: str = DEFAULT_COST_MODEL_VERSION,
 ) -> pd.DataFrame:
-    """Build and export the normalized H2 pipeline capacity-cost dataset."""
+    """Build, validate, and export the normalized H2 pipeline cost dataset.
+
+    This orchestration function runs the complete preprocessing workflow for the
+    controlled H2 pipeline cost workbook. It verifies the required worksheets,
+    loads and standardizes the CAPEX and OPEX tables, validates their numeric values
+    and engineering-case keys, merges the cost components, adds model provenance,
+    and exports the canonical processed CSV.
+
+    Parameters
+    ----------
+    workbook_path : Path
+        Path to the controlled H2 pipeline master cost workbook.
+    output_path : Path
+        Destination path for the processed capacity-cost CSV.
+    technology : str, optional
+        Canonical pipeline technology identifier added to each output row.
+    commodity : str, optional
+        Canonical transported-commodity identifier added to each output row.
+    currency : str, optional
+        Currency code associated with the monetary values.
+    currency_year : int, optional
+        Reference year associated with the monetary values.
+    cost_model_version : str, optional
+        Version identifier assigned to the processed cost dataset.
+
+    Returns
+    -------
+    pd.DataFrame
+        Canonical H2 pipeline capacity-cost table containing standardized
+        engineering cases, CAPEX, fixed OPEX, variable OPEX, and provenance
+        metadata.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the source workbook does not exist.
+    ValueError
+        If required worksheets or columns are missing, worksheet data are empty,
+        numeric values are invalid, engineering cases are duplicated or
+        inconsistent across cost components, or the final table does not match the
+        canonical output schema.
+    pandas.errors.MergeError
+        If the normalized cost tables cannot be merged using a one-to-one
+        engineering-case relationship.
+    OSError
+        If the processed CSV is not created successfully.
+    """
 
     available_sheets = list_workbook_sheets(workbook_path)
 
@@ -646,7 +1003,33 @@ def build_h2_pipeline_capacity_costs(
 # =============================================================================
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
+    """Parse command-line options for the H2 pipeline cost-build workflow.
+
+    The command-line interface allows callers to override the canonical source
+    workbook and output CSV paths and to customize the technology, commodity,
+    currency, currency year, and processed cost-model version metadata assigned to
+    the exported dataset.
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed command-line arguments with the following attributes:
+
+        ``workbook``
+            Optional path to the H2 pipeline master workbook.
+        ``output``
+            Optional destination path for the processed CSV.
+        ``technology``
+            Technology identifier written to the output table.
+        ``commodity``
+            Commodity identifier written to the output table.
+        ``currency``
+            Currency code associated with the cost values.
+        ``currency_year``
+            Reference year associated with the currency values.
+        ``cost_model_version``
+            Version identifier assigned to the processed cost dataset.
+    """
 
     parser = argparse.ArgumentParser(
         description=(
@@ -713,7 +1096,35 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Run the H2 pipeline capacity-cost build workflow."""
+    """Run the H2 pipeline capacity-cost build workflow.
+
+    This command-line entry point resolves the Geospatial-CANOE repository root,
+    selects either user-supplied or canonical workbook and output paths, reports the
+    active configuration, executes the complete normalized cost-build pipeline, and
+    prints a summary of the exported dataset.
+
+    The workflow lists the available workbook worksheets before processing, reports
+    the configured CAPEX and OPEX worksheet selections, and then delegates data
+    loading, validation, standardization, merging, metadata assignment, and CSV
+    export to ``build_h2_pipeline_capacity_costs``.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    FileNotFoundError
+        If the project root or source workbook cannot be located.
+    ValueError
+        If workbook contents, cost tables, engineering cases, numeric values, or
+        final output columns fail validation.
+    pandas.errors.MergeError
+        If the normalized cost tables violate the required one-to-one merge
+        relationship.
+    OSError
+        If the processed output CSV cannot be created or inspected after export.
+    """
 
     args = parse_args()
     project_root = find_project_root()

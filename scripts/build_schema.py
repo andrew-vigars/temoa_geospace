@@ -32,25 +32,26 @@ Outputs:
 import argparse
 from dataclasses import dataclass
 from datetime import date
-from pathlib import Path
-from time import perf_counter
-import sys
-import geopandas as gpd
-import pandas as pd
-import numpy as np
 import math
+from pathlib import Path
+import sys
+from time import perf_counter
+
+import geopandas as gpd
+import numpy as np
+import pandas as pd
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-import db_mgmt # I get an error here if I dont import this after the project root is created.
-
-from project_config import (
+from project_config import (  # pylint: disable=wrong-import-position
     GeospatialBuildConfig,
     load_geospatial_build_config,
     print_build_config,
 )
+
+import db_mgmt  # pylint: disable=wrong-import-position
 
 # =============================================================================
 # Project paths
@@ -401,7 +402,31 @@ def select_from_options(options: list[str], label: str) -> str:
 def discover_basemap_stems(
     build_config: GeospatialBuildConfig,
 ) -> list[str]:
-    """Discover Stage 1 basemaps belonging to one build profile."""
+    """Discover processed Stage 1 basemaps matching a build profile.
+
+    Basemap GeoPackages are identified from the configured study-area label and
+    retention method. Each candidate file is inspected for the metadata required to
+    confirm that it belongs to the requested study area, grid-family selection, and
+    retention method. Matching basemap stems are returned in sorted file order.
+
+    Parameters
+    ----------
+    build_config : GeospatialBuildConfig
+        Validated build profile defining the study area, permitted grid types, and
+        basemap-retention method.
+
+    Returns
+    -------
+    list[str]
+        Filename stems of processed basemaps compatible with the build profile.
+
+    Raises
+    ------
+    ValueError
+        If a discovered basemap is missing required profile metadata columns.
+    FileNotFoundError
+        If no processed basemaps match the configured build profile.
+    """
 
     pattern = (
         f"{build_config.study_area.label}_basemap_*_"
@@ -459,7 +484,39 @@ def discover_basemap_stems(
 def resolve_schema_configuration(
     build_config: GeospatialBuildConfig,
 ) -> ResolvedSchemaConfig:
-    """Resolve matching Stage 1–4 products for one schema build."""
+    """Resolve and validate all Stage 1–4 inputs for one schema build.
+
+    Available basemaps are discovered from the shared build profile. The basemap is
+    then selected interactively or taken from the configured stem, and the requested
+    road-connectivity method is checked against the methods produced by the
+    connectivity stage.
+
+    The selected basemap stem and connection method are used to construct paths for
+    the basemap, graph topology, road-connectivity products, and destination SQLite
+    database. The baseline database and all required input paths are validated
+    before the resolved configuration is returned.
+
+    Parameters
+    ----------
+    build_config : GeospatialBuildConfig
+        Validated build profile containing basemap-selection, road-connectivity,
+        study-area, and schema-output settings.
+
+    Returns
+    -------
+    ResolvedSchemaConfig
+        Resolved paths and selections for the schema-building run.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no compatible basemaps are available, the baseline SQLite database is
+        missing, or a required Stage 1–4 input path does not exist.
+    ValueError
+        If interactive selection is invalid, a configured basemap stem is missing
+        or unavailable, or the requested road-connectivity method was not generated
+        by the configured workflow.
+    """
 
     available_stems = discover_basemap_stems(build_config)
 
@@ -726,7 +783,36 @@ def validate_clean_emissions(co2_raw: gpd.GeoDataFrame) -> None:
 def validate_h2_etlsegment_template(
     etl_template: pd.DataFrame,
 ) -> None:
-    """Validate the topology-free H2 pipeline ETLSegment template."""
+    """Validate the topology-free hydrogen-pipeline ETLSegment template.
+
+    The template is checked for the complete set of columns required to construct
+    pipeline investment-cost segments. Numeric fields are converted and validated
+    for missing, non-finite, or structurally invalid values. Segment identifiers
+    must be integer-valued, unique, and sequential from zero.
+
+    The capacity and CAPEX bounds must increase within every segment, begin at zero,
+    and remain contiguous between adjacent segments. The template must contain only
+    the canonical ``H2_PIPE`` technology label and the configured project data ID.
+
+    Parameters
+    ----------
+    etl_template : pd.DataFrame
+        Topology-independent H2 pipeline ETLSegment template containing capacity
+        bounds, CAPEX bounds per kilometre, segment identifiers, and provenance
+        metadata.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValueError
+        If the template is empty, required columns are missing, technology or data
+        identifiers are invalid, numeric fields contain invalid values, segment
+        identifiers are not sequential integers, or capacity and cost bounds are
+        non-increasing, non-zero at the origin, or non-contiguous.
+    """
 
     required_columns = {
         "tech_or_group",
@@ -800,11 +886,18 @@ def validate_h2_etlsegment_template(
             "cost_upper_per_km > cost_lower_per_km."
         )
 
-    if not np.isclose(template.loc[0, "cap_lower"], 0.0):
-        raise ValueError("The H2 ETLSegment curve must begin at zero capacity.")
+    cap_lower_values = template["cap_lower"].to_numpy(dtype=float)
+    cost_lower_values = template["cost_lower_per_km"].to_numpy(dtype=float)
 
-    if not np.isclose(template.loc[0, "cost_lower_per_km"], 0.0):
-        raise ValueError("The H2 ETLSegment curve must begin at zero CAPEX.")
+    if not np.isclose(cap_lower_values[0], 0.0):
+        raise ValueError(
+            "The H2 ETLSegment curve must begin at zero capacity."
+        )
+
+    if not np.isclose(cost_lower_values[0], 0.0):
+        raise ValueError(
+            "The H2 ETLSegment curve must begin at zero CAPEX."
+        )
 
     if len(template) > 1:
         if not np.allclose(
@@ -824,17 +917,49 @@ def validate_h2_etlsegment_template(
             f"H2 ETLSegment data_id must be exactly '{DATA_ID}'."
         )
 
+    cap_upper_values = template["cap_upper"].to_numpy(dtype=float)
+    maximum_capacity = cap_upper_values.max()
+
     print(
         "H2 ETLSegment template validated: "
         f"{len(template):,} segment(s), "
-        f"0 to {template['cap_upper'].max():,.0f} t H2/year."
+        f"0 to {maximum_capacity:,.0f} t H2/year."
     )
 
 
 def validate_h2_opex_coefficients(
     opex_coefficients: pd.DataFrame,
 ) -> None:
-    """Validate topology-free H2 pipeline OPEX coefficients."""
+    """Validate topology-free hydrogen-pipeline OPEX coefficients.
+
+    The coefficient table is checked for the columns required to construct
+    distance-scaled fixed and variable operating costs. It must contain exactly one
+    ``fixed_opex`` row and one ``variable_opex`` row, both assigned to the canonical
+    ``H2_PIPE`` technology and configured project data ID.
+
+    Coefficient and intercept fields are validated as finite numeric values.
+    Regression intercepts are retained in the processed table for provenance but
+    are not encoded into the CANOE/TEMOA ``CostFixed`` or ``CostVariable`` tables.
+
+    Parameters
+    ----------
+    opex_coefficients : pd.DataFrame
+        Topology-independent H2 pipeline OPEX coefficient table containing fixed-
+        and variable-cost slopes, fitted intercepts, technology identifiers, and
+        provenance metadata.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValueError
+        If the table is empty, required columns are missing, technology or data
+        identifiers are invalid, fixed or variable OPEX rows are missing or
+        duplicated, the table does not contain exactly two rows, or coefficient
+        fields contain missing, non-numeric, or non-finite values.
+    """
 
     required_columns = {
         "technology",
@@ -1232,7 +1357,27 @@ PROVINCE_NAME_TO_CODE = {
 
 
 def normalize_province_codes(values: pd.Series) -> pd.Series:
-    """Normalize Canadian province names or abbreviations to two-letter codes."""
+    """Normalize Canadian province names and abbreviations to canonical codes.
+
+    Input values are converted to nullable strings and stripped of surrounding
+    whitespace. Values already formatted as two alphabetic characters are
+    uppercased and retained as province or territory codes. All remaining values
+    are matched case-insensitively against ``PROVINCE_NAME_TO_CODE``.
+
+    Values that are missing or cannot be mapped remain ``pd.NA``.
+
+    Parameters
+    ----------
+    values : pd.Series
+        Series containing Canadian province or territory names, abbreviations, or
+        missing values.
+
+    Returns
+    -------
+    pd.Series
+        Nullable string Series aligned to the original index and containing
+        normalized two-letter province or territory codes where recognized.
+    """
 
     normalized = values.astype("string").str.strip()
     upper = normalized.str.upper()
@@ -1254,8 +1399,37 @@ def filter_to_configured_provinces(
     configured_provinces: tuple[str, ...],
     dataset_label: str,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Filter a mapped point table to the profile's province codes."""
+    """Filter a province-mapped point table to the configured study area.
 
+    The input table must contain a ``province`` column produced by the legacy-input
+    mapping stage. Province and territory values are normalized to canonical
+    two-letter codes and validated before rows are partitioned according to the
+    province codes selected in the build profile.
+
+    Both retained and excluded rows preserve the normalized province codes and
+    original table structure.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        Point-based input table containing a ``province`` column.
+    configured_provinces : tuple[str, ...]
+        Province and territory codes included in the active build profile.
+    dataset_label : str
+        Human-readable dataset name used in validation errors and console output.
+
+    Returns
+    -------
+    tuple[pd.DataFrame, pd.DataFrame]
+        Two DataFrames containing, respectively, rows inside and outside the
+        configured provinces.
+
+    Raises
+    ------
+    ValueError
+        If the required ``province`` column is missing or any province value cannot
+        be normalized to a recognized code.
+    """
     if "province" not in data.columns:
         raise ValueError(
             f"{dataset_label} is missing the required 'province' column. "
@@ -1299,7 +1473,33 @@ def estimate_max_snap_distance_m(
     graph_nodes: gpd.GeoDataFrame,
     max_snap_distance_factor: float,
 ) -> float:
-    """Calculate the configured nearest-node fallback threshold."""
+    """Estimate the maximum distance permitted for nearest-node snapping.
+
+    The threshold is derived from the graph's configured grid resolution and a
+    dimensionless scaling factor. Geographic resolutions are converted from decimal
+    degrees using an approximate value of 111 kilometres per degree, while
+    projected resolutions expressed in kilometres are converted directly to metres.
+
+    Parameters
+    ----------
+    graph_nodes : gpd.GeoDataFrame
+        Graph-node table containing uniform ``grid_type``, ``resolution``, and
+        ``resolution_unit`` metadata.
+    max_snap_distance_factor : float
+        Multiplier applied to the nominal grid resolution to define the maximum
+        allowable nearest-node fallback distance.
+
+    Returns
+    -------
+    float
+        Maximum nearest-node snapping distance in metres.
+
+    Raises
+    ------
+    ValueError
+        If the grid type and resolution unit do not identify a supported geographic
+        or projected grid representation.
+    """
 
     grid_type = str(graph_nodes["grid_type"].iloc[0])
     resolution = float(graph_nodes["resolution"].iloc[0])
@@ -1322,7 +1522,28 @@ def build_point_assignment_context(
     graph_nodes: gpd.GeoDataFrame,
     max_snap_distance_factor: float,
 ) -> PointAssignmentContext:
-    """Precompute graph reprojection, spatial indexes, and snap distance."""
+    """Precompute reusable graph objects for assigning points to model regions.
+
+    The graph-node layer is reduced to region identifiers and geometries, then
+    reprojected to the Statistics Canada Lambert CRS for distance-based fallback
+    operations. Spatial indexes are initialized for both the native and metric
+    representations, and the maximum permitted nearest-node snapping distance is
+    derived from the graph resolution and configured scaling factor.
+
+    Parameters
+    ----------
+    graph_nodes : gpd.GeoDataFrame
+        Graph-node layer containing region geometries and uniform grid metadata.
+    max_snap_distance_factor : float
+        Multiplier applied to the nominal grid resolution when calculating the
+        nearest-node fallback threshold.
+
+    Returns
+    -------
+    PointAssignmentContext
+        Precomputed native and metric graph-node layers together with the maximum
+        allowable snapping distance in metres.
+    """
 
     total_start = perf_counter()
     print("\nPreparing reusable graph-assignment context...", flush=True)
@@ -1367,7 +1588,51 @@ def snap_points_to_graph_nodes(
     lat_col: str = "lat",
     dataset_label: str = "points",
 ) -> pd.DataFrame:
-    """Assign province-filtered WGS84 points to selected graph regions."""
+    """Assign WGS84 point records to the selected graph regions.
+
+    Input coordinates are converted to a GeoDataFrame and reprojected to the graph's
+    native CRS. Points are first assigned by a direct point-in-polygon join. Any
+    unmatched points are then assigned to the nearest graph region in the Statistics
+    Canada Lambert CRS.
+
+    Nearest assignments are accepted only when they fall within the precomputed
+    distance threshold. Points beyond that threshold are written to a diagnostic
+    audit CSV and require an interactive decision to either exclude the outliers and
+    continue or stop the schema build. Accepted assignments are returned as a
+    non-spatial DataFrame with the assigned ``region`` column.
+
+    Parameters
+    ----------
+    points : pd.DataFrame | gpd.GeoDataFrame
+        Point records containing longitude and latitude coordinates. Any existing
+        geometry column is discarded and rebuilt from the specified coordinates.
+    context : PointAssignmentContext
+        Precomputed native and metric graph-node layers and maximum nearest-node
+        fallback distance.
+    lon_col : str, default="lon"
+        Name of the longitude column.
+    lat_col : str, default="lat"
+        Name of the latitude column.
+    dataset_label : str, default="points"
+        Human-readable dataset name used in console messages, errors, and audit
+        filenames.
+
+    Returns
+    -------
+    pd.DataFrame
+        Input records with their assigned graph-region identifiers. Records that
+        exceed the snap-distance threshold are omitted only when the user explicitly
+        chooses to continue without them.
+
+    Raises
+    ------
+    ValueError
+        If a coordinate column is missing, coordinates cannot be converted to
+        numeric values, one or more accepted points remain unassigned, or the user
+        stops the build after reviewing graph-snap outliers.
+    PermissionError
+        If neither the default nor timestamped audit CSV can be written.
+    """
 
     total_start = perf_counter()
 
@@ -1397,9 +1662,14 @@ def snap_points_to_graph_nodes(
         ),
         crs="EPSG:4326",
     )
-    points_native = points_wgs84.to_crs(
-        context.graph_nodes_native.crs
-    )
+    native_crs = context.graph_nodes_native.crs
+
+    if native_crs is None:
+        raise ValueError(
+            "Graph-node assignment context has an undefined native CRS."
+        )
+
+    points_native = points_wgs84.to_crs(native_crs)
 
     step_start = perf_counter()
     print(
@@ -1676,10 +1946,23 @@ def build_site_attributes(
 
     co2_facilities = co2_facilities.loc[co2_facilities["co2"] > 0].copy()
 
-    co2_facilities, excluded_co2 = filter_to_configured_provinces(
+    filtered_co2, excluded_co2 = filter_to_configured_provinces(
         data=co2_facilities,
         configured_provinces=build_config.study_area.provinces,
         dataset_label="CO2 facilities",
+    )
+
+    co2_crs = inputs.co2_raw.crs
+
+    if co2_crs is None:
+        raise ValueError(
+            "The processed CO2 facility layer has an undefined CRS."
+        )
+
+    co2_facilities = gpd.GeoDataFrame(
+        filtered_co2,
+        geometry="geometry",
+        crs=co2_crs,
     )
 
     snapped_co2 = snap_points_to_graph_nodes(
@@ -1765,7 +2048,36 @@ def rebuild_demand(
     db_encoded: dict[str, pd.DataFrame],
     site_attributes: pd.DataFrame,
 ) -> None:
-    """Rebuild gasoline demand from snapped node-level attributes."""
+    """Rebuild the gasoline-demand table from snapped node attributes.
+
+    Rows with positive gasoline demand are selected from the node-level site
+    attributes and encoded into the CANOE/TEMOA ``Demand`` table. Each retained
+    graph region receives one demand record for commodity ``d_gsl`` in period 1,
+    with shared provenance metadata identifying the geospatial preprocessing
+    workflow.
+
+    The rebuilt table is checked to confirm that each region appears only once and
+    that all encoded demand values are strictly positive.
+
+    Parameters
+    ----------
+    db_encoded : dict[str, pd.DataFrame]
+        Mutable mapping of CANOE/TEMOA table names to encoded DataFrames. The
+        existing ``Demand`` table is replaced in place.
+    site_attributes : pd.DataFrame
+        Snapped node-level attribute table containing ``region`` and ``demand``
+        columns.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    AssertionError
+        If the rebuilt table contains duplicate regions or any non-positive demand
+        value.
+    """
 
     demand_sites = (
         site_attributes.loc[site_attributes["demand"] > 0]
@@ -1802,7 +2114,34 @@ def rebuild_capacity_limits(
     db_encoded: dict[str, pd.DataFrame],
     site_attributes: pd.DataFrame,
 ) -> None:
-    """Rebuild node-level CO2 capture and electricity capacity limits."""
+    """Rebuild node-level capacity limits for CO2 capture and electricity generation.
+
+    For every snapped graph region, this function creates two upper-bound
+    ``LimitCapacity`` records for period 1: one for ``CO2_CAP`` using the mapped
+    node-level CO2 capacity and one for ``ELC_GEN`` using the mapped maximum
+    electricity potential. The rebuilt table replaces any existing
+    ``LimitCapacity`` table in the encoded database and includes shared geospatial
+    provenance metadata.
+
+    Parameters
+    ----------
+    db_encoded : dict[str, pd.DataFrame]
+        Mutable mapping of CANOE/TEMOA table names to encoded DataFrames. The
+        existing ``LimitCapacity`` table is replaced in place.
+    site_attributes : pd.DataFrame
+        Snapped node-level attribute table containing ``region``, ``co2``, and
+        ``max_elc`` columns.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    AssertionError
+        If the rebuilt table does not contain exactly two capacity-limit rows for
+        every site-attribute record.
+    """
 
     db_encoded["LimitCapacity"] = pd.concat(
         [
@@ -2311,17 +2650,23 @@ def build_etl_curve(
         raise ValueError(f"b must be greater than -1 for {tech}.")
 
     if spacing == "log":
-        import numpy as np
-
-        edges = upper_vol * (np.logspace(0, 1, resolution) - 1.0) / 9.0
+        edges = (
+            upper_vol
+            * (np.logspace(0, 1, resolution) - 1.0)
+            / 9.0
+        )
         edges[0] = 0.0
         edges[-1] = upper_vol
     elif spacing == "linear":
-        import numpy as np
-
-        edges = np.linspace(0.0, upper_vol, resolution)
+        edges = np.linspace(
+            0.0,
+            upper_vol,
+            resolution,
+        )
     else:
-        raise ValueError("ETL spacing must be 'log' or 'linear'.")
+        raise ValueError(
+            "ETL spacing must be 'log' or 'linear'."
+        )
 
     cap_lower = edges[:-1]
     cap_upper = edges[1:]
@@ -2417,10 +2762,38 @@ def build_legacy_etl_segments(
     canonical: CanonicalLinks,
     specs: TechSpecs,
 ) -> pd.DataFrame:
-    """Build legacy plant and electricity-transmission ETLSegment rows.
+    """Build legacy ETLSegment rows for plants and electricity transmission.
 
-    All pipeline technologies are excluded because their CAPEX and capacity
-    breakpoints are supplied by the generalized H2-derived pipeline cost layer.
+    Piecewise investment-cost curves are assigned to every selected graph node for
+    the legacy plant technologies in ``PLANT_TECHS``. Electricity-transmission
+    curves are assigned to candidate graph edges and scaled by each edge's distance
+    relative to the mean pipeline-link distance.
+
+    Pipeline technologies are intentionally excluded because their capacity
+    breakpoints and CAPEX curves are supplied separately by the generalized
+    hydrogen-derived pipeline cost layer.
+
+    Parameters
+    ----------
+    site_attributes : pd.DataFrame
+        Node-level attribute table containing the selected graph-region identifiers.
+    canonical : CanonicalLinks
+        Canonical topology containing pipeline-link region IDs and edge distances.
+    specs : TechSpecs
+        Canonical transport technology specifications used to identify electricity
+        transmission technologies.
+
+    Returns
+    -------
+    pd.DataFrame
+        Combined legacy ETLSegment rows for plant and electricity-transmission
+        technologies.
+
+    Raises
+    ------
+    ValueError
+        If the mean reference edge distance is missing or non-positive, or if a
+        transmission technology lacks legacy ETL cost parameters.
     """
 
     plant_etl_rows = [
@@ -2490,7 +2863,42 @@ def build_generalized_pipeline_etl_segments(
     pipeline_tech_specs: pd.DataFrame,
     etl_template: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Apply the H2-derived ETLSegment template to all pipeline technologies."""
+    """Map the generalized H2-derived pipeline ETLSegment curve to all links.
+
+    The topology-free ETLSegment template is replicated across every canonical
+    pipeline edge and every configured pipeline technology. Template technology
+    labels are replaced with the target pipeline technology, while per-kilometre
+    lower and upper CAPEX bounds are multiplied by each edge's distance to produce
+    link-specific investment-cost segments.
+
+    The resulting table is validated against the expected Cartesian-product row
+    count and checked for duplicate region, technology, and segment keys.
+
+    Parameters
+    ----------
+    pipeline_links : pd.DataFrame
+        Canonical pipeline-link table containing ``canoe_region`` and
+        ``distance_km`` columns.
+    pipeline_tech_specs : pd.DataFrame
+        Pipeline technology specifications containing the canonical ``tech``
+        identifiers to which the generalized cost curve will be applied.
+    etl_template : pd.DataFrame
+        Validated topology-free H2 pipeline ETLSegment template containing segment
+        capacity bounds, per-kilometre CAPEX bounds, and provenance metadata.
+
+    Returns
+    -------
+    pd.DataFrame
+        Link-specific ETLSegment rows for every pipeline technology, graph edge,
+        and template segment.
+
+    Raises
+    ------
+    ValueError
+        If no pipeline links or technologies are available, the mapped row count
+        differs from the expected Cartesian product, or duplicate ETLSegment keys
+        are produced.
+    """
 
     edge_frame = (
         pipeline_links[["canoe_region", "distance_km"]]
@@ -2556,7 +2964,46 @@ def rebuild_etl_segments(
     specs: TechSpecs,
     h2_etlsegment_template: pd.DataFrame,
 ) -> None:
-    """Assemble legacy and generalized pipeline ETLSegment components."""
+    """Rebuild the complete ETLSegment table for the encoded schema.
+
+    Legacy plant and electricity-transmission segments are generated from the
+    existing analytical cost curves, while pipeline segments are generated from
+    the generalized H2-derived ETLSegment template. The two components are combined
+    and replace the existing CANOE/TEMOA ``ETLSegment`` table.
+
+    The assembled table is checked for duplicate primary keys. Edge-region entries
+    must belong to the canonical pipeline topology, and truck technologies are
+    explicitly prohibited from receiving ETLSegment rows because their costs are
+    represented outside the piecewise investment-cost formulation.
+
+    Parameters
+    ----------
+    db_encoded : dict[str, pd.DataFrame]
+        Mutable mapping of CANOE/TEMOA table names to encoded DataFrames. The
+        existing ``ETLSegment`` table is replaced in place.
+    site_attributes : pd.DataFrame
+        Node-level site table used to assign legacy plant ETL curves.
+    canonical : CanonicalLinks
+        Canonical node and edge topology used to validate encoded edge regions.
+    specs : TechSpecs
+        Canonical transport technology groups used to build transmission and
+        pipeline segments and to exclude truck technologies.
+    h2_etlsegment_template : pd.DataFrame
+        Validated topology-free H2-derived pipeline ETLSegment template.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValueError
+        If the assembled ETLSegment table contains duplicate region, technology,
+        and segment keys.
+    AssertionError
+        If an encoded edge region is outside the canonical pipeline topology or a
+        truck technology receives ETLSegment rows.
+    """
 
     legacy_etl = build_legacy_etl_segments(
         site_attributes=site_attributes,
@@ -2759,19 +3206,74 @@ def build_transport_costvariable(
     if missing_cols:
         raise ValueError(f"tech_specs is missing required columns: {sorted(missing_cols)}")
 
-    rows = []
-    for tech in tech_specs.itertuples(index=False):
-        cost_per_km = float(tech.cost_per_km)
-        intercept_cost_per_km = float(tech.intercept_cost_per_km)
+    normalized_specs = tech_specs.copy()
 
+    for column in ["cost_per_km", "intercept_cost_per_km"]:
+        normalized_specs[column] = pd.to_numeric(
+            normalized_specs[column],
+            errors="coerce",
+        )
+
+        numeric_values = normalized_specs[column].to_numpy(dtype=float)
+
+        if not np.isfinite(numeric_values).all():
+            raise ValueError(
+                f"tech_specs column {column!r} contains invalid values."
+            )
+
+    technologies = (
+        normalized_specs["tech"]
+        .astype(str)
+        .to_numpy(dtype=str)
+    )
+    costs_per_km = (
+        normalized_specs["cost_per_km"]
+        .to_numpy(dtype=float)
+    )
+    intercepts = (
+        normalized_specs["intercept_cost_per_km"]
+        .to_numpy(dtype=float)
+    )
+
+    link_regions = (
+        links["canoe_region"]
+        .astype(str)
+        .to_numpy(dtype=str)
+    )
+    link_distances = pd.to_numeric(
+        links["distance_km"],
+        errors="coerce",
+    ).to_numpy(dtype=float)
+
+    if not np.isfinite(link_distances).all():
+        raise ValueError(
+            "Transport links contain invalid distance values."
+        )
+
+    if (link_distances <= 0).any():
+        raise ValueError(
+            "Transport link distances must be positive."
+        )
+
+    rows: list[pd.DataFrame] = []
+
+    for technology, cost_per_km, intercept_cost_per_km in zip(
+        technologies,
+        costs_per_km,
+        intercepts,
+        strict=True,
+    ):
         rows.append(
             pd.DataFrame(
                 {
-                    "region": links["canoe_region"],
+                    "region": link_regions,
                     "period": 1,
-                    "tech": tech.tech,
+                    "tech": technology,
                     "vintage": 1,
-                    "cost": intercept_cost_per_km + cost_per_km * links["distance_km"],
+                    "cost": (
+                        intercept_cost_per_km
+                        + cost_per_km * link_distances
+                    ),
                     "units": "M$/unit",
                     "notes": notes,
                     "data_source": None,
@@ -2796,7 +3298,42 @@ def rebuild_transport_efficiency(
     specs: TechSpecs,
     connection_method: str,
 ) -> None:
-    """Rebuild transport process definitions in the Efficiency table."""
+    """Rebuild transport-process rows in the Efficiency table.
+
+    Pipeline and electricity-transmission processes are generated across the full
+    canonical graph-edge topology, while truck processes are generated only across
+    edges retained by the selected road-connectivity method. Existing transport
+    technology rows are removed from the encoded ``Efficiency`` table before the
+    new pipeline, truck, and transmission process definitions are appended.
+
+    The rebuilt transport subsets are checked to confirm that their encoded regions
+    match the expected canonical pipeline and road-edge region sets.
+
+    Parameters
+    ----------
+    db_encoded : dict[str, pd.DataFrame]
+        Mutable mapping of CANOE/TEMOA table names to encoded DataFrames. Existing
+        transport rows in the ``Efficiency`` table are replaced in place.
+    canonical : CanonicalLinks
+        Canonical pipeline and road-link topology, including valid encoded
+        edge-region sets.
+    specs : TechSpecs
+        Canonical pipeline, truck, transmission, and combined transport technology
+        specifications.
+    connection_method : str
+        Road-connectivity method used to construct truck links, such as ``"weak"``
+        or ``"strong"``. The value is included in encoded provenance notes.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    AssertionError
+        If the rebuilt pipeline, truck, or transmission rows do not cover exactly
+        their expected canonical edge-region sets.
+    """
 
     pipeline_efficiency = build_transport_efficiency(
         canonical.pipeline_links,
@@ -2847,10 +3384,42 @@ def rebuild_legacy_transport_costvariable(
     specs: TechSpecs,
     connection_method: str,
 ) -> None:
-    """Rebuild truck and transmission CostVariable rows from legacy inputs.
+    """Rebuild legacy variable-cost rows for truck and transmission links.
 
-    Pipeline CostVariable rows are excluded because all pipeline technologies
-    are rebuilt from the generalized H2-derived OPEX layer.
+    Truck variable costs are reconstructed across the road-connected edge set using
+    the selected connectivity method, while electricity-transmission variable costs
+    are reconstructed across the full canonical graph-edge topology. Both cost
+    components are derived from ``transport_techs.csv`` and scaled by their
+    corresponding link distances.
+
+    Existing edge-region rows are removed from the encoded ``CostVariable`` table
+    before the rebuilt truck and transmission rows are appended. Pipeline variable
+    costs are intentionally excluded because they are supplied separately by the
+    generalized H2-derived OPEX layer.
+
+    Parameters
+    ----------
+    db_encoded : dict[str, pd.DataFrame]
+        Mutable mapping of CANOE/TEMOA table names to encoded DataFrames. Existing
+        edge-region rows in ``CostVariable`` are replaced in place.
+    canonical : CanonicalLinks
+        Canonical pipeline and road-link topology, including valid encoded
+        edge-region sets.
+    specs : TechSpecs
+        Canonical truck and electricity-transmission technology specifications.
+    connection_method : str
+        Road-connectivity method used to construct the truck-link cost rows, such
+        as ``"weak"`` or ``"strong"``. The value is included in provenance notes.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    AssertionError
+        If the rebuilt truck or transmission rows do not cover exactly their
+        expected canonical edge-region sets.
     """
 
     truck_costvariable = build_transport_costvariable(
@@ -2895,7 +3464,40 @@ def build_generalized_pipeline_opex_rows(
     pipeline_tech_specs: pd.DataFrame,
     opex_coefficients: pd.DataFrame,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Apply H2-derived fixed and variable OPEX slopes to all pipelines."""
+    """Build generalized fixed- and variable-OPEX rows for pipeline links.
+
+    The validated H2-derived OPEX slopes are applied to every configured pipeline
+    technology and canonical pipeline edge. Per-kilometre fixed and variable cost
+    coefficients are multiplied by each link's distance to produce link-specific
+    ``CostFixed`` and ``CostVariable`` values.
+
+    Regression intercepts are retained in the source metadata and recorded in the
+    row notes, but are not encoded because TEMOA multiplies ``CostFixed`` by
+    installed capacity and ``CostVariable`` by process activity.
+
+    Parameters
+    ----------
+    pipeline_links : pd.DataFrame
+        Canonical pipeline-link table containing ``canoe_region`` identifiers and
+        positive ``distance_km`` values.
+    pipeline_tech_specs : pd.DataFrame
+        Pipeline technology specifications containing the canonical ``tech``
+        identifiers to which the generalized OPEX coefficients are applied.
+    opex_coefficients : pd.DataFrame
+        Validated H2 pipeline OPEX coefficient table containing one
+        ``fixed_opex`` row and one ``variable_opex`` row.
+
+    Returns
+    -------
+    tuple[pd.DataFrame, pd.DataFrame]
+        Link-specific ``CostFixed`` and ``CostVariable`` rows, respectively, for
+        every pipeline technology and canonical graph edge.
+
+    Raises
+    ------
+    ValueError
+        If any pipeline-link distance is missing, non-numeric, or non-positive.
+    """
 
     fixed_row = opex_coefficients.loc[
         opex_coefficients["cost_type"] == "fixed_opex"
@@ -2976,7 +3578,34 @@ def rebuild_generalized_pipeline_opex(
     pipeline_tech_specs: pd.DataFrame,
     opex_coefficients: pd.DataFrame,
 ) -> None:
-    """Replace all pipeline OPEX rows with the generalized H2-derived layer."""
+    """Replace pipeline fixed and variable OPEX with generalized H2-derived rows.
+
+    Link-specific pipeline ``CostFixed`` and ``CostVariable`` records are generated
+    for every canonical pipeline edge and configured pipeline technology using the
+    processed H2-derived OPEX coefficients. Existing rows belonging to those
+    pipeline technologies are removed from both encoded cost tables before the
+    generalized replacements are appended.
+
+    Non-pipeline fixed- and variable-cost rows are preserved unchanged.
+
+    Parameters
+    ----------
+    db_encoded : dict[str, pd.DataFrame]
+        Mutable mapping of CANOE/TEMOA table names to encoded DataFrames. Pipeline
+        rows in ``CostFixed`` and ``CostVariable`` are replaced in place.
+    pipeline_links : pd.DataFrame
+        Canonical pipeline-link table containing encoded edge-region identifiers
+        and link distances.
+    pipeline_tech_specs : pd.DataFrame
+        Pipeline technology specifications containing the technology identifiers
+        whose OPEX rows must be replaced.
+    opex_coefficients : pd.DataFrame
+        Validated topology-free H2 pipeline fixed- and variable-OPEX coefficients.
+
+    Returns
+    -------
+    None
+    """
 
     pipeline_costfixed, pipeline_costvariable = (
         build_generalized_pipeline_opex_rows(
@@ -3010,7 +3639,39 @@ def rebuild_truck_costinvest(
     canonical: CanonicalLinks,
     specs: TechSpecs,
 ) -> None:
-    """Rebuild zero-investment rows for trucks using existing roads."""
+    """Rebuild zero-investment CostInvest rows for truck transport links.
+
+    Each configured truck technology is assigned to every canonical road-connected
+    edge with an investment cost of zero. This represents the assumption that truck
+    transport uses existing road infrastructure and therefore does not require road
+    construction investment within the model.
+
+    Existing ``CostInvest`` rows for truck technologies are removed before the new
+    road-link rows are appended. The rebuilt rows are checked to confirm that they
+    cover exactly the canonical road-edge region set.
+
+    Parameters
+    ----------
+    db_encoded : dict[str, pd.DataFrame]
+        Mutable mapping of CANOE/TEMOA table names to encoded DataFrames. Existing
+        truck rows in ``CostInvest`` are replaced in place.
+    canonical : CanonicalLinks
+        Canonical topology containing road-connected links and their valid encoded
+        edge-region identifiers.
+    specs : TechSpecs
+        Canonical transport technology specifications containing the configured
+        truck technologies.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    AssertionError
+        If the rebuilt truck investment rows do not cover exactly the canonical
+        road-edge region set.
+    """
 
     truck_costinvest_rows = []
     for truck in specs.truck_tech_specs.itertuples(index=False):
@@ -3061,7 +3722,28 @@ def remove_pipeline_ordinary_costinvest(
     db_encoded: dict[str, pd.DataFrame],
     pipeline_techs: set[str],
 ) -> None:
-    """Ensure all pipeline CAPEX is represented only through ETLSegment."""
+    """Remove ordinary pipeline investment-cost rows from the encoded schema.
+
+    Pipeline capital costs are represented exclusively through the piecewise
+    ``ETLSegment`` formulation. Any conventional ``CostInvest`` rows assigned to
+    configured pipeline technologies are therefore removed to prevent duplicate
+    capital-cost accounting.
+
+    All non-pipeline investment-cost rows are preserved unchanged.
+
+    Parameters
+    ----------
+    db_encoded : dict[str, pd.DataFrame]
+        Mutable mapping of CANOE/TEMOA table names to encoded DataFrames. Pipeline
+        rows are removed from the ``CostInvest`` table in place.
+    pipeline_techs : set[str]
+        Canonical pipeline technology identifiers whose ordinary investment-cost
+        rows must be removed.
+
+    Returns
+    -------
+    None
+    """
 
     removed_rows = int(
         db_encoded["CostInvest"]["tech"].isin(pipeline_techs).sum()
@@ -3248,7 +3930,46 @@ def validate_generalized_pipeline_cost_layer(
     h2_etlsegment_template: pd.DataFrame,
     h2_opex_coefficients: pd.DataFrame,
 ) -> None:
-    """Validate generalized pipeline CAPEX and OPEX mapping by technology."""
+    """Validate generalized pipeline topology, CAPEX, and OPEX encoding.
+
+    For every configured pipeline technology, this function verifies that the
+    encoded ``Efficiency``, ``ETLSegment``, ``CostFixed``, and ``CostVariable``
+    rows cover the complete canonical pipeline-edge set with the expected number of
+    records. It also confirms that no ordinary ``CostInvest`` rows remain because
+    pipeline CAPEX is represented exclusively through ``ETLSegment``.
+
+    Distance-normalized fixed and variable costs are compared against the processed
+    H2-derived OPEX coefficients. Link-specific ETLSegment cost bounds are likewise
+    recalculated from the topology-free per-kilometre template and canonical edge
+    distances and compared with the encoded values.
+
+    Parameters
+    ----------
+    db_encoded : dict[str, pd.DataFrame]
+        Mapping of rebuilt CANOE/TEMOA table names to encoded DataFrames.
+    canonical : CanonicalLinks
+        Canonical pipeline topology containing valid edge-region identifiers and
+        graph-edge distances.
+    specs : TechSpecs
+        Canonical transport technology specifications containing the pipeline
+        technology set.
+    h2_etlsegment_template : pd.DataFrame
+        Validated topology-free H2-derived pipeline ETLSegment template.
+    h2_opex_coefficients : pd.DataFrame
+        Validated H2-derived fixed- and variable-OPEX coefficient table.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    AssertionError
+        If any pipeline technology has incomplete or unexpected topology coverage,
+        incorrect row counts, ordinary investment-cost rows, incorrectly
+        distance-scaled OPEX values, or ETLSegment cost bounds inconsistent with
+        the source template.
+    """
 
     expected_regions = canonical.valid_pipeline_edge_regions
     expected_edges = len(canonical.pipeline_links)
@@ -3520,7 +4241,17 @@ def summarize_final_database(db_encoded: dict[str, pd.DataFrame]) -> None:
 # =============================================================================
 
 def parse_args() -> argparse.Namespace:
-    """Parse the schema build-profile path."""
+    """Parse command-line arguments for the schema-building workflow.
+
+    The command-line interface requires a path to the TOML build profile that
+    defines the study area, basemap selection, road-connectivity method, and schema
+    settings used by the geospatial preprocessing workflow.
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed command-line arguments containing the required ``config`` path.
+    """
 
     parser = argparse.ArgumentParser(
         description=(
@@ -3542,7 +4273,45 @@ def parse_args() -> argparse.Namespace:
 def run_schema_build(
     build_config: GeospatialBuildConfig,
 ) -> Path:
-    """Run the single-period schema rebuild for one build profile."""
+    """Run the complete single-period schema build for one build profile.
+
+    The workflow resolves and validates the selected Stage 1–4 geospatial products,
+    loads all required model and cost inputs, constructs the canonical node and edge
+    topology, and rebuilds the CANOE/TEMOA database tables in dependency order.
+
+    Node-level demand, generation potential, and CO2 supply are snapped to the
+    selected graph. Process definitions, technology costs, ETLSegment curves,
+    capacity limits, and input-split constraints are then reconstructed. Pipeline
+    CAPEX and OPEX are encoded using the temporary generalized H2-derived cost
+    layer, while truck and electricity-transmission costs retain their legacy
+    representations.
+
+    The completed database is validated, cleared of previous solution outputs,
+    exported to SQLite, and reopened for post-export verification.
+
+    Parameters
+    ----------
+    build_config : GeospatialBuildConfig
+        Validated geospatial preprocessing profile defining the study area,
+        basemap selection, connectivity settings, point-assignment thresholds, and
+        schema-build configuration.
+
+    Returns
+    -------
+    Path
+        Path to the exported CANOE/TEMOA SQLite database.
+
+    Raises
+    ------
+    FileNotFoundError
+        If a required geospatial, tabular, cost-model, schema, or baseline database
+        input is missing.
+    ValueError
+        If configuration resolution, input validation, point assignment, topology
+        construction, table rebuilding, or cost-layer validation fails.
+    AssertionError
+        If an internal encoded-table invariant or topology-coverage check fails.
+    """
 
     PROCESSED_SCHEMA.mkdir(parents=True, exist_ok=True)
 
@@ -3691,7 +4460,16 @@ def run_schema_build(
 
 
 def main() -> None:
-    """Load a TOML profile and run the schema-building endpoint."""
+    """Load the configured build profile and run the schema-building workflow.
+
+    Command-line arguments are parsed to obtain the TOML build-profile path. The
+    profile is then loaded, validated, printed to the console, and passed to the
+    single-period schema-building endpoint.
+
+    Returns
+    -------
+    None
+    """
 
     args = parse_args()
     build_config = load_geospatial_build_config(args.config)

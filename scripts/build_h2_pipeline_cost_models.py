@@ -102,7 +102,7 @@ SELECTED_MODEL_OUTPUT_COLUMNS = [
 
 
 DEFAULT_DATA_ID = "GEO001"
-DEFAULT_ETL_SEGMENT_COUNT = 4
+DEFAULT_ETL_SEGMENT_COUNT = 5
 DEFAULT_ETL_SPACING = "log"
 
 ETLSEGMENT_TEMPLATE_COLUMNS = [
@@ -134,7 +134,20 @@ OPEX_COEFFICIENT_COLUMNS = [
 
 
 class RegressionMetrics(TypedDict):
-    """Regression diagnostics calculated in the original cost units."""
+    """Regression diagnostics evaluated in the original cost units.
+
+    Attributes
+    ----------
+    r_squared : float
+        Coefficient of determination measuring the proportion of observed cost
+        variance explained by the fitted model.
+    rmse : float
+        Root mean squared error between observed and predicted costs.
+    mae : float
+        Mean absolute error between observed and predicted costs.
+    maximum_absolute_error : float
+        Largest absolute difference between an observed and predicted cost.
+    """
 
     r_squared: float
     rmse: float
@@ -143,7 +156,34 @@ class RegressionMetrics(TypedDict):
 
 
 class FittedCostModel(TypedDict):
-    """Coefficients and diagnostics for one fitted cost function."""
+    """Coefficients, equation metadata, and diagnostics for one fitted cost model.
+
+    Attributes
+    ----------
+    model_type : str
+        Functional form used for the fitted model, such as ``"linear"`` or
+        ``"power"``.
+    equation : str
+        Human-readable representation of the fitted cost equation.
+    slope : float
+        Linear-model slope. Set to ``NaN`` when the fitted model is not linear.
+    intercept : float
+        Linear-model intercept. Set to ``NaN`` when the fitted model is not linear.
+    coefficient : float
+        Multiplicative coefficient of a power model. Set to ``NaN`` when the fitted
+        model is not a power function.
+    exponent : float
+        Capacity exponent of a power model. Set to ``NaN`` when the fitted model is
+        not a power function.
+    r_squared : float
+        Coefficient of determination evaluated in the original cost units.
+    rmse : float
+        Root mean squared error evaluated in the original cost units.
+    mae : float
+        Mean absolute error evaluated in the original cost units.
+    maximum_absolute_error : float
+        Largest absolute difference between an observed and predicted cost.
+    """
 
     model_type: str
     equation: str
@@ -162,11 +202,28 @@ class FittedCostModel(TypedDict):
 # =============================================================================
 
 def find_project_root(start_path: Path | None = None) -> Path:
-    """Find the Geospatial-CANOE repository root.
+    """Locate the Geospatial-CANOE repository root.
 
-    Searches upward from the script location and current working directory, or
-    from ``start_path`` when explicitly supplied. The first directory containing
-    both ``scripts`` and ``data_files`` is treated as the project root.
+    The search begins from ``start_path`` when supplied. Otherwise, it begins from
+    both the current script location and the current working directory. Each
+    starting location and its parent directories are inspected in order, and the
+    first directory containing both ``scripts/`` and ``data_files/`` is returned.
+
+    Parameters
+    ----------
+    start_path : Path | None, optional
+        Explicit file or directory from which to begin the upward search. When
+        omitted, the script location and current working directory are used.
+
+    Returns
+    -------
+    Path
+        Resolved path to the detected Geospatial-CANOE repository root.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no searched directory contains both ``scripts/`` and ``data_files/``.
     """
 
     search_starts: list[Path] = []
@@ -198,7 +255,19 @@ def find_project_root(start_path: Path | None = None) -> Path:
 
 
 def default_input_path(project_root: Path) -> Path:
-    """Return the canonical normalized H2 pipeline capacity-cost CSV path."""
+    """Return the canonical normalized H2 pipeline capacity-cost CSV path.
+
+Parameters
+----------
+project_root : Path
+    Root directory of the Geospatial-CANOE repository.
+
+Returns
+-------
+Path
+    Path to the processed H2 pipeline capacity-cost CSV used as the input to
+    the cost-model fitting workflow.
+    """
 
     return (
         project_root
@@ -213,7 +282,19 @@ def default_input_path(project_root: Path) -> Path:
 
 
 def default_cost_directory(project_root: Path) -> Path:
-    """Return the canonical processed H2 pipeline cost directory."""
+    """Return the canonical processed H2 pipeline cost directory.
+
+    Parameters
+    ----------
+    project_root : Path
+        Root directory of the Geospatial-CANOE repository.
+
+    Returns
+    -------
+    Path
+        Path to the directory containing processed H2 pipeline cost datasets,
+        fitted model outputs, and schema-ready cost templates.
+    """
 
     return (
         project_root
@@ -227,7 +308,19 @@ def default_cost_directory(project_root: Path) -> Path:
 
 
 def default_model_selection_path(project_root: Path) -> Path:
-    """Return the canonical selected H2 pipeline cost-model CSV path."""
+    """Return the canonical selected H2 pipeline cost-model CSV path.
+
+    Parameters
+    ----------
+    project_root : Path
+        Root directory of the Geospatial-CANOE repository.
+
+    Returns
+    -------
+    Path
+        Path to the CSV containing the selected fitted model definition for each
+        H2 pipeline cost component.
+    """
 
     return (
         default_cost_directory(project_root)
@@ -236,7 +329,19 @@ def default_model_selection_path(project_root: Path) -> Path:
 
 
 def default_etlsegment_template_path(project_root: Path) -> Path:
-    """Return the canonical topology-free ETLSegment template path."""
+    """Return the canonical topology-free H2 pipeline ETLSegment template path.
+
+    Parameters
+    ----------
+    project_root : Path
+        Root directory of the Geospatial-CANOE repository.
+
+    Returns
+    -------
+    Path
+        Path to the CSV containing the capacity and cost breakpoints used to build
+        distance-scaled H2 pipeline ETLSegment records downstream.
+    """
 
     return (
         default_cost_directory(project_root)
@@ -245,7 +350,19 @@ def default_etlsegment_template_path(project_root: Path) -> Path:
 
 
 def default_opex_coefficient_path(project_root: Path) -> Path:
-    """Return the canonical topology-free OPEX coefficient path."""
+    """Return the canonical topology-free H2 pipeline OPEX coefficient path.
+
+    Parameters
+    ----------
+    project_root : Path
+        Root directory of the Geospatial-CANOE repository.
+
+    Returns
+    -------
+    Path
+        Path to the CSV containing the fixed- and variable-OPEX coefficients used
+        to construct distance-scaled pipeline cost records downstream.
+    """
 
     return (
         default_cost_directory(project_root)
@@ -258,7 +375,25 @@ def default_opex_coefficient_path(project_root: Path) -> Path:
 # =============================================================================
 
 def load_capacity_cost_table(input_path: Path) -> pd.DataFrame:
-    """Load the processed H2 pipeline capacity-cost table."""
+    """Load the processed H2 pipeline capacity-cost table.
+
+    Parameters
+    ----------
+    input_path : Path
+        Path to the normalized H2 pipeline capacity-cost CSV.
+
+    Returns
+    -------
+    pd.DataFrame
+        Loaded capacity-cost observations used for downstream model fitting.
+
+    Raises
+    ------
+    FileNotFoundError
+        If ``input_path`` does not exist.
+    ValueError
+        If the loaded CSV contains no rows.
+    """
 
     if not input_path.exists():
         raise FileNotFoundError(
@@ -286,7 +421,37 @@ def validate_capacity_cost_table(
     capacity_column: str,
     cost_columns: dict[str, str],
 ) -> None:
-    """Validate the processed pipeline capacity-cost input table."""
+    """Validate the processed H2 pipeline capacity-cost input table.
+
+    The validation checks required and duplicate columns, numeric conversion,
+    finite and positive engineering values, unique diameter-capacity cases, and
+    consistent non-missing metadata across all observations.
+
+    Parameters
+    ----------
+    cost_table : pd.DataFrame
+        Processed H2 pipeline capacity-cost observations to validate.
+    required_columns : list[str]
+        Column names that must be present in ``cost_table``.
+    metadata_columns : list[str]
+        Metadata columns expected to contain one consistent non-missing value.
+    capacity_column : str
+        Name of the annual pipeline-capacity column.
+    cost_columns : dict[str, str]
+        Mapping from cost-component names to their corresponding numeric columns.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValueError
+        If required columns are missing, column names are duplicated, numeric
+        values are missing, non-numeric, non-finite, or non-positive, duplicate
+        diameter-capacity cases are present, or metadata values are missing or
+        inconsistent.
+    """
 
     missing_columns = [
         column
@@ -387,7 +552,36 @@ def calculate_regression_metrics(
     observed: np.ndarray,
     predicted: np.ndarray,
 ) -> RegressionMetrics:
-    """Calculate regression diagnostics in the original cost units."""
+    """Calculate regression diagnostics in the original cost units.
+
+    The observed and predicted arrays are converted to floating-point NumPy arrays,
+    validated for matching shape, non-empty contents, and finite values, and then
+    used to calculate residual-based goodness-of-fit and error statistics.
+
+    Parameters
+    ----------
+    observed : np.ndarray
+        Observed cost values in the original cost units.
+    predicted : np.ndarray
+        Model-predicted cost values in the same units and shape as ``observed``.
+
+    Returns
+    -------
+    RegressionMetrics
+        Coefficient of determination, root mean squared error, mean absolute error,
+        and maximum absolute error calculated from the residuals.
+
+    Raises
+    ------
+    ValueError
+        If the arrays have different shapes, contain no values, or include
+        non-finite values.
+
+    Notes
+    -----
+    ``r_squared`` is returned as ``NaN`` when all observed values are identical
+    because the total sum of squares is zero.
+    """
 
     observed_values = np.asarray(
         observed,
@@ -471,7 +665,37 @@ def validate_regression_arrays(
     model_name: str,
     require_positive: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Validate and normalize capacity and cost arrays for regression."""
+    """Validate and normalize capacity and cost arrays for regression fitting.
+
+    The input arrays are converted to floating-point NumPy arrays and checked for
+    matching shape, sufficient observations, finite values, and at least two unique
+    capacity values. Strict positivity is additionally enforced when required by
+    the selected regression form.
+
+    Parameters
+    ----------
+    capacity : np.ndarray
+        Pipeline-capacity observations used as the independent variable.
+    cost : np.ndarray
+        Cost observations used as the dependent variable.
+    model_name : str
+        Human-readable model name used in validation error messages.
+    require_positive : bool, optional
+        Whether both capacity and cost values must be strictly positive, as required
+        for log-transformed power regression. Defaults to ``False``.
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray]
+        Validated floating-point capacity and cost arrays.
+
+    Raises
+    ------
+    ValueError
+        If the arrays have different shapes, contain fewer than two observations,
+        include non-finite values, contain fewer than two unique capacities, or
+        include non-positive values when ``require_positive`` is ``True``.
+    """
 
     capacity_values = np.asarray(
         capacity,
@@ -528,7 +752,31 @@ def fit_linear_cost_model(
     capacity: np.ndarray,
     cost: np.ndarray,
 ) -> FittedCostModel:
-    """Fit a linear cost function of the form y = slope*x + intercept."""
+    """Fit a linear cost model to capacity and cost observations.
+
+    The model is estimated as ``y = slope * x + intercept`` using ordinary
+    least-squares polynomial fitting. Predictions are evaluated against the
+    observed costs in the original cost units.
+
+    Parameters
+    ----------
+    capacity : np.ndarray
+        Pipeline-capacity observations used as the independent variable.
+    cost : np.ndarray
+        Cost observations used as the dependent variable.
+
+    Returns
+    -------
+    FittedCostModel
+        Linear-model coefficients, equation metadata, and regression diagnostics.
+        The power-model ``coefficient`` and ``exponent`` fields are returned as
+        ``NaN``.
+
+    Raises
+    ------
+    ValueError
+        If the capacity and cost arrays fail regression-input validation.
+    """
 
     capacity_values, cost_values = validate_regression_arrays(
         capacity=capacity,
@@ -567,7 +815,33 @@ def fit_power_cost_model(
     capacity: np.ndarray,
     cost: np.ndarray,
 ) -> FittedCostModel:
-    """Fit a power cost function of the form y = coefficient*x**exponent."""
+    """Fit a power cost model to capacity and cost observations.
+
+    The model is estimated as ``y = coefficient * x ** exponent`` by applying a
+    linear regression to the natural logarithms of capacity and cost. Predictions
+    are then transformed back to the original cost scale before regression
+    diagnostics are calculated.
+
+    Parameters
+    ----------
+    capacity : np.ndarray
+        Strictly positive pipeline-capacity observations used as the independent
+        variable.
+    cost : np.ndarray
+        Strictly positive cost observations used as the dependent variable.
+
+    Returns
+    -------
+    FittedCostModel
+        Power-model coefficients, equation metadata, and regression diagnostics.
+        The linear-model ``slope`` and ``intercept`` fields are returned as ``NaN``.
+
+    Raises
+    ------
+    ValueError
+        If the capacity and cost arrays fail regression-input validation, including
+        the strict-positivity requirement for logarithmic transformation.
+    """
 
     capacity_values, cost_values = validate_regression_arrays(
         capacity=capacity,
@@ -620,7 +894,38 @@ def fit_pipeline_cost_models(
     cost_columns: dict[str, str],
     metadata_columns: list[str],
 ) -> pd.DataFrame:
-    """Fit linear and power functions to each pipeline cost component."""
+    """Fit candidate linear and power models to each pipeline cost component.
+
+    The shared capacity column is converted to a floating-point array, while
+    constant metadata values are taken from the first input row. For every
+    configured cost component, both linear and power regressions are fitted and
+    their coefficients, valid capacity range, observation count, source-column
+    metadata, and diagnostics are assembled into a candidate-model table.
+
+    Parameters
+    ----------
+    cost_table : pd.DataFrame
+        Validated pipeline capacity-cost observations containing the capacity,
+        cost, and metadata columns.
+    capacity_column : str
+        Name of the pipeline-capacity column used as the independent variable.
+    cost_columns : dict[str, str]
+        Mapping from canonical cost-component names to source cost-column names.
+    metadata_columns : list[str]
+        Metadata columns whose shared values are copied into each fitted-model row.
+
+    Returns
+    -------
+    pd.DataFrame
+        Candidate regression table containing one linear and one power model for
+        each configured cost component, sorted by cost type and model type.
+
+    Raises
+    ------
+    ValueError
+        If a candidate model cannot be fitted or if the resulting table does not
+        contain exactly two fitted models for each configured cost component.
+    """
 
     capacity = (
         pd.to_numeric(
@@ -708,7 +1013,34 @@ def select_pipeline_cost_models(
     regression_table: pd.DataFrame,
     selected_model_types: dict[str, str],
 ) -> pd.DataFrame:
-    """Select one fitted function for each pipeline cost component."""
+    """Select one fitted model for each pipeline cost component.
+
+    For each configured cost component, the candidate regression table is filtered
+    to the requested model type. Exactly one matching row must exist for every
+    selection. The selected rows are combined, sorted by cost type, and marked with
+    an ``is_selected`` flag.
+
+    Parameters
+    ----------
+    regression_table : pd.DataFrame
+        Candidate-model table containing fitted linear and power regressions for
+        each pipeline cost component.
+    selected_model_types : dict[str, str]
+        Mapping from cost-component names to the model type selected for downstream
+        use.
+
+    Returns
+    -------
+    pd.DataFrame
+        Table containing one selected fitted model per configured cost component,
+        with an ``is_selected`` column set to ``True``.
+
+    Raises
+    ------
+    ValueError
+        If a configured cost component and model-type combination does not match
+        exactly one row in ``regression_table``.
+    """
 
     selected_rows: list[pd.DataFrame] = []
 
@@ -764,7 +1096,33 @@ def select_pipeline_cost_models(
 def extract_capex_power_model(
     selected_models: pd.DataFrame,
 ) -> pd.Series:
-    """Extract and validate the selected H2 pipeline CAPEX power model."""
+    """Extract and validate the selected H2 pipeline CAPEX power model.
+
+    The selected-model table is filtered to the CAPEX row, which must contain
+    exactly one power-model definition. The required coefficient, exponent, and
+    capacity-range parameters are converted to finite floating-point values and
+    checked for valid bounds.
+
+    Parameters
+    ----------
+    selected_models : pd.DataFrame
+        Table containing one selected fitted model for each pipeline cost
+        component.
+
+    Returns
+    -------
+    pd.Series
+        Validated CAPEX power-model row containing numeric coefficient, exponent,
+        minimum capacity, and maximum capacity values.
+
+    Raises
+    ------
+    ValueError
+        If the table does not contain exactly one CAPEX model, the selected CAPEX
+        model is not a power function, a required parameter is missing or non-finite,
+        the coefficient or exponent is non-positive, or the capacity bounds are
+        invalid.
+    """
 
     capex_models = (
         selected_models.loc[
@@ -834,7 +1192,45 @@ def build_h2_etlsegment_template(
     spacing: str = DEFAULT_ETL_SPACING,
     data_id: str = DEFAULT_DATA_ID,
 ) -> pd.DataFrame:
-    """Build a topology-free H2 pipeline ETLSegment CAPEX template."""
+    """Build a topology-free H2 pipeline ETLSegment CAPEX template.
+
+    The selected CAPEX power model is converted into contiguous piecewise-linear
+    capacity-cost intervals suitable for downstream TEMOA schema construction. The
+    first interval begins at zero capacity and zero CAPEX so candidate corridors
+    can remain unbuilt. The remaining breakpoints span the fitted model's observed
+    capacity range using logarithmic or linear spacing.
+
+    Parameters
+    ----------
+    selected_models : pd.DataFrame
+        Table containing the selected fitted pipeline cost models, including one
+        validated CAPEX power model.
+    segment_count : int, optional
+        Total number of ETL intervals to construct. The first interval spans zero
+        to the minimum observed capacity. Defaults to
+        ``DEFAULT_ETL_SEGMENT_COUNT``.
+    spacing : str, optional
+        Spacing method for positive-capacity breakpoints. Must be ``"log"`` or
+        ``"linear"``. Defaults to ``DEFAULT_ETL_SPACING``.
+    data_id : str, optional
+        Data-quality identifier assigned to every generated ETLSegment row.
+        Defaults to ``DEFAULT_DATA_ID``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Topology-free ETLSegment template containing contiguous capacity and CAPEX
+        bounds per kilometre for the selected H2 pipeline technology.
+
+    Raises
+    ------
+    ValueError
+        If ``segment_count`` is less than one, ``spacing`` is unsupported,
+        ``data_id`` is blank, the selected CAPEX model is invalid, any segment has
+        non-increasing bounds, adjacent segments are not contiguous, the first
+        segment does not begin at zero, or the final segment does not end at the
+        fitted model's maximum capacity.
+    """
 
     if segment_count < 1:
         raise ValueError(
@@ -989,7 +1385,36 @@ def build_h2_pipeline_opex_coefficient_template(
     selected_models: pd.DataFrame,
     data_id: str = DEFAULT_DATA_ID,
 ) -> pd.DataFrame:
-    """Build topology-free fixed and variable H2 pipeline OPEX coefficients."""
+    """Build topology-free fixed- and variable-OPEX coefficient templates for H2 pipelines.
+
+    The selected model table is filtered to the fixed- and variable-OPEX rows,
+    which must each contain one linear regression for the same technology and
+    commodity. Their slopes and intercepts are validated, renamed to
+    schema-oriented coefficient fields, annotated with units and provenance, and
+    returned in the canonical downstream column order.
+
+    Parameters
+    ----------
+    selected_models : pd.DataFrame
+        Table containing the selected fitted pipeline cost models.
+    data_id : str, optional
+        Data-quality identifier assigned to each generated OPEX coefficient row.
+        Defaults to ``DEFAULT_DATA_ID``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Two-row topology-free OPEX coefficient template containing one fixed-OPEX
+        row and one variable-OPEX row, sorted by cost type.
+
+    Raises
+    ------
+    ValueError
+        If required columns are missing, ``data_id`` is blank, the expected OPEX
+        cost types are missing or duplicated, either selected OPEX model is not
+        linear, the rows refer to different technologies or commodities, or the
+        fitted slope or intercept values are invalid or non-finite.
+    """
 
     required_columns = [
         "technology",
@@ -1139,7 +1564,34 @@ def export_selected_cost_models(
     selected_models: pd.DataFrame,
     output_path: Path,
 ) -> Path:
-    """Export the selected pipeline cost functions to CSV."""
+    """Validate and export the selected pipeline cost models to CSV.
+
+    The selected-model table is checked for the complete expected set of pipeline
+    cost components, unique cost-type rows, and all required export columns. The
+    validated rows are reordered into the canonical output schema, sorted by cost
+    type, written as a UTF-8 CSV, and confirmed to exist on disk.
+
+    Parameters
+    ----------
+    selected_models : pd.DataFrame
+        Table containing one selected fitted model for each required pipeline cost
+        component.
+    output_path : Path
+        Destination path for the selected pipeline cost-model CSV.
+
+    Returns
+    -------
+    Path
+        Path to the successfully created CSV file.
+
+    Raises
+    ------
+    ValueError
+        If the selected-model table is empty, contains missing, unexpected, or
+        duplicate cost types, or lacks required export columns.
+    OSError
+        If the CSV file is not present after the export operation.
+    """
 
     required_cost_types = set(SELECTED_MODEL_TYPES)
 
@@ -1239,7 +1691,38 @@ def export_h2_pipeline_cost_templates(
     etlsegment_path: Path,
     opex_path: Path,
 ) -> tuple[Path, Path]:
-    """Export topology-free H2 pipeline inputs for build_schema.py."""
+    """Validate and export topology-free H2 pipeline cost templates.
+
+    The ETLSegment and OPEX templates are checked for required columns, non-empty
+    contents, unique identifying rows, and valid increasing capacity and CAPEX
+    bounds. Each table is reordered into its canonical schema, sorted
+    deterministically, written as a UTF-8 CSV, and confirmed to exist on disk.
+
+    Parameters
+    ----------
+    etlsegment_template : pd.DataFrame
+        Topology-free H2 pipeline ETLSegment template containing capacity and CAPEX
+        bounds per kilometre.
+    opex_template : pd.DataFrame
+        Topology-free H2 pipeline fixed- and variable-OPEX coefficient template.
+    etlsegment_path : Path
+        Destination path for the ETLSegment template CSV.
+    opex_path : Path
+        Destination path for the OPEX coefficient CSV.
+
+    Returns
+    -------
+    tuple[Path, Path]
+        Paths to the successfully created ETLSegment and OPEX CSV files.
+
+    Raises
+    ------
+    ValueError
+        If either template is missing required columns, is empty, contains duplicate
+        identifying rows, or includes invalid capacity or CAPEX bounds.
+    OSError
+        If either output file is not present after the export operation.
+    """
 
     missing_etl_columns = [
         column
@@ -1372,7 +1855,53 @@ def build_h2_pipeline_cost_models(
     pd.DataFrame,
     pd.DataFrame,
 ]:
-    """Fit H2 cost models and export topology-free schema templates."""
+    """Fit H2 pipeline cost models and export topology-free schema templates.
+
+    The workflow loads and validates the normalized capacity-cost dataset, fits
+    candidate linear and power regressions for each cost component, selects the
+    configured model form for each component, constructs topology-free CAPEX and
+    OPEX templates, and exports all selected model and template products.
+
+    Parameters
+    ----------
+    input_path : Path
+        Path to the normalized H2 pipeline capacity-cost CSV.
+    model_selection_path : Path
+        Destination path for the selected cost-model definition CSV.
+    etlsegment_template_path : Path
+        Destination path for the topology-free ETLSegment CAPEX template CSV.
+    opex_coefficient_path : Path
+        Destination path for the topology-free fixed- and variable-OPEX
+        coefficient CSV.
+    selected_model_types : dict[str, str] | None, optional
+        Mapping from cost-component names to selected regression forms. When
+        omitted, ``SELECTED_MODEL_TYPES`` is used.
+    segment_count : int, optional
+        Total number of ETLSegment intervals used to approximate the selected CAPEX
+        power model. Defaults to ``DEFAULT_ETL_SEGMENT_COUNT``.
+    spacing : str, optional
+        Positive-capacity breakpoint spacing method, either ``"log"`` or
+        ``"linear"``. Defaults to ``DEFAULT_ETL_SPACING``.
+    data_id : str, optional
+        Data-quality identifier assigned to generated schema-template rows.
+        Defaults to ``DEFAULT_DATA_ID``.
+
+    Returns
+    -------
+    tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]
+        Candidate regression results, selected cost models, topology-free
+        ETLSegment CAPEX template, and topology-free OPEX coefficient template.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the normalized capacity-cost input file does not exist.
+    ValueError
+        If the input data, regression configuration, selected models, or generated
+        templates fail validation.
+    OSError
+        If any required output CSV is not created successfully.
+    """
 
     model_selection = (
         SELECTED_MODEL_TYPES
@@ -1441,7 +1970,18 @@ def build_h2_pipeline_cost_models(
 # =============================================================================
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
+    """Parse command-line arguments for the H2 pipeline cost-model workflow.
+
+    The parser accepts optional overrides for the normalized input dataset and each
+    export destination, together with settings controlling the ETLSegment
+    piecewise approximation and dataset identifier.
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed command-line arguments containing input and output paths,
+        ``segment_count``, breakpoint ``spacing``, and ``data_id``.
+    """
 
     parser = argparse.ArgumentParser(
         description=(
@@ -1508,7 +2048,27 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Run the H2 pipeline cost-model and template workflow."""
+    """Run the H2 pipeline cost-model fitting and template-export workflow.
+
+    Command-line arguments are parsed, the project root and input/output paths are
+    resolved, and the configured workflow is executed. The resulting regression
+    tables and topology-free templates are summarized in the console together with
+    the validated input range and final export locations.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    FileNotFoundError
+        If the project root or normalized capacity-cost input file cannot be found.
+    ValueError
+        If the input data, fitted models, selected regressions, or generated
+        templates fail validation.
+    OSError
+        If an expected output CSV is not created successfully.
+    """
 
     args = parse_args()
     project_root = find_project_root()
