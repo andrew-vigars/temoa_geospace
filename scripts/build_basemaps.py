@@ -114,7 +114,28 @@ GRID_SYSTEMS = {
 
 
 def find_boundary_shapefile(raw_basemap_dir: Path) -> Path:
-    """Return the single boundary shapefile in the raw basemap directory."""
+    """Find the single raw boundary shapefile used to build the basemap.
+
+    The Stage 1 basemap workflow assumes that the raw basemap directory
+    contains exactly one ``.shp`` file. Enforcing this invariant prevents the
+    workflow from silently selecting the wrong boundary file when the directory
+    is empty or contains multiple shapefiles.
+
+    Parameters
+    ----------
+    raw_basemap_dir : Path
+        Directory containing the raw Canada boundary shapefile.
+
+    Returns
+    -------
+    Path
+        Path to the single shapefile found in ``raw_basemap_dir``.
+
+    Raises
+    ------
+    ValueError
+        If the directory contains zero shapefiles or more than one shapefile.
+    """
 
     shapefiles = sorted(raw_basemap_dir.glob("*.shp"))
 
@@ -130,7 +151,28 @@ def find_boundary_shapefile(raw_basemap_dir: Path) -> Path:
 def identify_province_name_column(
     provinces: gpd.GeoDataFrame,
 ) -> str:
-    """Return the English province-name column from the boundary file."""
+    """Identify the preferred English province-name column.
+
+    The Statistics Canada boundary schema may use different field names across
+    releases or preprocessing stages. Candidate columns are checked in priority
+    order, and the first matching field is returned for downstream province-name
+    standardization.
+
+    Parameters
+    ----------
+    provinces : gpd.GeoDataFrame
+        Province and territory boundary records loaded from the source file.
+
+    Returns
+    -------
+    str
+        Name of the first recognized English province-name column.
+
+    Raises
+    ------
+    ValueError
+        If none of the supported province-name columns are present.
+    """
 
     preferred_columns = [
         "PRENAME",
@@ -151,7 +193,32 @@ def identify_province_name_column(
 def load_province_boundaries(
     boundary_path: Path,
 ) -> gpd.GeoDataFrame:
-    """Load provincial boundaries and add canonical two-letter codes."""
+    """Load and standardize provincial and territorial boundary records.
+
+    The source boundary file is validated for records and a defined coordinate
+    reference system. Province and territory names are extracted from the
+    recognized English name column, normalized, and mapped to canonical two-letter
+    codes. The resulting boundary layer is reduced to the standardized name, code,
+    and geometry fields and reprojected to WGS84.
+
+    Parameters
+    ----------
+    boundary_path : Path
+        Path to the provincial and territorial boundary file.
+
+    Returns
+    -------
+    gpd.GeoDataFrame
+        Provincial and territorial boundaries in WGS84 with standardized
+        ``province_name``, ``province_code``, and ``geometry`` columns.
+
+    Raises
+    ------
+    ValueError
+        If the boundary file is empty, has no defined CRS, contains no recognized
+        province-name column, or includes province names that cannot be mapped to
+        canonical two-letter codes.
+    """
 
     print(f"Loading boundary file: {boundary_path.name}")
 
@@ -219,7 +286,35 @@ def build_study_area_boundary(
     selected_provinces: list[str],
     study_area_label: str,
 ) -> gpd.GeoDataFrame:
-    """Select and dissolve provinces into one combined study-area boundary."""
+    """Select and dissolve configured provinces into one study-area boundary.
+
+    Province and territory codes are normalized to uppercase, matched against the
+    standardized boundary table, and validated for complete coverage. The selected
+    geometries are dissolved into a single study-area geometry with identifying
+    metadata for the build profile.
+
+    Parameters
+    ----------
+    provinces : gpd.GeoDataFrame
+        Provincial and territorial boundaries containing ``province_code`` and
+        ``geometry`` columns.
+    selected_provinces : list[str]
+        Province and territory codes to include in the study area.
+    study_area_label : str
+        Identifier assigned to the combined study-area boundary.
+
+    Returns
+    -------
+    gpd.GeoDataFrame
+        One-row GeoDataFrame containing the dissolved study-area geometry, study
+        area label, comma-separated province codes, and province count in WGS84.
+
+    Raises
+    ------
+    ValueError
+        If one or more configured province or territory codes are not present in
+        the boundary table.
+    """
 
     selected_codes = [
         str(code).upper().strip()
@@ -267,7 +362,26 @@ def align_bounds_to_grid(
     bounds: tuple[float, float, float, float],
     cell_size_native: float,
 ) -> tuple[float, float, float, float]:
-    """Expand bounds outward to exact multiples of the native cell size."""
+    """Align spatial bounds outward to the native grid-cell spacing.
+
+    Each minimum bound is rounded downward and each maximum bound is rounded
+    upward to the nearest multiple of ``cell_size_native``. This ensures the
+    resulting extent fully contains the original bounds while remaining aligned
+    with the grid origin and cell spacing.
+
+    Parameters
+    ----------
+    bounds : tuple[float, float, float, float]
+        Input extent in the order ``(min_x, min_y, max_x, max_y)``.
+    cell_size_native : float
+        Grid-cell size expressed in the coordinate system's native units.
+
+    Returns
+    -------
+    tuple[float, float, float, float]
+        Expanded and grid-aligned extent in the order
+        ``(min_x, min_y, max_x, max_y)``.
+    """
 
     min_x, min_y, max_x, max_y = bounds
 
@@ -291,7 +405,44 @@ def build_candidate_grid(
     keep_method: str,
     coordinate_precision: int,
 ) -> gpd.GeoDataFrame:
-    """Build all candidate square cells covering the boundary extent."""
+    """Build the complete candidate grid covering a study-area boundary.
+
+    The study-area boundary is reprojected into the coordinate reference system
+    associated with ``grid_type``. Its extent is expanded to the nearest native
+    cell-size multiples, and square cells are generated across the resulting
+    aligned bounding box. Each candidate cell includes its bounds, centroid
+    coordinates, polygon geometry, and centroid geometry.
+
+    This function constructs the unfiltered candidate grid only. Boundary-based
+    cell retention is applied in a later processing step.
+
+    Parameters
+    ----------
+    boundary_gdf : gpd.GeoDataFrame
+        Study-area boundary used to define the grid extent.
+    grid_type : str
+        Configured grid family used to select the CRS and native unit conversion,
+        such as ``"geographic"`` or ``"projected"``.
+    resolution : float
+        Requested grid resolution in the units defined for ``grid_type``.
+    keep_method : str
+        Retention-method label used for progress reporting and downstream metadata.
+    coordinate_precision : int
+        Number of decimal places used when storing cell bounds and centroid
+        coordinates.
+
+    Returns
+    -------
+    gpd.GeoDataFrame
+        Candidate square grid cells covering the aligned study-area extent, with
+        native-coordinate bounds, centroid coordinates, polygon geometries, and
+        centroid geometries in the configured grid CRS.
+
+    Raises
+    ------
+    KeyError
+        If ``grid_type`` is not defined in ``GRID_SYSTEMS``.
+    """
 
     grid_system = GRID_SYSTEMS[grid_type]
     grid_crs = str(grid_system["crs"])
@@ -396,7 +547,32 @@ def retain_centroid_cells(
     candidate_grid: gpd.GeoDataFrame,
     boundary_gdf: gpd.GeoDataFrame,
 ) -> gpd.GeoDataFrame:
-    """Keep cells whose native-CRS centroids fall within the study area."""
+    """Retain candidate cells whose centroids fall within the study area.
+
+    The study-area boundary is reprojected to the candidate grid CRS, and the
+    stored centroid geometries are used in a spatial join to identify cells whose
+    centroids lie within the boundary. The retained output preserves the original
+    cell polygons and removes the temporary centroid-geometry column.
+
+    Parameters
+    ----------
+    candidate_grid : gpd.GeoDataFrame
+        Candidate grid containing polygon geometries and a
+        ``centroid_geometry`` column in the grid CRS.
+    boundary_gdf : gpd.GeoDataFrame
+        Study-area boundary used to test centroid inclusion.
+
+    Returns
+    -------
+    gpd.GeoDataFrame
+        Subset of candidate grid cells whose centroids fall within the study-area
+        boundary.
+
+    Raises
+    ------
+    ValueError
+        If the candidate grid has no defined coordinate reference system.
+    """
 
     if candidate_grid.crs is None:
         raise ValueError("Candidate grid CRS is undefined.")
@@ -433,7 +609,47 @@ def add_coordinate_metadata(
     keep_method: str,
     coordinate_precision: int,
 ) -> gpd.GeoDataFrame:
-    """Add canonical IDs, native coordinates, and WGS84 display coordinates."""
+    """Add canonical identifiers and coordinate metadata to retained grid cells.
+
+    Native grid centroids are transformed to WGS84 to derive longitude and
+    latitude display coordinates. Cells are then sorted deterministically in the
+    native coordinate system, assigned canonical region and site identifiers, and
+    annotated with study-area, grid-system, resolution, cell-size, retention, and
+    compatibility metadata.
+
+    Parameters
+    ----------
+    grid : gpd.GeoDataFrame
+        Retained grid cells containing native cell bounds, centroid coordinates,
+        and polygon geometries.
+    boundary_gdf : gpd.GeoDataFrame
+        Study-area boundary containing ``study_area`` and ``province_codes``
+        metadata.
+    grid_type : str
+        Configured grid family used to determine the native CRS and units, such as
+        ``"geographic"`` or ``"projected"``.
+    resolution : float
+        Grid resolution in the units associated with ``grid_type``.
+    keep_method : str
+        Boundary-retention method recorded in the output metadata.
+    coordinate_precision : int
+        Number of decimal places used for WGS84 longitude and latitude values.
+
+    Returns
+    -------
+    gpd.GeoDataFrame
+        Grid cells with deterministic region identifiers, native and WGS84
+        coordinates, study-area metadata, grid metadata, compatibility resolution
+        fields, and ordered output columns.
+
+    Raises
+    ------
+    KeyError
+        If ``grid_type`` is not defined in ``GRID_SYSTEMS``.
+    IndexError
+        If ``boundary_gdf`` contains no rows from which study-area metadata can be
+        read.
+    """
 
     grid_system = GRID_SYSTEMS[grid_type]
     grid_crs = str(grid_system["crs"])
@@ -515,7 +731,39 @@ def build_grid(
     keep_method: str,
     coordinate_precision: int,
 ) -> gpd.GeoDataFrame:
-    """Build one centroid-retained geographic or projected study-area grid."""
+    """Build one centroid-retained study-area grid.
+
+    The requested grid type is validated, a complete candidate grid is generated
+    across the aligned study-area extent, and cells are retained when their
+    centroids fall within the configured boundary. Canonical identifiers and
+    coordinate metadata are then added before the completed grid is returned.
+
+    Parameters
+    ----------
+    boundary_gdf : gpd.GeoDataFrame
+        Study-area boundary containing the geometry and metadata required for grid
+        construction.
+    grid_type : str
+        Grid family to build, such as ``"geographic"`` or ``"projected"``.
+    resolution : float
+        Grid resolution in the units associated with ``grid_type``.
+    keep_method : str
+        Boundary-retention method recorded in progress messages and output
+        metadata.
+    coordinate_precision : int
+        Number of decimal places used for stored coordinates.
+
+    Returns
+    -------
+    gpd.GeoDataFrame
+        Centroid-retained study-area grid with canonical region identifiers,
+        native coordinates, WGS84 display coordinates, and grid metadata.
+
+    Raises
+    ------
+    ValueError
+        If ``grid_type`` is not defined in ``GRID_SYSTEMS``.
+    """
 
     if grid_type not in GRID_SYSTEMS:
         raise ValueError(
@@ -566,7 +814,32 @@ def basemap_key(
     resolution: float,
     keep_method: str,
 ) -> str:
-    """Return the canonical filename key for one grid configuration."""
+    """Return the canonical filename key for one grid configuration.
+
+The grid type is used to resolve its configured filename unit, which is
+combined with the resolution and retention method to produce a stable key for
+basemap filenames and related downstream products.
+
+Parameters
+----------
+grid_type : str
+    Configured grid family, such as ``"geographic"`` or ``"projected"``.
+resolution : float
+    Grid resolution in the units associated with ``grid_type``.
+keep_method : str
+    Boundary-retention method included in the filename key.
+
+Returns
+-------
+str
+    Canonical grid-configuration key, such as ``"1deg_centroid"`` or
+    ``"100km_centroid"``.
+
+Raises
+------
+KeyError
+    If ``grid_type`` is not defined in ``GRID_SYSTEMS``.
+"""
 
     filename_unit = GRID_SYSTEMS[grid_type]["filename_unit"]
     return f"{resolution:g}{filename_unit}_{keep_method}"
@@ -580,7 +853,39 @@ def save_basemap_preview(
     resolution: float,
     keep_method: str,
 ) -> None:
-    """Save a preview using boundary geometry reprojected to the grid CRS."""
+    """Save a diagnostic preview of a generated basemap grid.
+
+    The study-area boundary is reprojected to the basemap CRS and plotted over the
+    retained grid cells. The figure title records the study area, grid type,
+    resolution, retention method, number of retained cells, and coordinate
+    reference system before the preview is written to disk.
+
+    Parameters
+    ----------
+    basemap : gpd.GeoDataFrame
+        Retained basemap grid cells to plot.
+    study_area_boundary : gpd.GeoDataFrame
+        Study-area boundary containing geometry and a ``study_area`` metadata
+        field.
+    png_path : Path
+        Destination path for the generated PNG preview.
+    grid_type : str
+        Grid family used to select the display unit, such as ``"geographic"`` or
+        ``"projected"``.
+    resolution : float
+        Grid resolution in the units associated with ``grid_type``.
+    keep_method : str
+        Boundary-retention method displayed in the figure title.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValueError
+        If the basemap has no defined coordinate reference system.
+"""
 
     if basemap.crs is None:
         raise ValueError("Basemap CRS is undefined.")
@@ -627,7 +932,45 @@ def summarize_basemap(
     png_path: Path,
     keep_method: str,
 ) -> dict:
-    """Return one summary record for an exported basemap."""
+    """Build a summary record for an exported basemap grid.
+
+    The basemap is validated for a defined coordinate reference system, and its
+    native-coordinate extent, WGS84 centroid-coordinate ranges, grid metadata,
+    region count, and exported filenames are collected into a single dictionary
+    for inclusion in the basemap summary table.
+
+    Parameters
+    ----------
+    basemap : gpd.GeoDataFrame
+        Exported basemap grid containing study-area, province, coordinate, and
+        cell-size metadata.
+    grid_type : str
+        Grid family used to determine the configured resolution unit.
+    resolution : float
+        Grid resolution in the units associated with ``grid_type``.
+    gpkg_path : Path
+        Path to the exported basemap GeoPackage.
+    png_path : Path
+        Path to the exported basemap preview image.
+    keep_method : str
+        Boundary-retention method used to construct the basemap.
+
+    Returns
+    -------
+    dict
+        Summary record containing study-area metadata, grid configuration, CRS,
+        region count, native bounds, WGS84 coordinate ranges, and output filenames.
+
+    Raises
+    ------
+    ValueError
+        If the basemap has no defined coordinate reference system.
+    KeyError
+        If ``grid_type`` is not defined in ``GRID_SYSTEMS`` or required basemap
+        metadata columns are missing.
+    IndexError
+        If the basemap contains no rows from which metadata can be read.
+    """
 
     if basemap.crs is None:
         raise ValueError("Cannot summarize basemap because its CRS is undefined.")
@@ -672,7 +1015,41 @@ def build_all_basemaps(
     output_dir: Path,
     config: GeospatialBuildConfig,
 ) -> pd.DataFrame:
-    """Build and export all basemaps selected by one build profile."""
+    """Build, export, preview, and summarize all configured basemap variants.
+
+The function iterates over each grid family and resolution defined in the
+shared build profile. For every configuration, it builds the retained grid,
+exports the regions to a GeoPackage, saves a diagnostic PNG preview, and
+collects a summary record. Existing preview outputs are removed before the
+current build begins.
+
+Parameters
+----------
+study_area_boundary : gpd.GeoDataFrame
+    Dissolved study-area boundary used to construct each basemap.
+study_area_label : str
+    Identifier used in exported basemap and preview filenames.
+output_dir : Path
+    Directory where basemap GeoPackages, previews, and related outputs are
+    written.
+config : GeospatialBuildConfig
+    Validated build profile containing selected grid types, resolutions,
+    retention method, and coordinate precision.
+
+Returns
+-------
+pd.DataFrame
+    One summary row per exported basemap configuration, including grid
+    metadata, region counts, spatial extents, and output filenames.
+
+Raises
+------
+KeyError
+    If a configured grid type is not present in the resolution lookup.
+ValueError
+    If a basemap cannot be constructed or summarized because required spatial
+    metadata or coordinate reference information is invalid.
+    """
 
     preview_dir = output_dir / "preview"
 
@@ -744,7 +1121,17 @@ def build_all_basemaps(
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse the Stage 1 build-profile path."""
+    """Parse command-line arguments for the Stage 1 basemap workflow.
+
+    Defines the required ``--config`` argument used to supply the path to a
+    geospatial preprocessing TOML build profile.
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed command-line arguments containing the selected configuration path
+        in the ``config`` attribute.
+    """
 
     parser = argparse.ArgumentParser(
         description=(
@@ -766,7 +1153,35 @@ def parse_args() -> argparse.Namespace:
 def run_basemap_build(
     config: GeospatialBuildConfig,
 ) -> pd.DataFrame:
-    """Run Stage 1 using an already loaded build profile."""
+    """Run the complete Stage 1 basemap build from a validated profile.
+
+The configured retention method is validated, required output directories are
+created, and the raw province and territory boundary file is loaded and
+standardized. The selected jurisdictions are dissolved into one study-area
+boundary, exported in WGS84 and Statistics Canada Lambert projections, and
+used to build all configured geographic and projected basemap variants. A
+summary table is then written to CSV and returned.
+
+Parameters
+----------
+config : GeospatialBuildConfig
+    Validated build profile containing the study-area definition, selected
+    provinces and territories, grid families, resolutions, retention method,
+    and coordinate precision.
+
+Returns
+-------
+pd.DataFrame
+    Summary table with one row per exported basemap configuration.
+
+Raises
+------
+ValueError
+    If the configured retention method is not ``"centroid"`` or if any
+    downstream boundary or basemap validation fails.
+FileNotFoundError
+    If the required raw boundary shapefile cannot be found.
+    """
 
     if config.basemaps.keep_method != "centroid":
         raise ValueError(
@@ -831,7 +1246,16 @@ def run_basemap_build(
 
 
 def main() -> None:
-    """Load a TOML profile and run Stage 1."""
+    """Load the selected TOML build profile and execute Stage 1.
+
+    Command-line arguments are parsed to obtain the build-profile path. The
+    geospatial configuration is then loaded, printed for verification, and passed
+    to the Stage 1 basemap-building workflow.
+
+    Returns
+    -------
+    None
+    """
 
     args = parse_args()
     config = load_geospatial_build_config(args.config)

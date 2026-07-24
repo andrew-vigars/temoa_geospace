@@ -81,7 +81,16 @@ DEFAULT_CONFIG_RELATIVE_PATH = (
 
 @dataclass(frozen=True)
 class StudyAreaConfig:
-    """Study-area identity shared across geospatial preprocessing stages."""
+    """Immutable study-area identity for geospatial preprocessing.
+
+    Attributes
+    ----------
+    label : str
+        Canonical label used to identify the study area in filenames, metadata,
+        summaries, and downstream workflow products.
+    provinces : tuple[str, ...]
+        Ordered province and territory codes included in the study area.
+    """
 
     label: str
     provinces: tuple[str, ...]
@@ -89,14 +98,37 @@ class StudyAreaConfig:
 
 @dataclass(frozen=True)
 class BasemapGridFamilyConfig:
-    """Resolution settings for one basemap grid family."""
+    """Immutable resolution settings for one basemap grid family.
+
+    Attributes
+    ----------
+    resolutions : tuple[float, ...]
+        Ordered grid resolutions to generate for the associated basemap family,
+        expressed in that family's configured native unit.
+    """
 
     resolutions: tuple[float, ...]
 
 
 @dataclass(frozen=True)
 class BasemapConfig:
-    """Basemap-generation settings."""
+    """Immutable settings for basemap generation.
+
+    Attributes
+    ----------
+    grid_types : tuple[str, ...]
+        Basemap grid families enabled for generation, such as ``"geographic"``
+        and ``"projected"``.
+    keep_method : str
+        Spatial retention rule used to determine which candidate grid cells are
+        retained within the study area.
+    coordinate_precision : int
+        Number of decimal places used when rounding generated grid coordinates.
+    geographic : BasemapGridFamilyConfig
+        Resolution settings for geographic grids generated in EPSG:4326.
+    projected : BasemapGridFamilyConfig
+        Resolution settings for projected grids generated in EPSG:3347.
+    """
 
     grid_types: tuple[str, ...]
     keep_method: str
@@ -106,20 +138,45 @@ class BasemapConfig:
 
     @property
     def geographic_resolutions_deg(self) -> tuple[float, ...]:
-        """Return configured EPSG:4326 resolutions in decimal degrees."""
+        """Return configured geographic-grid resolutions in decimal degrees.
+
+        Returns
+        -------
+        tuple[float, ...]
+            Geographic basemap resolutions configured for EPSG:4326.
+        """
 
         return self.geographic.resolutions
 
     @property
     def projected_resolutions_km(self) -> tuple[float, ...]:
-        """Return configured EPSG:3347 resolutions in kilometres."""
+        """Return configured projected-grid resolutions in kilometres.
+
+        Returns
+        -------
+        tuple[float, ...]
+            Projected basemap resolutions configured for EPSG:3347.
+        """
 
         return self.projected.resolutions
 
 
 @dataclass(frozen=True)
 class AdjacencyConfig:
-    """Region-adjacency settings."""
+    """Immutable settings for region-adjacency construction.
+
+    Attributes
+    ----------
+    method : str
+        Adjacency rule used to connect neighbouring graph regions, such as
+        ``"rook"``.
+    coordinate_precision : int
+        Number of decimal places used when normalizing or comparing region
+        coordinates during adjacency construction.
+    no_neighbor_id : str
+        Sentinel identifier used when a region has no neighbour in a given
+        direction.
+    """
 
     method: str
     coordinate_precision: int
@@ -128,7 +185,15 @@ class AdjacencyConfig:
 
 @dataclass(frozen=True)
 class RoadClassConfig:
-    """Road classes included in each processed network representation."""
+    """Immutable road-class selections for processed network representations.
+
+    Attributes
+    ----------
+    backbone : tuple[str, ...]
+        Ordered source road classes included in the backbone network.
+    freight_access : tuple[str, ...]
+        Ordered source road classes included in the freight-access network.
+    """
 
     backbone: tuple[str, ...]
     freight_access: tuple[str, ...]
@@ -136,7 +201,22 @@ class RoadClassConfig:
 
 @dataclass(frozen=True)
 class RoadConfig:
-    """Processed-road-network settings."""
+    """Immutable settings for processed road-network construction.
+
+    Attributes
+    ----------
+    networks : tuple[str, ...]
+        Ordered processed road-network representations to generate, such as
+        ``"backbone"`` and ``"freight_access"``.
+    export_individual_provinces : bool
+        Whether filtered road-network outputs are also written separately for each
+        selected province or territory.
+    output_crs : str
+        Coordinate reference system assigned to merged processed road outputs.
+    classes : RoadClassConfig
+        Road-class definitions used to construct each processed network
+        representation.
+    """
 
     networks: tuple[str, ...]
     export_individual_provinces: bool
@@ -146,7 +226,20 @@ class RoadConfig:
 
 @dataclass(frozen=True)
 class RoadConnectivityConfig:
-    """Road-to-region connectivity settings."""
+    """Immutable settings for mapping roads onto graph regions.
+
+    Attributes
+    ----------
+    road_layer : str
+        Processed road-network layer used for spatial overlay and connectivity
+        construction, such as ``"backbone"`` or ``"freight_access"``.
+    methods : tuple[str, ...]
+        Ordered road-connectivity methods to generate, such as ``"weak"`` and
+        ``"strong"``.
+    plot_outputs : bool
+        Whether diagnostic road-presence and edge-connectivity figures are
+        generated for each processed graph.
+    """
 
     road_layer: str
     methods: tuple[str, ...]
@@ -155,7 +248,29 @@ class RoadConnectivityConfig:
 
 @dataclass(frozen=True)
 class SchemaConfig:
-    """Schema-selection and point-assignment preferences."""
+    """Immutable schema-selection and point-assignment settings.
+
+    Attributes
+    ----------
+    road_connection_method : str
+        Road-connectivity method used when selecting road-enabled graph edges for
+        schema construction.
+    interactive_basemap_selection : bool
+        Whether the schema-building workflow prompts the user to select a basemap
+        interactively at runtime.
+    basemap_stem : str | None
+        Explicit basemap filename stem used when interactive selection is disabled,
+        or ``None`` when selection is performed interactively.
+    boundary_buffer_km : float
+        Buffer distance, in kilometres, applied to the study-area boundary during
+        point-assignment preprocessing.
+    boundary_simplify_tolerance_km : float
+        Simplification tolerance, in kilometres, applied to buffered boundary
+        geometry before point-assignment operations.
+    max_snap_distance_factor : float
+        Multiplier applied to the selected grid resolution to determine the maximum
+        permitted point-to-node snapping distance.
+    """
 
     road_connection_method: str
     interactive_basemap_selection: bool
@@ -167,7 +282,27 @@ class SchemaConfig:
 
 @dataclass(frozen=True)
 class GeospatialBuildConfig:
-    """Complete shared preprocessing build profile."""
+    """Immutable shared configuration for the geospatial preprocessing workflow.
+
+    Attributes
+    ----------
+    study_area : StudyAreaConfig
+        Study-area identity and included province or territory codes.
+    basemaps : BasemapConfig
+        Basemap grid families, resolutions, retention method, and coordinate
+        precision.
+    adjacency : AdjacencyConfig
+        Region-adjacency construction method and related identifier settings.
+    roads : RoadConfig
+        Processed road-network representations, road classes, export behaviour, and
+        output CRS.
+    road_connectivity : RoadConnectivityConfig
+        Road layer, connectivity methods, and diagnostic plotting preferences.
+    schema : SchemaConfig
+        Schema-selection, boundary-processing, and point-snapping settings.
+    source_path : Path
+        Path to the TOML build profile from which the configuration was loaded.
+    """
 
     study_area: StudyAreaConfig
     basemaps: BasemapConfig
@@ -186,7 +321,26 @@ def _require_table(
     raw: dict,
     key: str,
 ) -> dict:
-    """Return a required TOML table."""
+    """Return a required TOML table from the parsed configuration.
+
+    Parameters
+    ----------
+    raw : dict
+        Parsed TOML configuration mapping.
+    key : str
+        Name of the required top-level TOML table.
+
+    Returns
+    -------
+    dict
+        Mapping stored under ``key``.
+
+    Raises
+    ------
+    ValueError
+        If the requested configuration section is missing or is not represented
+        as a dictionary.
+    """
 
     value = raw.get(key)
 
@@ -203,7 +357,30 @@ def _require_string(
     key: str,
     section: str,
 ) -> str:
-    """Return a required non-empty string."""
+    """Return a required non-empty string from a TOML section.
+
+    The requested value is validated as a string, stripped of leading and trailing
+    whitespace, and returned in normalized form.
+
+    Parameters
+    ----------
+    table : dict
+        Parsed TOML section containing the requested setting.
+    key : str
+        Name of the required string setting.
+    section : str
+        TOML section name used to construct validation error messages.
+
+    Returns
+    -------
+    str
+        Stripped non-empty string stored under ``key``.
+
+    Raises
+    ------
+    ValueError
+        If the setting is missing, is not a string, or contains only whitespace.
+    """
 
     value = table.get(key)
 
@@ -220,7 +397,27 @@ def _require_bool(
     key: str,
     section: str,
 ) -> bool:
-    """Return a required boolean."""
+    """Return a required boolean from a TOML section.
+
+    Parameters
+    ----------
+    table : dict
+        Parsed TOML section containing the requested setting.
+    key : str
+        Name of the required boolean setting.
+    section : str
+        TOML section name used to construct validation error messages.
+
+    Returns
+    -------
+    bool
+        Boolean value stored under ``key``.
+
+    Raises
+    ------
+    ValueError
+        If the setting is missing or is not a boolean.
+    """
 
     value = table.get(key)
 
@@ -238,7 +435,34 @@ def _require_int(
     section: str,
     minimum: int | None = None,
 ) -> int:
-    """Return a required integer with an optional lower bound."""
+    """Return a required integer from a TOML section.
+
+    Boolean values are rejected explicitly because ``bool`` is a subclass of
+    ``int`` in Python. An optional inclusive lower bound can also be enforced.
+
+    Parameters
+    ----------
+    table : dict
+        Parsed TOML section containing the requested setting.
+    key : str
+        Name of the required integer setting.
+    section : str
+        TOML section name used to construct validation error messages.
+    minimum : int | None, optional
+        Inclusive lower bound for the setting, or ``None`` when no lower bound is
+        required.
+
+    Returns
+    -------
+    int
+        Validated integer value stored under ``key``.
+
+    Raises
+    ------
+    ValueError
+        If the setting is missing, is a boolean, is not an integer, or is smaller
+        than ``minimum`` when a lower bound is provided.
+    """
 
     value = table.get(key)
 
@@ -261,7 +485,32 @@ def _require_positive_number(
     key: str,
     section: str,
 ) -> float:
-    """Return a required positive numeric value."""
+    """Return a required positive numeric value from a TOML section.
+
+    Boolean values are rejected explicitly because ``bool`` is a subclass of
+    ``int`` in Python. Valid integer and floating-point values are normalized to
+    ``float`` before the positivity constraint is applied.
+
+    Parameters
+    ----------
+    table : dict
+        Parsed TOML section containing the requested setting.
+    key : str
+        Name of the required numeric setting.
+    section : str
+        TOML section name used to construct validation error messages.
+
+    Returns
+    -------
+    float
+        Validated positive numeric value stored under ``key``.
+
+    Raises
+    ------
+    ValueError
+        If the setting is missing, is a boolean, is not numeric, or is less than
+        or equal to zero.
+    """
 
     value = table.get(key)
 
@@ -285,7 +534,32 @@ def _require_string_list(
     key: str,
     section: str,
 ) -> tuple[str, ...]:
-    """Return a required list of non-empty strings."""
+    """Return a required list of non-empty strings from a TOML section.
+
+    The requested value is validated as a non-empty list whose elements are all
+    non-empty strings. Each string is stripped of leading and trailing whitespace,
+    and the normalized values are returned as an immutable tuple.
+
+    Parameters
+    ----------
+    table : dict
+        Parsed TOML section containing the requested setting.
+    key : str
+        Name of the required string-list setting.
+    section : str
+        TOML section name used to construct validation error messages.
+
+    Returns
+    -------
+    tuple[str, ...]
+        Normalized non-empty strings stored under ``key``.
+
+    Raises
+    ------
+    ValueError
+        If the setting is missing, is not a non-empty list, or contains a value
+        that is not a non-empty string.
+    """
 
     value = table.get(key)
 
@@ -310,7 +584,34 @@ def _require_positive_number_list(
     key: str,
     section: str,
 ) -> tuple[float, ...]:
-    """Return a required list of unique positive numeric values."""
+    """Return a required list of unique positive numbers from a TOML section.
+
+    The requested value is validated as a non-empty list containing only integer
+    or floating-point values. Boolean values are rejected explicitly, each entry is
+    normalized to ``float``, positivity is enforced, and duplicate numeric values
+    are not permitted.
+
+    Parameters
+    ----------
+    table : dict
+        Parsed TOML section containing the requested setting.
+    key : str
+        Name of the required numeric-list setting.
+    section : str
+        TOML section name used to construct validation error messages.
+
+    Returns
+    -------
+    tuple[float, ...]
+        Normalized unique positive values stored under ``key``.
+
+    Raises
+    ------
+    ValueError
+        If the setting is missing, is not a non-empty list, contains a boolean or
+        non-numeric value, contains a value less than or equal to zero, or contains
+        duplicate numeric values.
+    """
 
     value = table.get(key)
 
@@ -349,7 +650,27 @@ def _validate_choice(
     allowed: set[str],
     field_name: str,
 ) -> str:
-    """Validate a single enumerated configuration value."""
+    """Validate and return a single enumerated configuration value.
+
+    Parameters
+    ----------
+    value : str
+        Configuration value to validate.
+    allowed : set[str]
+        Permitted values for the configuration field.
+    field_name : str
+        Human-readable field name used to construct validation error messages.
+
+    Returns
+    -------
+    str
+        The validated configuration value.
+
+    Raises
+    ------
+    ValueError
+        If ``value`` is not present in ``allowed``.
+    """
 
     if value not in allowed:
         raise ValueError(
@@ -365,7 +686,32 @@ def _validate_choices(
     allowed: set[str],
     field_name: str,
 ) -> tuple[str, ...]:
-    """Validate a sequence of unique enumerated values."""
+    """Validate and return a sequence of unique enumerated values.
+
+    The supplied values are checked for duplicates before being compared with the
+    set of permitted values. Unsupported entries are reported in sorted order to
+    produce deterministic validation messages.
+
+    Parameters
+    ----------
+    values : tuple[str, ...]
+        Ordered configuration values to validate.
+    allowed : set[str]
+        Permitted values for the configuration field.
+    field_name : str
+        Human-readable field name used to construct validation error messages.
+
+    Returns
+    -------
+    tuple[str, ...]
+        The original validated tuple, preserving its input order.
+
+    Raises
+    ------
+    ValueError
+        If ``values`` contains duplicate entries or any value not present in
+        ``allowed``.
+    """
 
     if len(values) != len(set(values)):
         raise ValueError(
@@ -384,7 +730,29 @@ def _validate_choices(
 
 
 def _normalize_study_area_label(label: str) -> str:
-    """Normalize and validate a filename-safe study-area label."""
+    """Normalize and validate a filename-safe study-area label.
+
+    Leading and trailing whitespace is removed, letters are converted to lowercase,
+    and spaces and hyphens are replaced with underscores. Consecutive underscores
+    are collapsed before the normalized label is validated.
+
+    Parameters
+    ----------
+    label : str
+        User-provided study-area label.
+
+    Returns
+    -------
+    str
+        Normalized lowercase label containing only letters, numbers, and
+        underscores.
+
+    Raises
+    ------
+    ValueError
+        If the normalized label contains characters other than lowercase letters,
+        numbers, or underscores.
+    """
 
     normalized = label.strip().lower().replace("-", "_").replace(" ", "_")
     normalized = re.sub(r"_+", "_", normalized)
@@ -401,7 +769,30 @@ def _normalize_study_area_label(label: str) -> str:
 def _validate_provinces(
     provinces: tuple[str, ...],
 ) -> tuple[str, ...]:
-    """Normalize and validate province and territory abbreviations."""
+    """Normalize and validate province and territory abbreviations.
+
+    Each supplied code is stripped of surrounding whitespace and converted to
+    uppercase. The normalized codes are then checked for duplicates and validated
+    against the complete set of supported Canadian province and territory
+    abbreviations.
+
+    Parameters
+    ----------
+    provinces : tuple[str, ...]
+        Province and territory abbreviations to normalize and validate.
+
+    Returns
+    -------
+    tuple[str, ...]
+        Normalized uppercase province and territory codes, preserving the original
+        input order.
+
+    Raises
+    ------
+    ValueError
+        If the normalized sequence contains duplicate codes or any code not present
+        in ``ALL_PROVINCE_CODES``.
+    """
 
     normalized = tuple(
         code.upper().strip()
@@ -430,7 +821,26 @@ def _validate_road_classes(
     backbone: tuple[str, ...],
     freight_access: tuple[str, ...],
 ) -> None:
-    """Validate nested backbone and freight-access road classes."""
+    """Validate nesting and uniqueness of configured road classes.
+
+    The backbone and freight-access class sequences are checked independently for
+    duplicate entries. The freight-access network must also include every class
+    selected for the backbone network so that the backbone remains a subset of the
+    broader freight-access representation.
+
+    Parameters
+    ----------
+    backbone : tuple[str, ...]
+        Ordered road classes included in the backbone network.
+    freight_access : tuple[str, ...]
+        Ordered road classes included in the freight-access network.
+
+    Raises
+    ------
+    ValueError
+        If either sequence contains duplicate values or if one or more backbone
+        classes are absent from ``freight_access``.
+    """
 
     if len(backbone) != len(set(backbone)):
         raise ValueError(
@@ -460,7 +870,43 @@ def _validate_road_classes(
 def load_geospatial_build_config(
     config_path: Path,
 ) -> GeospatialBuildConfig:
-    """Load and validate one Geospatial-CANOE preprocessing build profile."""
+    """Load, validate, and normalize a geospatial preprocessing build profile.
+
+    The TOML file is resolved to an absolute path, parsed into its required
+    configuration sections, and converted into immutable configuration dataclasses.
+    Individual settings are type-checked, normalized, and validated against the
+    supported grid, adjacency, road-network, and connectivity options.
+
+    Cross-section consistency is also enforced. The schema road-connectivity method
+    must be enabled by the road-connectivity configuration, non-interactive basemap
+    selection requires an explicit basemap stem, and the selected road-connectivity
+    layer must be included among the processed road networks.
+
+    Parameters
+    ----------
+    config_path : Path
+        Path to the TOML geospatial preprocessing build profile.
+
+    Returns
+    -------
+    GeospatialBuildConfig
+        Fully validated and normalized build configuration containing study-area,
+        basemap, adjacency, road, road-connectivity, schema, and source-path
+        settings.
+
+    Raises
+    ------
+    FileNotFoundError
+        If ``config_path`` does not exist.
+    ValueError
+        If ``config_path`` is not a file, a required TOML section or setting is
+        missing or invalid, an enumerated value is unsupported, configured lists
+        contain duplicates, province or territory codes are invalid, road classes
+        are inconsistently nested, or related settings across configuration
+        sections are incompatible.
+    tomllib.TOMLDecodeError
+        If the configuration file contains invalid TOML syntax.
+    """
 
     config_path = config_path.expanduser().resolve()
 
@@ -741,7 +1187,17 @@ def load_geospatial_build_config(
 def print_build_config(
     config: GeospatialBuildConfig,
 ) -> None:
-    """Print a compact summary of a loaded preprocessing build profile."""
+    """Print a compact summary of a loaded geospatial build profile.
+
+    The summary reports the configuration source, study-area membership, enabled
+    grid families and resolutions, processed road networks, road-connectivity
+    methods, and key schema point-assignment settings.
+
+    Parameters
+    ----------
+    config : GeospatialBuildConfig
+        Validated geospatial preprocessing configuration to summarize.
+    """
 
     print("\n" + "=" * 78)
     print("Geospatial-CANOE build profile")
@@ -799,6 +1255,18 @@ def print_build_config(
 def default_config_path(
     project_root: Path,
 ) -> Path:
-    """Return the canonical default preprocessing build-profile path."""
+    """Return the canonical path to the default preprocessing build profile.
+
+    Parameters
+    ----------
+    project_root : Path
+        Root directory of the Geospatial-CANOE project.
+
+    Returns
+    -------
+    Path
+        Path formed by joining ``project_root`` with
+        ``DEFAULT_CONFIG_RELATIVE_PATH``.
+    """
 
     return project_root / DEFAULT_CONFIG_RELATIVE_PATH

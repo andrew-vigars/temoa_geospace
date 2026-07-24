@@ -92,7 +92,24 @@ NRN_PROVINCE_CODES = {
 
 
 def build_nrn_resources(raw_nrn: Path) -> Dict[str, dict]:
-    """Build NRN download metadata for each province and territory."""
+    """Build NRN download metadata for each province and territory.
+
+    A metadata dictionary is created from ``NRN_PROVINCE_CODES``. Each provincial
+    or territorial code is mapped to its source archive URL, destination directory,
+    and expected archive filename.
+
+    Parameters
+    ----------
+    raw_nrn : Path
+        Root directory where province- and territory-specific NRN files will be
+        downloaded and extracted.
+
+    Returns
+    -------
+    dict[str, dict]
+        Download metadata keyed by province or territory code. Each value contains
+        the source URL, output directory, and archive filename.
+    """
 
     return {
         province: {
@@ -110,7 +127,23 @@ def build_nrn_resources(raw_nrn: Path) -> Dict[str, dict]:
 
 
 def ensure_directories(raw_nrn: Path, provinces: Iterable[str]) -> None:
-    """Ensure the raw NRN root and province/territory folders exist."""
+    """Create the raw NRN directory structure for selected jurisdictions.
+
+    The raw NRN root directory is created when needed, followed by one child
+    directory for each supplied province or territory code. Existing directories
+    are preserved without modification.
+
+    Parameters
+    ----------
+    raw_nrn : Path
+        Root directory for raw National Road Network files.
+    provinces : Iterable[str]
+        Province and territory codes for which subdirectories should be created.
+
+    Returns
+    -------
+    None
+    """
 
     raw_nrn.mkdir(parents=True, exist_ok=True)
 
@@ -124,11 +157,38 @@ def download_file(
     overwrite: bool = False,
     max_retries: int = MAX_RETRIES,
 ) -> Path:
-    """Download a URL to disk, with skip, overwrite, and retry handling.
+    """Download an NRN archive with reuse, overwrite, and retry handling.
 
-    Existing files are reused unless ``overwrite`` is true. Failed partial
-    downloads are removed before retrying, and a ``RuntimeError`` is raised if
-    all retry attempts fail.
+    The destination directory is created when needed. Existing files are reused
+    unless ``overwrite`` is true, in which case the destination is removed before
+    downloading. The response body is streamed directly to disk in configured chunk
+    sizes to avoid loading the complete archive into memory.
+
+    If an attempt fails, any partial destination file is deleted before the next
+    attempt. Failed attempts are separated by the configured retry delay. A
+    ``RuntimeError`` chained from the final exception is raised when all attempts
+    fail.
+
+    Parameters
+    ----------
+    url : str
+        URL of the NRN archive to download.
+    destination : Path
+        Local path where the downloaded archive will be written.
+    overwrite : bool, default=False
+        Whether to replace an existing destination file.
+    max_retries : int, default=MAX_RETRIES
+        Maximum number of download attempts.
+
+    Returns
+    -------
+    Path
+        Path to the existing or successfully downloaded archive.
+
+    Raises
+    ------
+    RuntimeError
+        If the archive cannot be downloaded after all configured attempts.
     """
 
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -163,11 +223,16 @@ def download_file(
             time.sleep(DOWNLOAD_DELAY)
             return destination
 
-        except Exception as exc:  # noqa: BLE001 - show original error after retries
+        except (requests.RequestException, OSError) as exc:
             last_error = exc
 
-            if destination.exists():
-                destination.unlink()
+            try:
+                destination.unlink(missing_ok=True)
+            except OSError as cleanup_error:
+                print(
+                    f"[Cleanup warning] Could not remove partial file "
+                    f"{destination}: {cleanup_error}"
+                )
 
             if attempt < max_retries:
                 print(f"[Retry] {destination.name}: {exc}")
@@ -181,13 +246,45 @@ def extract_flatten_and_clean(
     output_dir: Path,
     overwrite: bool = False,
 ) -> list[Path]:
-    """Extract, flatten, validate, and clean up one NRN archive.
+    """Extract, flatten, validate, and clean up one provincial NRN archive.
 
-    If GeoPackage files already exist and ``overwrite`` is false, the existing
-    province/territory outputs are validated and reused. Otherwise, the archive
-    is extracted, nested GeoPackages are moved into ``output_dir``, temporary
-    folders are removed, English and French NRN outputs are validated, and the
-    source archive is deleted after successful extraction.
+    The ZIP archive is extracted into ``output_dir`` and any GeoPackage files stored
+    in nested archive directories are moved to the province or territory directory
+    root. Temporary extraction directories are removed after flattening, and the
+    expected English and French NRN GeoPackages are validated before the source
+    archive is deleted.
+
+    When GeoPackage files already exist and ``overwrite`` is false, the existing
+    outputs are validated and reused without extracting the archive. When
+    ``overwrite`` is true, existing GeoPackages are removed before extraction and
+    conflicting destination files may be replaced during flattening.
+
+    Parameters
+    ----------
+    zip_path : Path
+        Path to the downloaded provincial or territorial NRN ZIP archive.
+    output_dir : Path
+        Province- or territory-specific directory where the flattened GeoPackages
+        will be stored.
+    overwrite : bool, default=False
+        Whether to replace existing GeoPackage outputs.
+
+    Returns
+    -------
+    list[Path]
+        Validated GeoPackage paths present in ``output_dir`` after extraction or
+        reuse.
+
+    Raises
+    ------
+    FileNotFoundError
+        If archive extraction produces no GeoPackage files or required provincial
+        outputs are missing during validation.
+    ValueError
+        If the extracted files do not satisfy the expected provincial NRN output
+        structure.
+    zipfile.BadZipFile
+        If ``zip_path`` is not a valid ZIP archive.
     """
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -248,7 +345,30 @@ def extract_flatten_and_clean(
 
 
 def validate_province_outputs(output_dir: Path) -> list[Path]:
-    """Validate that one English NRN and one French RRN GeoPackage exist."""
+    """Validate the provincial English and French NRN GeoPackage outputs.
+
+    The province or territory code is inferred from ``output_dir``. The directory
+    must contain exactly one English National Road Network GeoPackage matching the
+    configured NRN naming convention and exactly one French Réseau routier national
+    GeoPackage matching the corresponding RRN convention.
+
+    Parameters
+    ----------
+    output_dir : Path
+        Province- or territory-specific directory containing extracted NRN
+        GeoPackages.
+
+    Returns
+    -------
+    list[Path]
+        Sorted paths to all GeoPackage files present in ``output_dir``.
+
+    Raises
+    ------
+    ValueError
+        If the directory does not contain exactly one English NRN GeoPackage or
+        exactly one French RRN GeoPackage.
+    """
 
     province = output_dir.name
 
@@ -270,12 +390,40 @@ def validate_province_outputs(output_dir: Path) -> list[Path]:
 
 
 def acquire_nrn(raw_nrn: Path = RAW_NRN, overwrite: bool = False) -> dict[str, list[Path]]:
-    """Acquire all raw NRN GeoPackages and return validated file paths by jurisdiction.
+    """Acquire and validate raw NRN GeoPackages for all jurisdictions.
 
-    Builds the province/territory download metadata, ensures the raw NRN folder
-    structure exists, downloads each ZIP archive, extracts and flattens each
-    jurisdiction's GeoPackages, validates the final English/French outputs, and
-    returns the acquired files keyed by province or territory code.
+    Download metadata are built for each configured province and territory, and the
+    required raw-data directory structure is created. Each jurisdictional ZIP
+    archive is then downloaded, extracted, flattened, and validated before its
+    GeoPackage paths are stored in the result mapping.
+
+    Existing archives and extracted outputs are reused by default. When
+    ``overwrite`` is true, existing downloads and GeoPackages are replaced according
+    to the underlying acquisition helpers.
+
+    Parameters
+    ----------
+    raw_nrn : Path, default=RAW_NRN
+        Root directory containing province- and territory-specific raw NRN folders.
+    overwrite : bool, default=False
+        Whether to replace existing downloaded archives and extracted GeoPackages.
+
+    Returns
+    -------
+    dict[str, list[Path]]
+        Validated GeoPackage paths keyed by province or territory code.
+
+    Raises
+    ------
+    RuntimeError
+        If a jurisdictional archive cannot be downloaded after all retry attempts.
+    FileNotFoundError
+        If extraction produces no GeoPackage files or required outputs are missing.
+    ValueError
+        If a jurisdiction does not contain exactly one English NRN and one French
+        RRN GeoPackage.
+    zipfile.BadZipFile
+        If a downloaded jurisdictional archive is not a valid ZIP file.
     """
 
     resources = build_nrn_resources(raw_nrn)
@@ -307,7 +455,22 @@ def acquire_nrn(raw_nrn: Path = RAW_NRN, overwrite: bool = False) -> dict[str, l
 
 
 def print_summary(acquired_files: dict[str, list[Path]]) -> None:
-    """Print the acquired NRN GeoPackages grouped by jurisdiction."""
+    """Print a jurisdiction-level summary of acquired NRN GeoPackages.
+
+    Each province or territory is listed with the number of validated GeoPackage
+    files acquired for that jurisdiction, followed by the individual filenames. The
+    total number of processed provincial and territorial archives is reported at
+    the end.
+
+    Parameters
+    ----------
+    acquired_files : dict[str, list[Path]]
+        Validated GeoPackage paths keyed by province or territory code.
+
+    Returns
+    -------
+    None
+    """
 
     print("\nNRN acquisition summary")
     print("-----------------------")
@@ -326,7 +489,18 @@ def print_summary(acquired_files: dict[str, list[Path]]) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse CLI options for the raw NRN acquisition workflow."""
+    """Parse command-line arguments for raw NRN acquisition.
+
+    The command-line interface allows existing NRN downloads and extracted
+    GeoPackages to be replaced and permits the default raw NRN directory to be
+    overridden.
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed arguments containing the overwrite flag and raw NRN output
+        directory.
+    """
 
     parser = argparse.ArgumentParser(
         description="Download, extract, flatten, and validate raw NRN GeoPackages."
@@ -349,7 +523,17 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Run the raw NRN acquisition command-line workflow."""
+    """Run the command-line workflow for raw NRN acquisition.
+
+    Command-line arguments are parsed to resolve the raw NRN output directory and
+    overwrite behaviour. The configured provincial and territorial National Road
+    Network archives are then downloaded, extracted, flattened, validated, and
+    summarized to the console.
+
+    Returns
+    -------
+    None
+    """
 
     args = parse_args()
 

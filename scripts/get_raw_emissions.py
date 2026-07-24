@@ -88,11 +88,37 @@ def download_file(
     overwrite: bool = False,
     max_retries: int = MAX_RETRIES,
 ) -> Path:
-    """Download a URL to disk using a temporary partial file and retry handling.
+    """Download a file using a temporary partial file and retry handling.
 
-    Existing files are reused unless ``overwrite`` is true. Downloads are first
-    written to a ``.part`` file, then atomically moved to ``destination`` after
-    completion so incomplete downloads are not mistaken for valid raw inputs.
+    The destination directory is created when needed. Existing files are reused
+    unless ``overwrite`` is true, in which case the existing destination is removed
+    before downloading.
+
+    Each download is streamed to a temporary ``.part`` file in configured chunk
+    sizes. After the response is written successfully, the temporary file is moved
+    to ``destination`` so incomplete downloads are not mistaken for valid raw input
+    files. Failed attempts are retried up to ``max_retries``.
+
+    Parameters
+    ----------
+    url : str
+        URL of the file to download.
+    destination : Path
+        Local path where the completed file will be stored.
+    overwrite : bool, default=False
+        Whether to replace an existing destination file.
+    max_retries : int, default=MAX_RETRIES
+        Maximum number of download attempts.
+
+    Returns
+    -------
+    Path
+        Path to the existing or successfully downloaded file.
+
+    Raises
+    ------
+    RuntimeError
+        If the file cannot be downloaded after all configured attempts.
     """
 
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -104,26 +130,28 @@ def download_file(
     if destination.exists() and overwrite:
         destination.unlink()
 
+    temp_path = destination.with_suffix(destination.suffix + ".part")
     last_error: Exception | None = None
 
     for attempt in range(1, max_retries + 1):
         try:
-            print(f"[Download] {destination.name} (attempt {attempt}/{max_retries})")
+            print(
+                f"[Download] {destination.name} "
+                f"(attempt {attempt}/{max_retries})"
+            )
 
-            response = requests.get(
+            with requests.get(
                 url,
                 headers=HEADERS,
                 stream=True,
                 timeout=REQUEST_TIMEOUT,
-            )
-            response.raise_for_status()
+            ) as response:
+                response.raise_for_status()
 
-            temp_path = destination.with_suffix(destination.suffix + ".part")
-
-            with open(temp_path, "wb") as f:
-                for chunk in response.iter_content(CHUNK_SIZE):
-                    if chunk:
-                        f.write(chunk)
+                with temp_path.open("wb") as file:
+                    for chunk in response.iter_content(CHUNK_SIZE):
+                        if chunk:
+                            file.write(chunk)
 
             temp_path.replace(destination)
 
@@ -131,10 +159,20 @@ def download_file(
             time.sleep(DOWNLOAD_DELAY)
             return destination
 
-        except Exception as exc:  # noqa: BLE001
+        except (requests.RequestException, OSError) as exc:
             last_error = exc
-            print(f"[Retry] {destination.name}: {exc}")
-            time.sleep(DOWNLOAD_DELAY)
+
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError as cleanup_error:
+                print(
+                    f"[Cleanup warning] Could not remove partial file "
+                    f"{temp_path}: {cleanup_error}"
+                )
+
+            if attempt < max_retries:
+                print(f"[Retry] {destination.name}: {exc}")
+                time.sleep(DOWNLOAD_DELAY)
 
     raise RuntimeError(f"Failed to download {url}") from last_error
 
@@ -144,13 +182,41 @@ def extract_geojson_archive(
     output_dir: Path,
     overwrite: bool = False,
 ) -> list[Path]:
-    """Extract, validate, and clean up the emissions GeoJSON archive.
+    """Extract, flatten, validate, and clean up the emissions GeoJSON archive.
 
-    If the expected GeoJSON already exists and ``overwrite`` is false, the
-    existing file is reused. Otherwise, the ZIP archive is extracted, nested
-    GeoJSON files are moved into ``output_dir``, temporary folders are removed,
-    the expected final GeoJSON file is validated, and the source archive is
-    deleted after successful extraction.
+    The ZIP archive is extracted into ``output_dir`` and any GeoJSON files stored
+    in nested archive directories are moved to the output directory root. Temporary
+    directories are removed after flattening, and the expected GeoJSON filename is
+    validated before the source archive is deleted.
+
+    When the expected GeoJSON already exists and ``overwrite`` is false, that file
+    is reused without extracting the archive. If other JSON files already exist,
+    they are returned unchanged. When ``overwrite`` is true, nested destination
+    files may be replaced during archive flattening.
+
+    Parameters
+    ----------
+    zip_path : Path
+        Path to the downloaded emissions ZIP archive.
+    output_dir : Path
+        Directory where the flattened GeoJSON file will be stored.
+    overwrite : bool, default=False
+        Whether to replace conflicting GeoJSON files during extraction.
+
+    Returns
+    -------
+    list[Path]
+        List containing the validated expected GeoJSON path, or existing JSON paths
+        when extraction is skipped because files are already present.
+
+    Raises
+    ------
+    FileNotFoundError
+        If extraction produces no JSON files or the expected GeoJSON file is absent.
+    ValueError
+        If the output directory contains more than one JSON file after extraction.
+    zipfile.BadZipFile
+        If ``zip_path`` is not a valid ZIP archive.
     """
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -220,7 +286,27 @@ def extract_geojson_archive(
 
 
 def validate_outputs(output_dir: Path) -> tuple[Path, Path]:
-    """Validate that the expected raw emissions CSV and GeoJSON files exist."""
+    """Validate the required raw emissions output files.
+
+    The output directory is checked for the configured emissions CSV and GeoJSON
+    filenames. Both files must exist before the acquisition workflow is considered
+    complete.
+
+    Parameters
+    ----------
+    output_dir : Path
+        Directory containing the downloaded and extracted raw emissions files.
+
+    Returns
+    -------
+    tuple[Path, Path]
+        Paths to the validated emissions CSV and GeoJSON files, respectively.
+
+    Raises
+    ------
+    FileNotFoundError
+        If either required raw emissions file is missing.
+    """
 
     csv_path = output_dir / EMISSIONS_RESOURCE["csv"]["filename"]
     json_path = output_dir / EMISSIONS_RESOURCE["geojson"]["expected_file"]
@@ -237,11 +323,40 @@ def validate_outputs(output_dir: Path) -> tuple[Path, Path]:
 
 
 def get_raw_emissions_data(overwrite: bool = False) -> tuple[Path, Path]:
-    """Acquire raw large-facility emissions data and return validated file paths.
+    """Acquire and validate the raw large-facility emissions dataset.
 
-    Downloads the emissions CSV and GeoJSON ZIP archive, extracts and flattens
-    the GeoJSON file, validates that both expected raw outputs are present, and
-    prints a summary of the acquired files.
+    The raw emissions directory is created when needed. The configured facility
+    emissions CSV and GeoJSON ZIP archive are downloaded, the GeoJSON archive is
+    extracted and flattened, and both expected output files are validated before
+    their paths are returned.
+
+    Existing files are reused by default. When ``overwrite`` is true, downloaded
+    and extracted files are replaced according to the underlying acquisition
+    helpers. A summary of the files present in the raw emissions directory is
+    printed after successful completion.
+
+    Parameters
+    ----------
+    overwrite : bool, default=False
+        Whether to replace existing downloaded and extracted emissions files.
+
+    Returns
+    -------
+    tuple[Path, Path]
+        Paths to the validated raw emissions CSV and GeoJSON files, respectively.
+
+    Raises
+    ------
+    RuntimeError
+        If either source file cannot be downloaded after all retry attempts.
+    FileNotFoundError
+        If archive extraction produces no GeoJSON file or either expected raw
+        emissions output is missing.
+    ValueError
+        If the extracted output directory contains an unexpected number of JSON
+        files.
+    zipfile.BadZipFile
+        If the downloaded GeoJSON archive is not a valid ZIP file.
     """
 
     RAW_EMISSIONS.mkdir(parents=True, exist_ok=True)
@@ -287,7 +402,16 @@ def get_raw_emissions_data(overwrite: bool = False) -> tuple[Path, Path]:
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse CLI options for the raw emissions acquisition workflow."""
+    """Parse command-line arguments for raw emissions acquisition.
+
+    The command-line interface provides an option to replace existing downloaded
+    and extracted emissions files rather than reusing them.
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed arguments containing the overwrite flag.
+    """
     parser = argparse.ArgumentParser(
         description="Download and organize raw emissions data for Geospatial-CANOE."
     )
@@ -298,12 +422,18 @@ def parse_args() -> argparse.Namespace:
     )
     return parser.parse_args()
 
-# =============================================================================
-# Main workflow
-# =============================================================================
 
 def main() -> None:
-    """Run the raw emissions acquisition command-line workflow."""
+    """Run the command-line workflow for raw emissions acquisition.
+
+    Command-line arguments are parsed to determine whether existing raw emissions
+    files should be replaced. The configured large-facility emissions CSV and
+    GeoJSON dataset are then downloaded, extracted, organized, and validated.
+
+    Returns
+    -------
+    None
+    """
     args = parse_args()
     get_raw_emissions_data(overwrite=args.overwrite)
 

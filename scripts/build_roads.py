@@ -32,12 +32,15 @@ Outputs:
 """
 
 import argparse
+from collections.abc import Sequence
 from pathlib import Path
 import sqlite3
-from collections.abc import Sequence
+from typing import TypedDict
 
 import geopandas as gpd
 import pandas as pd
+from pyproj import CRS
+from shapely.geometry.base import BaseGeometry
 
 from project_config import (
     GeospatialBuildConfig,
@@ -56,14 +59,18 @@ RAW_NRN = PROJECT_ROOT / "data_files" / "raw" / "nrn"
 PROCESSED_NRN = PROJECT_ROOT / "data_files" / "processed" / "nrn"
 
 
-# =============================================================================
-# Road-processing implementation constants
-# =============================================================================
+class RoadNetworkSummaryRow(TypedDict):
+    """One jurisdiction-level road-network summary record."""
 
-# Road class names and jurisdiction selection are supplied by the TOML profile.
-# The raw NRN file structure and ROADSEG discovery logic remain implementation
-# details in this module.
-
+    study_area: str
+    jurisdiction: str
+    full_segments: int
+    backbone_segments: int
+    arterial_segments: int
+    freight_access_segments: int
+    backbone_percent: float
+    arterial_percent: float
+    freight_access_percent: float
 
 # =============================================================================
 # Helpers
@@ -312,7 +319,7 @@ def validate_road_network(
     This function reports basic geometry sanity checks for a filtered road
     network, including null geometries, empty geometries, invalid geometries,
     and exact duplicate geometries based on WKT representation. It is intended
-    as a diagnostic check after network filtering or national concatenation.
+    as a diagnostic check after network filtering or study-area concatenation.
 
     Parameters
     ----------
@@ -329,14 +336,33 @@ def validate_road_network(
     print(f"--- {name} ---")
 
     geometry = gdf.geometry
-    non_null_geometry = geometry.dropna()
 
-    null_geometry = geometry.isna().sum()
-    empty_geometry = non_null_geometry.is_empty.sum()
-    invalid_geometry = (~non_null_geometry.is_valid).sum()
-    duplicate_geometry = (
-        non_null_geometry
-        .apply(lambda geom: geom.wkt)
+    non_null_geometry: list[BaseGeometry] = [
+        geometry_item
+        for geometry_item in geometry.array
+        if isinstance(geometry_item, BaseGeometry)
+    ]
+
+    null_geometry = len(geometry) - len(non_null_geometry)
+
+    empty_geometry = sum(
+        geometry_item.is_empty
+        for geometry_item in non_null_geometry
+    )
+
+    invalid_geometry = sum(
+        not geometry_item.is_valid
+        for geometry_item in non_null_geometry
+    )
+
+    duplicate_geometry = int(
+        pd.Series(
+            [
+                geometry_item.wkt
+                for geometry_item in non_null_geometry
+            ],
+            dtype="string",
+        )
         .duplicated()
         .sum()
     )
@@ -344,7 +370,10 @@ def validate_road_network(
     print(f"Null geometries: {null_geometry:,}")
     print(f"Empty geometries: {empty_geometry:,}")
     print(f"Invalid geometries: {invalid_geometry:,}")
-    print(f"Duplicate geometries (identical WKT): {duplicate_geometry:,}")
+    print(
+        "Duplicate geometries (identical WKT): "
+        f"{duplicate_geometry:,}"
+    )
     print()
 
 
@@ -354,9 +383,56 @@ def load_filtered_provincial_networks(
     dict[str, gpd.GeoDataFrame],
     dict[str, gpd.GeoDataFrame],
     pd.DataFrame,
-    dict[str, object],
+    dict[str, CRS],
 ]:
-    """Load and filter NRN networks for the configured study area."""
+    """Load and filter provincial NRN road networks for one study area.
+
+    For each province or territory selected in the build profile, this function
+    locates the raw English National Road Network GeoPackage, identifies its
+    ``ROADSEG`` layer, and records the source road-segment counts by
+    ``ROADCLASS``. It then reads only the configured freight-access classes and
+    derives the nested backbone network from that filtered table.
+
+    Study-area metadata is added to each retained road segment. The function
+    also validates that every selected provincial network has a defined
+    coordinate reference system and that all selected GeoPackages use the same
+    CRS before the networks are returned for merging and export.
+
+    Parameters
+    ----------
+    config : GeospatialBuildConfig
+        Validated geospatial build profile containing the selected provinces or
+        territories, study-area label, and configured backbone and
+        freight-access road classes.
+
+    Returns
+    -------
+    tuple[
+        dict[str, gpd.GeoDataFrame],
+        dict[str, gpd.GeoDataFrame],
+        pd.DataFrame,
+        dict[str, CRS],
+    ]
+        Four objects containing:
+
+        - Backbone road networks keyed by province or territory code.
+        - Freight-access road networks keyed by province or territory code.
+        - Combined source ``ROADCLASS`` segment counts for all selected
+          jurisdictions.
+        - Source coordinate reference systems keyed by province or territory
+          code.
+
+    Raises
+    ------
+    FileNotFoundError
+        If a selected province or territory does not have the expected raw
+        English NRN GeoPackage.
+    ValueError
+        If a GeoPackage has an invalid or ambiguous ``ROADSEG`` layer, no
+        configured freight-access or backbone classes are found, a selected
+        network has no CRS, or the selected provincial GeoPackages do not share
+        one common CRS.
+    """
 
     selected_provinces = list(config.study_area.provinces)
     backbone_classes = config.roads.classes.backbone
@@ -371,7 +447,7 @@ def load_filtered_provincial_networks(
     provincial_freight_access: dict[str, gpd.GeoDataFrame] = {}
     provincial_backbone: dict[str, gpd.GeoDataFrame] = {}
     provincial_roadclass_counts: list[pd.DataFrame] = []
-    provincial_crs: dict[str, object] = {}
+    provincial_crs: dict[str, CRS] = {}
 
     for province in selected_provinces:
         gpkg_path = get_nrn_gpkg_path(province)
@@ -395,8 +471,15 @@ def load_filtered_provincial_networks(
 
         if freight_access.empty:
             raise ValueError(
-                f"No configured freight-access road classes were found for "
+                "No configured freight-access road classes were found for "
                 f"{province}."
+            )
+
+        source_crs = freight_access.crs
+
+        if source_crs is None:
+            raise ValueError(
+                f"Selected provincial GeoPackage has no CRS: {province}"
             )
 
         freight_access["province"] = province
@@ -409,13 +492,13 @@ def load_filtered_provincial_networks(
 
         if backbone.empty:
             raise ValueError(
-                f"No configured backbone road classes were found for "
+                "No configured backbone road classes were found for "
                 f"{province}."
             )
 
         provincial_freight_access[province] = freight_access
         provincial_backbone[province] = backbone
-        provincial_crs[province] = freight_access.crs
+        provincial_crs[province] = source_crs
 
         print(
             f"{province}: "
@@ -428,18 +511,6 @@ def load_filtered_provincial_networks(
         provincial_roadclass_counts,
         ignore_index=True,
     )
-
-    missing_crs = [
-        province
-        for province, crs in provincial_crs.items()
-        if crs is None
-    ]
-
-    if missing_crs:
-        raise ValueError(
-            f"Selected provincial GeoPackages have missing CRS: "
-            f"{missing_crs}"
-        )
 
     unique_crs = {
         crs.to_string()
@@ -465,10 +536,37 @@ def load_filtered_provincial_networks(
 def build_study_area_networks(
     provincial_backbone: dict[str, gpd.GeoDataFrame],
     provincial_freight_access: dict[str, gpd.GeoDataFrame],
-    provincial_crs: dict[str, object],
+    provincial_crs: dict[str, CRS],
     config: GeospatialBuildConfig,
 ) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
-    """Merge selected jurisdictions into study-area road networks."""
+    """Merge provincial road layers into study-area networks.
+
+The provincial backbone and freight-access GeoDataFrames are concatenated
+separately using the common source CRS established during provincial loading.
+Duplicate road segments occurring along jurisdictional boundaries are removed,
+and both merged networks are reprojected to the configured output CRS.
+
+Geometry-quality diagnostics are printed for the resulting study-area networks
+before they are returned.
+
+Parameters
+----------
+provincial_backbone : dict[str, gpd.GeoDataFrame]
+    Backbone road networks keyed by province or territory code.
+provincial_freight_access : dict[str, gpd.GeoDataFrame]
+    Freight-access road networks keyed by province or territory code.
+provincial_crs : dict[str, CRS]
+    Source coordinate reference systems keyed by province or territory code.
+config : GeospatialBuildConfig
+    Validated build profile containing the selected jurisdictions, study-area
+    label, road-class definitions, and output CRS.
+
+Returns
+-------
+tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]
+    Deduplicated and reprojected study-area backbone and freight-access road
+    networks, respectively.
+    """
 
     selected_provinces = list(config.study_area.provinces)
     source_crs = provincial_crs[selected_provinces[0]]
@@ -531,9 +629,9 @@ def build_network_summary(
     study_area_freight_access: gpd.GeoDataFrame,
     config: GeospatialBuildConfig,
 ) -> pd.DataFrame:
-    """Build jurisdiction and combined study-area road summary rows."""
+    """Build jurisdiction-level and combined road-network summary statistics."""
 
-    summary_rows: list[dict[str, object]] = []
+    summary_rows: list[RoadNetworkSummaryRow] = []
 
     for province in config.study_area.provinces:
         full_segments = int(
@@ -590,59 +688,59 @@ def build_network_summary(
             }
         )
 
-    combined_row = {
+    combined_full_segments = sum(
+        row["full_segments"]
+        for row in summary_rows
+    )
+    combined_backbone_segments = len(study_area_backbone)
+    combined_arterial_segments = int(
+        (
+            study_area_freight_access["ROADCLASS"]
+            == "Arterial"
+        ).sum()
+    )
+    combined_freight_access_segments = len(
+        study_area_freight_access
+    )
+
+    combined_row: RoadNetworkSummaryRow = {
         "study_area": config.study_area.label,
         "jurisdiction": "STUDY_AREA",
-        "full_segments": sum(
-            int(row["full_segments"])
-            for row in summary_rows
+        "full_segments": combined_full_segments,
+        "backbone_segments": combined_backbone_segments,
+        "arterial_segments": combined_arterial_segments,
+        "freight_access_segments": combined_freight_access_segments,
+        "backbone_percent": (
+            round(
+                100
+                * combined_backbone_segments
+                / combined_full_segments,
+                1,
+            )
+            if combined_full_segments
+            else 0.0
         ),
-        "backbone_segments": len(study_area_backbone),
-        "arterial_segments": int(
-            (
-                study_area_freight_access["ROADCLASS"]
-                == "Arterial"
-            ).sum()
+        "arterial_percent": (
+            round(
+                100
+                * combined_arterial_segments
+                / combined_full_segments,
+                1,
+            )
+            if combined_full_segments
+            else 0.0
         ),
-        "freight_access_segments": len(
-            study_area_freight_access
+        "freight_access_percent": (
+            round(
+                100
+                * combined_freight_access_segments
+                / combined_full_segments,
+                1,
+            )
+            if combined_full_segments
+            else 0.0
         ),
     }
-
-    full_segments = int(combined_row["full_segments"])
-
-    combined_row["backbone_percent"] = (
-        round(
-            100
-            * int(combined_row["backbone_segments"])
-            / full_segments,
-            1,
-        )
-        if full_segments
-        else 0.0
-    )
-
-    combined_row["arterial_percent"] = (
-        round(
-            100
-            * int(combined_row["arterial_segments"])
-            / full_segments,
-            1,
-        )
-        if full_segments
-        else 0.0
-    )
-
-    combined_row["freight_access_percent"] = (
-        round(
-            100
-            * int(combined_row["freight_access_segments"])
-            / full_segments,
-            1,
-        )
-        if full_segments
-        else 0.0
-    )
 
     summary_rows.append(combined_row)
 
@@ -712,7 +810,30 @@ def export_study_area_networks(
     output_dir: Path,
     config: GeospatialBuildConfig,
 ) -> Path:
-    """Export the merged study-area road network GeoPackage."""
+    """Export configured study-area road networks to one GeoPackage.
+
+    The existing profile-specific GeoPackage is removed before export so the output
+    contains only layers produced by the current run. The backbone and
+    freight-access networks are written as separate layers when their corresponding
+    network names are enabled in the build profile.
+
+    Parameters
+    ----------
+    study_area_backbone : gpd.GeoDataFrame
+        Deduplicated and reprojected study-area backbone road network.
+    study_area_freight_access : gpd.GeoDataFrame
+        Deduplicated and reprojected study-area freight-access road network.
+    output_dir : Path
+        Directory where the filtered road-network GeoPackage will be written.
+    config : GeospatialBuildConfig
+        Validated build profile containing the study-area label and enabled road
+        network outputs.
+
+    Returns
+    -------
+    Path
+        Path to the exported study-area GeoPackage.
+    """
 
     output_path = (
         output_dir
@@ -785,7 +906,17 @@ def export_network_summary(
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse the Stage 3 build-profile path."""
+    """Parse the command-line path to the Stage 3 build profile.
+
+    The command-line interface requires a TOML configuration file describing the
+    study area, road classes, enabled network outputs, output CRS, and other shared
+    Geospatial-CANOE preprocessing settings.
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed command-line arguments containing the required ``config`` path.
+    """
 
     parser = argparse.ArgumentParser(
         description=(
@@ -806,7 +937,28 @@ def parse_args() -> argparse.Namespace:
 def run_road_build(
     config: GeospatialBuildConfig,
 ) -> pd.DataFrame:
-    """Run Stage 3 using an already loaded build profile."""
+    """Run the complete Stage 3 road-network build workflow.
+
+    This function orchestrates Stage 3 using an already validated geospatial build
+    profile. It creates the processed NRN output directory, loads and filters the
+    selected provincial road networks, merges them into study-area backbone and
+    freight-access networks, and builds the jurisdiction-level summary table.
+
+    Provincial GeoPackages are exported when enabled in the profile. The merged
+    study-area GeoPackage and road-network summary CSV are always exported before
+    the completed summary table is returned.
+
+    Parameters
+    ----------
+    config : GeospatialBuildConfig
+        Validated build profile containing the study area, road classes, enabled
+        network outputs, output CRS, and provincial export settings.
+
+    Returns
+    -------
+    pd.DataFrame
+        Jurisdiction-level and combined study-area road-network summary table.
+    """
 
     PROCESSED_NRN.mkdir(parents=True, exist_ok=True)
 
@@ -861,7 +1013,16 @@ def run_road_build(
 
 
 def main() -> None:
-    """Load a TOML profile and run Stage 3."""
+    """Load the configured build profile and run Stage 3.
+
+    The command-line configuration path is parsed, loaded into a validated
+    ``GeospatialBuildConfig``, printed for run traceability, and passed to the
+    Stage 3 road-network build workflow.
+
+    Returns
+    -------
+    None
+    """
 
     args = parse_args()
     config = load_geospatial_build_config(args.config)

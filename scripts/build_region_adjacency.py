@@ -85,7 +85,41 @@ def find_basemap_files(
     basemap_dir: Path,
     config: GeospatialBuildConfig,
 ) -> list[Path]:
-    """Find Stage 1 basemaps belonging to one build profile."""
+    """Discover and validate Stage 1 basemaps for one build profile.
+
+    The function searches ``basemap_dir`` for GeoPackage files whose names match
+    the configured study-area label and basemap retention method. Study-area
+    boundary products are excluded. Each discovered basemap is then opened
+    briefly to validate the profile metadata embedded in its first row.
+
+    Basemaps are retained only when their ``grid_type`` and ``keep_method``
+    metadata match the active build profile. A study-area mismatch or missing
+    metadata is treated as an invalid upstream product rather than silently
+    skipped.
+
+    Parameters
+    ----------
+    basemap_dir : Path
+        Directory containing processed Stage 1 basemap GeoPackages.
+    config : GeospatialBuildConfig
+        Shared geospatial build profile defining the expected study-area label,
+        grid families, and basemap retention method.
+
+    Returns
+    -------
+    list[Path]
+        Sorted paths to basemap GeoPackages that match the active build profile.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no files match the expected filename pattern, or if files are
+        discovered but none match the configured grid types and retention
+        method.
+    ValueError
+        If a discovered basemap lacks required profile metadata or its
+        ``study_area`` value does not match the configured study area.
+    """
 
     pattern = (
         f"{config.study_area.label}_basemap_*_"
@@ -169,7 +203,37 @@ def validate_regions(
     regions: gpd.GeoDataFrame,
     basemap_path: Path,
 ) -> None:
-    """Validate that a basemap is suitable for adjacency construction."""
+    """Validate that a Stage 1 basemap is suitable for adjacency construction.
+
+    The function verifies that the basemap contains the required region, centroid,
+    grid, profile-metadata, and geometry columns. It also checks that the dataset is
+    non-empty, has a defined coordinate reference system, and contains unique region
+    IDs, site IDs, and native centroid coordinates.
+
+    Metadata fields that describe the basemap as a whole must each contain exactly
+    one value. The grid type must be either ``"geographic"`` or ``"projected"``, and
+    the CRS recorded in the ``grid_crs`` metadata column must match the
+    GeoDataFrame CRS.
+
+    Parameters
+    ----------
+    regions : gpd.GeoDataFrame
+        Stage 1 basemap regions to validate before constructing adjacency.
+    basemap_path : Path
+        Path to the source basemap GeoPackage, used in validation error messages.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValueError
+        If required columns are missing, the basemap is empty, its CRS is undefined,
+        identifiers or native centroids are duplicated, profile metadata is
+        inconsistent, the grid type is unsupported, or the recorded CRS does not
+        match the file CRS.
+    """
 
     required_columns = [
         "region",
@@ -271,7 +335,45 @@ def build_region_adjacency(
     coord_precision: int,
     no_neighbor_id: str,
 ) -> tuple[gpd.GeoDataFrame, pd.DataFrame]:
-    """Build rook-adjacency nodes and directed edges for one basemap."""
+    """Build rook-adjacency nodes and directed edges for one basemap.
+
+    The function loads and validates a processed Stage 1 basemap, derives the
+    cardinal neighbour of each region from its native centroid coordinates, and
+    constructs a directed edge table for all valid up, down, left, and right
+    connections.
+
+    Neighbour lookup is performed in the basemap's native coordinate system using
+    the configured coordinate precision and cell size. Missing neighbours are
+    recorded with ``no_neighbor_id``. Geodesic distances between connected region
+    centroids are calculated in kilometres using their latitude and longitude
+    coordinates.
+
+    Parameters
+    ----------
+    basemap_path : Path
+        Path to the processed Stage 1 basemap GeoPackage.
+    coord_precision : int
+        Number of decimal places used when rounding native centroid coordinates
+        during neighbour lookup.
+    no_neighbor_id : str
+        Sentinel value assigned when no cardinal neighbour exists.
+
+    Returns
+    -------
+    tuple[gpd.GeoDataFrame, pd.DataFrame]
+        Updated region GeoDataFrame containing neighbour identifiers, neighbour
+        distances, and neighbour counts, together with a directed adjacency-edge
+        table containing topology, profile metadata, endpoint coordinates, and
+        geodesic distance for each valid connection.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the basemap GeoPackage cannot be found or opened.
+    ValueError
+        If the basemap fails validation, contains inconsistent metadata, or uses an
+        unsupported grid representation.
+    """
 
     print("\n" + "=" * 80)
     print(f"Processing basemap: {basemap_path.name}")
@@ -499,7 +601,29 @@ def build_edge_geometries(
     adjacency_edges: pd.DataFrame,
     grid_crs: str,
 ) -> gpd.GeoDataFrame:
-    """Convert directed edges into native-CRS line geometries."""
+    """Convert directed adjacency records into native-CRS line geometries.
+
+The function copies the directed adjacency-edge table and constructs one
+``LineString`` geometry per row from the native-coordinate endpoint fields
+``x_from``, ``y_from``, ``x_to``, and ``y_to``. The resulting geometries retain
+the coordinate reference system supplied through ``grid_crs``.
+
+If the input table is empty, an empty GeoDataFrame with the same tabular
+structure and configured CRS is returned.
+
+Parameters
+----------
+adjacency_edges : pd.DataFrame
+    Directed adjacency-edge table containing native-coordinate endpoint fields.
+grid_crs : str
+    Coordinate reference system assigned to the resulting edge geometries.
+
+Returns
+-------
+gpd.GeoDataFrame
+    Directed adjacency edges with a ``LineString`` geometry column in the
+    supplied native CRS.
+    """
 
     if adjacency_edges.empty:
         return gpd.GeoDataFrame(
@@ -538,7 +662,36 @@ def save_adjacency_preview(
     adjacency_edges: pd.DataFrame,
     png_path: Path,
 ) -> None:
-    """Save a PNG preview of a region adjacency graph."""
+    """Save a PNG preview of a region-adjacency graph.
+
+    The function validates that the graph nodes have a defined coordinate reference
+    system, converts the directed adjacency table into line geometries, and plots
+    the graph over the region polygons. Regions with no valid neighbours are
+    highlighted separately.
+
+    The preview title records the study area, grid type, resolution, retention
+    method, node count, directed-edge count, and number of isolated regions. The
+    completed figure is saved as a 300-DPI PNG and then closed.
+
+    Parameters
+    ----------
+    regions_graph : gpd.GeoDataFrame
+        Validated graph-node regions containing adjacency counts, profile metadata,
+        geometries, and a defined CRS.
+    adjacency_edges : pd.DataFrame
+        Directed adjacency-edge table containing native-coordinate endpoints.
+    png_path : Path
+        Destination path for the generated PNG preview.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValueError
+        If the graph-node GeoDataFrame has an undefined CRS.
+    """
 
     if regions_graph.crs is None:
         raise ValueError(
@@ -760,7 +913,17 @@ def build_all_adjacency_graphs(
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse the Stage 2 build-profile path."""
+    """Parse the command-line path to a Stage 2 build profile.
+
+    The parser requires a ``--config`` argument identifying the TOML file that
+    defines the shared Geospatial-CANOE preprocessing configuration.
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed command-line arguments containing the build-profile path in
+        ``config``.
+    """
 
     parser = argparse.ArgumentParser(
         description=(
@@ -781,7 +944,32 @@ def parse_args() -> argparse.Namespace:
 def run_adjacency_build(
     config: GeospatialBuildConfig,
 ) -> pd.DataFrame:
-    """Run Stage 2 using an already loaded build profile."""
+    """Run Stage 2 region-adjacency construction for one build profile.
+
+    The function verifies that the configured adjacency method is supported,
+    creates the processed graph directory, discovers matching Stage 1 basemaps,
+    and builds adjacency graph products for each basemap. It then exports the
+    combined graph summary as a profile-labelled CSV.
+
+    Parameters
+    ----------
+    config : GeospatialBuildConfig
+        Loaded geospatial build profile defining the study area, basemap variants,
+        and adjacency settings.
+
+    Returns
+    -------
+    pd.DataFrame
+        Summary table describing the adjacency graph produced for each matching
+        basemap.
+
+    Raises
+    ------
+    ValueError
+        If the configured adjacency method is not ``"rook"``.
+    FileNotFoundError
+        If no matching Stage 1 basemaps can be found.
+    """
 
     if config.adjacency.method != "rook":
         raise ValueError(
@@ -819,7 +1007,15 @@ def run_adjacency_build(
 
 
 def main() -> None:
-    """Load a TOML profile and run Stage 2."""
+    """Load a TOML build profile and run Stage 2 adjacency construction.
+
+    The function parses the command-line configuration path, loads and prints the
+    shared geospatial build profile, and executes the region-adjacency workflow.
+
+    Returns
+    -------
+    None
+    """
 
     args = parse_args()
     config = load_geospatial_build_config(args.config)

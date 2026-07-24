@@ -69,7 +69,21 @@ PROVINCE_NAME_TO_CODE = {
 
 
 def discover_boundary_path() -> Path:
-    """Return the single raw province/territory boundary shapefile."""
+    """Discover the raw province and territory boundary shapefile.
+
+    The raw basemap directory must contain exactly one shapefile. The discovered
+    path is returned for use by the legacy-input province-assignment workflow.
+
+    Returns
+    -------
+    Path
+        Path to the single shapefile in ``RAW_BASEMAPS``.
+
+    Raises
+    ------
+    ValueError
+        If the raw basemap directory contains zero or multiple shapefiles.
+    """
 
     shapefiles = sorted(RAW_BASEMAPS.glob("*.shp"))
     if len(shapefiles) != 1:
@@ -83,7 +97,28 @@ def discover_boundary_path() -> Path:
 def identify_province_name_column(
     provinces: gpd.GeoDataFrame,
 ) -> str:
-    """Identify the English province-name field."""
+    """Identify the English province-name column in a boundary dataset.
+
+    The recognized source fields are checked in priority order so the function can
+    support both Statistics Canada naming conventions and an already standardized
+    ``province_name`` column.
+
+    Parameters
+    ----------
+    provinces : gpd.GeoDataFrame
+        Province and territory boundary data containing a recognized English
+        province-name field.
+
+    Returns
+    -------
+    str
+        Name of the first recognized province-name column.
+
+    Raises
+    ------
+    ValueError
+        If none of the recognized province-name columns are present.
+    """
 
     for column in ["PRENAME", "PRNAME", "province_name"]:
         if column in provinces.columns:
@@ -96,7 +131,31 @@ def identify_province_name_column(
 
 
 def load_provinces(boundary_path: Path) -> gpd.GeoDataFrame:
-    """Load province polygons with canonical two-letter codes."""
+    """Load and standardize province and territory boundary polygons.
+
+    The boundary file is loaded as a GeoDataFrame, validated for non-empty
+    geometry and a defined coordinate reference system, and assigned canonical
+    two-letter province or territory codes using ``PROVINCE_NAME_TO_CODE``.
+    The standardized result is reprojected to ``WGS84_CRS``.
+
+    Parameters
+    ----------
+    boundary_path : Path
+        Path to the province and territory boundary file.
+
+    Returns
+    -------
+    gpd.GeoDataFrame
+        Province and territory polygons containing canonical ``province`` codes,
+        standardized ``province_name`` values, and geometry in ``WGS84_CRS``.
+
+    Raises
+    ------
+    ValueError
+        If the boundary dataset is empty, has no defined CRS, lacks a recognized
+        province-name column, or contains province names that are absent from
+        ``PROVINCE_NAME_TO_CODE``.
+    """
 
     provinces = gpd.read_file(boundary_path)
     if provinces.empty or provinces.crs is None:
@@ -135,7 +194,30 @@ def validate_point_columns(
     data: pd.DataFrame,
     dataset_label: str,
 ) -> pd.DataFrame:
-    """Validate and normalize legacy longitude and latitude columns."""
+    """Validate and normalize legacy point-coordinate columns.
+
+    The input table must contain ``lon`` and ``lat`` columns. Their values are
+    converted to numeric form in a copy of the input DataFrame, with values that
+    cannot be converted treated as missing.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        Legacy point dataset containing longitude and latitude columns.
+    dataset_label : str
+        Human-readable dataset name used in validation error messages.
+
+    Returns
+    -------
+    pd.DataFrame
+        Copy of the input table with numeric ``lon`` and ``lat`` columns.
+
+    Raises
+    ------
+    ValueError
+        If either required coordinate column is missing or any coordinate value
+        is missing or non-numeric after conversion.
+    """
 
     required = {"lon", "lat"}
     missing = required - set(data.columns)
@@ -163,7 +245,40 @@ def assign_provinces(
     provinces: gpd.GeoDataFrame,
     dataset_label: str,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Assign province codes by polygon join with a bounded nearest fallback."""
+    """Assign province codes to legacy point records.
+
+    Point coordinates are first validated and converted to a WGS84 GeoDataFrame.
+    Each point is assigned to the province polygon that spatially contains it.
+    Points not captured by the direct polygon join are reprojected to
+    ``METRIC_CRS`` and assigned to the nearest province within
+    ``MAX_NEAREST_PROVINCE_DISTANCE_KM``.
+
+    The returned mapped table records whether each assignment was made by the
+    direct polygon join or the nearest-province fallback, along with the fallback
+    distance. Records that remain unresolved are returned separately for auditing.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        Legacy point dataset containing ``lon`` and ``lat`` columns.
+    provinces : gpd.GeoDataFrame
+        Province and territory polygons containing ``province``,
+        ``province_name``, and geometry columns.
+    dataset_label : str
+        Human-readable dataset name used in progress messages and the audit table.
+
+    Returns
+    -------
+    tuple[pd.DataFrame, pd.DataFrame]
+        A mapped point table containing resolved province assignments and an audit
+        table containing records that could not be assigned within the maximum
+        nearest-province distance.
+
+    Raises
+    ------
+    ValueError
+        If the input point coordinates fail validation.
+    """
 
     total_start = perf_counter()
     data = validate_point_columns(data, dataset_label)
@@ -266,7 +381,38 @@ def assign_provinces(
 def run_legacy_input_mapping(
     config: GeospatialBuildConfig,
 ) -> tuple[Path, Path, Path]:
-    """Map both legacy tables and export reusable processed files."""
+    """Map legacy site and demand records to provinces and export the results.
+
+    The raw province and territory boundary file is discovered and standardized,
+    then the legacy site and demand tables are loaded and assigned province codes
+    using ``assign_provinces``. Resolved records are written to reusable processed
+    CSV files, while unresolved records from both datasets are combined into a
+    single audit table.
+
+    The supplied build configuration is used to report the intended study-area
+    provinces, but province assignment is performed against the complete raw
+    province and territory boundary dataset.
+
+    Parameters
+    ----------
+    config : GeospatialBuildConfig
+        Validated geospatial build profile containing the configured study-area
+        provinces.
+
+    Returns
+    -------
+    tuple[Path, Path, Path]
+        Paths to the processed site table, processed demand table, and combined
+        unresolved-assignment audit CSV.
+
+    Raises
+    ------
+    FileNotFoundError
+        If a required boundary, site, or demand input file is missing.
+    ValueError
+        If boundary discovery, boundary standardization, coordinate validation, or
+        province assignment fails.
+    """
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -333,7 +479,16 @@ def run_legacy_input_mapping(
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse the shared build profile path."""
+    """Parse the command-line argument for the shared build profile.
+
+    The command-line interface requires a path to the TOML configuration shared
+    across the Geospatial-CANOE preprocessing stages.
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed command-line arguments containing the required ``config`` path.
+    """
 
     parser = argparse.ArgumentParser(
         description=(
@@ -350,7 +505,16 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Run legacy province assignment."""
+    """Load the shared build profile and run legacy province assignment.
+
+    Command-line arguments are parsed to obtain the TOML build-profile path. The
+    profile is then loaded, validated, printed to the console, and passed to the
+    legacy site-and-demand province-mapping workflow.
+
+    Returns
+    -------
+    None
+    """
 
     args = parse_args()
     config = load_geospatial_build_config(args.config)

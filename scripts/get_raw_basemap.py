@@ -92,7 +92,20 @@ BASEMAP_RESOURCE = {
 
 
 def ensure_directory(raw_basemaps: Path) -> None:
-    """Ensure the raw basemap output directory exists."""
+    """Create the raw basemap output directory when it does not already exist.
+
+    Parent directories are created as needed. Existing directories are preserved
+    without modification.
+
+    Parameters
+    ----------
+    raw_basemaps : Path
+        Directory where raw basemap files will be stored.
+
+    Returns
+    -------
+    None
+    """
 
     raw_basemaps.mkdir(parents=True, exist_ok=True)
 
@@ -103,12 +116,39 @@ def download_file(
     overwrite: bool = False,
     max_retries: int = MAX_RETRIES,
 ) -> Path:
-    """Download a file to ``destination`` unless an existing file is reused.
+    """Download a file with reuse, overwrite, and retry handling.
 
-    Existing files are skipped by default. When ``overwrite`` is true, the
-    existing destination is deleted before downloading. Failed partial downloads
-    are removed before retrying, and a ``RuntimeError`` is raised if all retry
-    attempts fail.
+    The destination directory is created when needed. Existing files are reused
+    unless ``overwrite`` is true, in which case the destination is removed before
+    the download begins. The response body is streamed to disk in configured chunk
+    sizes to avoid loading the complete file into memory.
+
+    If a download attempt fails, any partial destination file is deleted before the
+    next attempt. Failed attempts are separated by the configured retry delay. A
+    ``RuntimeError`` chained from the final exception is raised when all attempts
+    fail.
+
+    Parameters
+    ----------
+    url : str
+        URL of the file to download.
+    destination : Path
+        Local path where the downloaded file will be written.
+    overwrite : bool, default=False
+        Whether to replace an existing destination file. When false, an existing
+        file is returned without downloading it again.
+    max_retries : int, default=MAX_RETRIES
+        Maximum number of download attempts.
+
+    Returns
+    -------
+    Path
+        Path to the existing or successfully downloaded file.
+
+    Raises
+    ------
+    RuntimeError
+        If the file cannot be downloaded after all configured attempts.
     """
 
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -143,11 +183,16 @@ def download_file(
             time.sleep(DOWNLOAD_DELAY)
             return destination
 
-        except Exception as exc:  # noqa: BLE001 - show original error after retries
+        except (requests.RequestException, OSError) as exc:
             last_error = exc
 
-            if destination.exists():
-                destination.unlink()
+            try:
+                destination.unlink(missing_ok=True)
+            except OSError as cleanup_error:
+                print(
+                    f"[Cleanup warning] Could not remove partial file "
+                    f"{destination}: {cleanup_error}"
+                )
 
             if attempt < max_retries:
                 print(f"[Retry] {destination.name}: {exc}")
@@ -161,13 +206,40 @@ def extract_basemap_archive(
     output_dir: Path,
     overwrite: bool = False,
 ) -> list[Path]:
-    """Extract, flatten, validate, and clean up the raw basemap archive.
+    """Extract and standardize the raw basemap archive contents.
 
-    If a shapefile already exists in ``output_dir`` and ``overwrite`` is false,
-    the existing basemap outputs are validated and reused. Otherwise, the ZIP
-    archive is extracted, nested files are moved into ``output_dir``, temporary
-    folders are removed, required shapefile sidecars are validated, and the
-    source archive is deleted after successful extraction.
+    The ZIP archive is extracted into ``output_dir`` and any files contained in
+    nested archive folders are moved to the output directory root. Temporary
+    directories are removed after flattening, and the resulting shapefile and its
+    required sidecar files are validated before the source archive is deleted.
+
+    When valid shapefile outputs already exist and ``overwrite`` is false, the
+    existing files are validated and reused without extracting the archive. When
+    ``overwrite`` is true, existing files and directories in ``output_dir`` are
+    removed before extraction.
+
+    Parameters
+    ----------
+    zip_path : Path
+        Path to the downloaded basemap ZIP archive.
+    output_dir : Path
+        Directory where the flattened shapefile components will be stored.
+    overwrite : bool, default=False
+        Whether to remove and replace existing extracted basemap files.
+
+    Returns
+    -------
+    list[Path]
+        Validated shapefile paths present in ``output_dir`` after extraction or
+        reuse.
+
+    Raises
+    ------
+    FileNotFoundError
+        If archive extraction produces no files or the required basemap outputs are
+        not found during validation.
+    zipfile.BadZipFile
+        If ``zip_path`` is not a valid ZIP archive.
     """
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -227,7 +299,29 @@ def extract_basemap_archive(
 
 
 def validate_basemap_outputs(output_dir: Path) -> list[Path]:
-    """Validate that the raw basemap folder contains one complete shapefile."""
+    """Validate that the raw basemap directory contains one complete shapefile.
+
+    The output directory must contain exactly one ``.shp`` file, and that file must
+    match the expected filename defined in ``BASEMAP_RESOURCE``. The associated
+    ``.shx``, ``.dbf``, and ``.prj`` sidecar files are also required.
+
+    Parameters
+    ----------
+    output_dir : Path
+        Directory containing the extracted raw basemap files.
+
+    Returns
+    -------
+    list[Path]
+        List containing the single validated shapefile path.
+
+    Raises
+    ------
+    ValueError
+        If ``output_dir`` does not contain exactly one shapefile.
+    FileNotFoundError
+        If the expected shapefile or any required sidecar file is missing.
+    """
 
     final_shapefiles = sorted(output_dir.glob("*.shp"))
 
@@ -264,11 +358,37 @@ def acquire_basemap(
     raw_basemaps: Path = RAW_BASEMAPS,
     overwrite: bool = False,
 ) -> list[Path]:
-    """Acquire the raw Statistics Canada basemap and return validated shapefiles.
+    """Acquire and validate the raw Statistics Canada basemap dataset.
 
-    The workflow ensures the output directory exists, downloads the source ZIP
-    archive when needed, extracts and flattens the archive contents, validates
-    the final shapefile outputs, and returns the validated shapefile path list.
+    The raw basemap directory is created when needed, and the configured Statistics
+    Canada ZIP archive is downloaded unless an existing archive or extracted output
+    can be reused. The archive is then extracted, flattened, validated, and cleaned
+    up through the shared acquisition helpers.
+
+    Parameters
+    ----------
+    raw_basemaps : Path, default=RAW_BASEMAPS
+        Directory where the downloaded archive and extracted shapefile components
+        are stored.
+    overwrite : bool, default=False
+        Whether to replace existing downloaded and extracted basemap files.
+
+    Returns
+    -------
+    list[Path]
+        Validated shapefile paths produced or reused by the acquisition workflow.
+
+    Raises
+    ------
+    RuntimeError
+        If the archive cannot be downloaded after all retry attempts.
+    FileNotFoundError
+        If extraction produces no files or required shapefile components are
+        missing.
+    ValueError
+        If the output directory does not contain exactly one shapefile.
+    zipfile.BadZipFile
+        If the downloaded source archive is not a valid ZIP file.
     """
 
     ensure_directory(raw_basemaps)
@@ -295,7 +415,24 @@ def acquire_basemap(
 
 
 def print_summary(raw_basemaps: Path, basemap_files: list[Path]) -> None:
-    """Print the final raw basemap files and validated shapefile path."""
+    """Print a summary of the acquired raw basemap files.
+
+    All files stored directly in the raw basemap directory are listed in sorted
+    order, followed by the path to the validated shapefile used by downstream
+    geospatial preprocessing stages.
+
+    Parameters
+    ----------
+    raw_basemaps : Path
+        Directory containing the downloaded and extracted raw basemap files.
+    basemap_files : list[Path]
+        Validated shapefile paths returned by the acquisition workflow. The first
+        path is reported as the basemap ready for downstream use.
+
+    Returns
+    -------
+    None
+    """
 
     print("\nBasemap acquisition summary")
     print("---------------------------")
@@ -313,7 +450,17 @@ def print_summary(raw_basemaps: Path, basemap_files: list[Path]) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments for the raw basemap acquisition script."""
+    """Parse command-line arguments for raw basemap acquisition.
+
+    The command-line interface allows existing raw basemap outputs to be replaced
+    and permits the default raw-data directory to be overridden.
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed arguments containing the overwrite flag and raw basemap output
+        directory.
+    """
 
     parser = argparse.ArgumentParser(
         description="Download, extract, flatten, and validate raw basemap shapefile."
@@ -336,7 +483,16 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Run the raw basemap acquisition command-line workflow."""
+    """Run the command-line workflow for raw basemap acquisition.
+
+    Command-line arguments are parsed to resolve the raw basemap output directory
+    and overwrite behaviour. The Statistics Canada basemap is then acquired,
+    validated, and summarized to the console.
+
+    Returns
+    -------
+    None
+    """
     args = parse_args()
 
     basemap_files = acquire_basemap(
