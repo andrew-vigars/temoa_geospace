@@ -147,7 +147,7 @@ road_layer = "freight_access"
 
 # Connectivity products to generate.
 methods = [
-    "weak",
+    #"weak",
     "strong",
 ]
 
