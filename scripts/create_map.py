@@ -1,15 +1,13 @@
-# =============================================================================
-# create_map.py
-#
-# Decode CANOE/TEMOA geospatial output flows and plot transport routes.
-# This version uses the matching graph-node polygons, processed basemap polygons,
-# and road-overlay/connectivity layers as geographic context behind model outputs.
-#
-# Structural refactor notes:
-# - Plot formatting is intentionally preserved from the original script.
-# - Top-level execution is moved into main().
-# - Data objects are passed explicitly instead of accessed through globals.
-# =============================================================================
+"""Decode and map geospatial CANOE/TEMOA model outputs.
+
+This script reads solved CANOE/TEMOA output flows and renders transport routes
+using the matching graph-node polygons, processed basemap polygons, and optional
+road-overlay and road-connectivity layers as geographic context.
+
+The plotting workflow preserves the visual formatting of the original script
+while moving top-level execution into ``main()`` and passing data objects
+explicitly between functions instead of relying on module-level mutable state.
+"""
 
 from __future__ import annotations
 
@@ -18,15 +16,20 @@ from pathlib import Path
 import re
 import sys
 from typing import TypeAlias
+from urllib.error import URLError
 
 import contextily as ctx
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import requests
 import seaborn as sns
+from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
+from rasterio.errors import RasterioError
 from shapely.geometry import LineString
+from xyzservices import providers
 
 # =============================================================================
 # Project import path
@@ -85,8 +88,8 @@ PLOT_ROAD_OVERLAY = False
 PLOT_ROAD_EDGE_LAYER = False
 PLOT_PARALLEL_TRANSPORT_ARCS = True
 
-TECH_STYLE: TypeAlias = tuple[pd.DataFrame, str, str, float]
-POINT_STYLE: TypeAlias = tuple[pd.DataFrame, str]
+TechStyle: TypeAlias = tuple[pd.DataFrame, str, str, float]
+PointStyle: TypeAlias = tuple[pd.DataFrame, str]
 
 
 # =============================================================================
@@ -233,10 +236,24 @@ class GeospatialData:
 
 @dataclass
 class PlotLayers:
-    """Prepared node, transport, and demand layers."""
+    """Prepared plotting layers derived from model and geospatial tables.
 
-    tech_points: dict[str, POINT_STYLE]
-    tech_links: dict[str, TECH_STYLE]
+    Attributes
+    ----------
+    tech_points : dict[str, POINT_STYLE]
+        Node-level process layers keyed by display name. Each value contains the
+        point DataFrame and its plotting color.
+    tech_links : dict[str, TECH_STYLE]
+        Transport-flow layers keyed by display name. Each value contains the link
+        DataFrame, plotting color, line style, and width factor.
+    demand_pts : pd.DataFrame
+        Demand-point table containing coordinates and demand magnitudes.
+    size_demand : pd.Series
+        Marker sizes derived from demand magnitudes for plotting.
+    """
+
+    tech_points: dict[str, PointStyle]
+    tech_links: dict[str, TechStyle]
     demand_pts: pd.DataFrame
     size_demand: pd.Series
 
@@ -645,6 +662,9 @@ def load_geospatial_data(paths: GeospatialPaths) -> GeospatialData:
     KeyError
         If required identifier columns are missing from the graph-node or
         graph-edge inputs.
+    ValueError
+        If any loaded geospatial layer has no assigned coordinate reference
+        system.
     """
 
     sites = gpd.read_file(paths.node_path)
@@ -652,8 +672,29 @@ def load_geospatial_data(paths: GeospatialPaths) -> GeospatialData:
     basemap = gpd.read_file(paths.basemap_path)
 
     road_edge_layer = None
-    if paths.road_edge_gpkg_path and paths.road_edge_gpkg_path.exists():
+    if (
+        paths.road_edge_gpkg_path is not None
+        and paths.road_edge_gpkg_path.exists()
+    ):
         road_edge_layer = gpd.read_file(paths.road_edge_gpkg_path)
+
+    if sites.crs is None:
+        raise ValueError(
+            f"Graph-node layer has no assigned CRS: {paths.node_path}"
+        )
+
+    if basemap.crs is None:
+        raise ValueError(
+            f"Basemap layer has no assigned CRS: {paths.basemap_path}"
+        )
+
+    if road_edge_layer is not None and road_edge_layer.crs is None:
+        raise ValueError(
+            "Road-enabled edge layer has no assigned CRS: "
+            f"{paths.road_edge_gpkg_path}"
+        )
+
+    target_crs = sites.crs
 
     sites["region"] = sites["region"].astype(str)
     sites["site_id"] = sites["region"]
@@ -663,10 +704,14 @@ def load_geospatial_data(paths: GeospatialPaths) -> GeospatialData:
     edges["region_from"] = edges["region_from"].astype(str)
     edges["region_to"] = edges["region_to"].astype(str)
 
-    if basemap.crs != sites.crs:
-        basemap = basemap.to_crs(sites.crs)
-    if road_edge_layer is not None and road_edge_layer.crs != sites.crs:
-        road_edge_layer = road_edge_layer.to_crs(sites.crs)
+    if basemap.crs != target_crs:
+        basemap = basemap.to_crs(target_crs)
+
+    if (
+        road_edge_layer is not None
+        and road_edge_layer.crs != target_crs
+    ):
+        road_edge_layer = road_edge_layer.to_crs(target_crs)
 
     return GeospatialData(
         sites=sites,
@@ -682,7 +727,30 @@ def build_point_geodataframe(
     lon_col: str = "lon",
     lat_col: str = "lat",
 ) -> gpd.GeoDataFrame:
-    """Create WGS84 point geometry and reproject it to a target CRS."""
+    """Create point geometries from longitude and latitude coordinates.
+
+    The input table is copied, the configured coordinate columns are converted to
+    numeric values, and rows with missing or non-numeric coordinates are removed.
+    The remaining coordinates are interpreted as WGS84 longitude and latitude,
+    converted to point geometry, and reprojected to ``target_crs``.
+
+    Parameters
+    ----------
+    frame : pd.DataFrame
+        Source table containing longitude and latitude columns.
+    target_crs
+        Coordinate reference system to which the point geometries are reprojected.
+        Accepts any CRS representation supported by GeoPandas.
+    lon_col : str, default="lon"
+        Name of the longitude column in ``frame``.
+    lat_col : str, default="lat"
+        Name of the latitude column in ``frame``.
+
+    Returns
+    -------
+    gpd.GeoDataFrame
+        Copy of the valid input rows with point geometry in ``target_crs``.
+    """
 
     points = frame.copy()
     points[lon_col] = pd.to_numeric(points[lon_col], errors="coerce")
@@ -697,7 +765,27 @@ def build_point_geodataframe(
 
 
 def native_plot_crs(geodata: GeospatialData):
-    """Return the graph-node CRS used for the native-coordinate figure."""
+    """Return the coordinate reference system used for native-coordinate plotting.
+
+    The graph-node layer defines the native spatial reference for model-region
+    geometry and associated map layers. This function validates that the node layer
+    has an assigned coordinate reference system before returning it.
+
+    Parameters
+    ----------
+    geodata : GeospatialData
+        Loaded geospatial layers containing the graph-node GeoDataFrame.
+
+    Returns
+    -------
+    object
+        Coordinate reference system assigned to ``geodata.sites``.
+
+    Raises
+    ------
+    ValueError
+        If the graph-node layer has no assigned coordinate reference system.
+    """
 
     if geodata.sites.crs is None:
         raise ValueError("Graph-node layer has no CRS.")
@@ -730,10 +818,35 @@ def infer_degree_resolution(basemap_stem: str) -> float | None:
 
 
 def infer_centroid_spacing_deg(sites_gdf: gpd.GeoDataFrame) -> float:
-    """Estimate representative grid spacing in degrees from graph centroids."""
+    """Estimate representative graph-centroid spacing in decimal degrees.
+
+    The function uses existing ``lon`` and ``lat`` columns when available.
+    Otherwise, it computes geometry centroids in the layer's native CRS and
+    reprojects them to WGS84. Representative longitudinal and latitudinal spacing
+    is calculated from the median positive difference between unique centroid
+    coordinates, and the smaller valid spacing is returned.
+
+    Parameters
+    ----------
+    sites_gdf : gpd.GeoDataFrame
+        Graph-node layer containing centroid coordinates or polygon geometries.
+
+    Returns
+    -------
+    float
+        Estimated representative centroid spacing in decimal degrees. Returns
+        ``1.0`` when no positive finite spacing can be inferred.
+
+    Raises
+    ------
+    ValueError
+        If ``sites_gdf`` has no assigned coordinate reference system.
+    """
 
     if sites_gdf.crs is None:
-        raise ValueError("Cannot infer plot spacing from a layer without a CRS.")
+        raise ValueError(
+            "Cannot infer plot spacing from a layer without a CRS."
+        )
 
     if {"lon", "lat"}.issubset(sites_gdf.columns):
         lon_vals = np.sort(
@@ -754,6 +867,7 @@ def infer_centroid_spacing_deg(sites_gdf: gpd.GeoDataFrame) -> float:
             geometry=centroids,
             crs=sites_gdf.crs,
         ).to_crs(epsg=4326)
+
         lon_vals = np.sort(centroid_gdf.geometry.x.unique())
         lat_vals = np.sort(centroid_gdf.geometry.y.unique())
 
@@ -772,10 +886,11 @@ def infer_centroid_spacing_deg(sites_gdf: gpd.GeoDataFrame) -> float:
     )
 
     candidates = [
-        abs(step)
-        for step in [lon_step, lat_step]
+        float(abs(step))
+        for step in (lon_step, lat_step)
         if np.isfinite(step) and abs(step) > 0
     ]
+
     return min(candidates) if candidates else 1.0
 
 
@@ -1026,7 +1141,7 @@ def add_from_to_coords(
     )
 
 
-def build_node_layers(tables: ModelTables, geodata: GeospatialData) -> dict[str, POINT_STYLE]:
+def build_node_layers(tables: ModelTables, geodata: GeospatialData) -> dict[str, PointStyle]:
     """Build node-level process and capacity layers for plotting.
 
     Creates coordinate-enriched point layers for electricity generation,
@@ -1074,7 +1189,7 @@ def build_node_layers(tables: ModelTables, geodata: GeospatialData) -> dict[str,
 def build_transport_layers(
     flow_out: pd.DataFrame,
     edges: pd.DataFrame,
-) -> dict[str, TECH_STYLE]:
+) -> dict[str, TechStyle]:
     """Build transport-flow layers and plotting styles.
 
     Extracts supported pipeline, truck, and electricity-transmission
@@ -1232,19 +1347,19 @@ def print_layer_diagnostics(layers: PlotLayers) -> None:
 # =============================================================================
 
 def plot_context_layers_schematic(
-    ax: plt.Axes,
+    ax: Axes,
     geodata: GeospatialData,
 ) -> None:
     """Plot context layers in the selected graph's native CRS.
 
     Draws only processed Canada/province boundaries in the graph-node CRS.
-    This supports both geographic
-    degree grids and projected kilometre grids without mixing coordinate units.
+    This supports both geographic degree grids and projected kilometre grids
+    without mixing coordinate units.
 
     Parameters
     ----------
-    ax : plt.Axes
-        Matplotlib axis on which context layers are drawn.
+    ax : Axes
+        Matplotlib axes on which the context layers are drawn.
     geodata : GeospatialData
         Loaded basemap, model-region, and optional road-context layers.
 
@@ -1266,7 +1381,7 @@ def plot_context_layers_schematic(
 
 
 def plot_context_layers_web(
-    ax: plt.Axes,
+    ax: Axes,
     geodata: GeospatialData,
 ) -> None:
     """Plot geographic context layers in Web Mercator coordinates.
@@ -1278,7 +1393,7 @@ def plot_context_layers_web(
 
     Parameters
     ----------
-    ax : plt.Axes
+    ax : Axes
         Matplotlib axis on which projected context layers are drawn.
     geodata : GeospatialData
         Loaded basemap, model-region, and optional road-context layers.
@@ -1306,7 +1421,7 @@ def plot_context_layers_web(
 # =============================================================================
 
 def combined_transport_links(
-    tech_links: dict[str, TECH_STYLE],
+    tech_links: dict[str, TechStyle],
     spacing: PlotSpacing,
 ) -> gpd.GeoDataFrame:
     """Combine transport layers and offset parallel corridor geometries.
@@ -1475,7 +1590,7 @@ def combined_transport_links(
 
 
 def summarize_parallel_corridors(
-    tech_links: dict[str, TECH_STYLE],
+    tech_links: dict[str, TechStyle],
     spacing: PlotSpacing,
 ) -> gpd.GeoDataFrame:
     """Print diagnostics for corridors with parallel transport layers.
@@ -1535,29 +1650,111 @@ def summarize_parallel_corridors(
 
 
 def plot_transport_lines_schematic(
-    ax: plt.Axes,
-    tech_links: dict[str, TECH_STYLE],
+    ax: Axes,
+    tech_links: dict[str, TechStyle],
     spacing: PlotSpacing,
     target_crs,
 ) -> None:
-    """Plot transport lines in the graph layer's native CRS."""
+    """Plot transport-flow lines in the graph layer's native coordinate system.
 
-    transport_gdf_3857 = combined_transport_links(tech_links, spacing)
+    Transport links are first combined into a Web Mercator GeoDataFrame so any
+    configured parallel-corridor offsets can be applied consistently in metres.
+    The resulting geometries are reprojected to ``target_crs`` and plotted by
+    display layer. Line widths are scaled within each layer using the square root
+    of flow relative to that layer's maximum positive flow.
+
+    Parameters
+    ----------
+    ax : Axes
+        Matplotlib axes on which the transport lines are drawn.
+    tech_links : dict[str, TECH_STYLE]
+        Transport-flow layers keyed by display name. Each value contains the link
+        DataFrame, plotting color, line style, and width factor.
+    spacing : PlotSpacing
+        Resolution-aware plotting settings used when combining and offsetting
+        parallel transport links.
+    target_crs
+        Coordinate reference system used by the destination plot axes. Accepts
+        any CRS representation supported by GeoPandas.
+
+    Returns
+    -------
+    None
+    """
+
+    transport_gdf_3857 = combined_transport_links(
+        tech_links,
+        spacing,
+    )
+
     if transport_gdf_3857.empty:
         return
 
     transport_gdf = transport_gdf_3857.to_crs(target_crs)
 
-    for _, group in transport_gdf.groupby("display_name", sort=False):
-        max_flow = group["flow"].max()
-        if max_flow <= 0 or not np.isfinite(max_flow):
+    for _, group in transport_gdf.groupby(
+        "display_name",
+        sort=False,
+    ):
+        flow_values = pd.to_numeric(
+            group["flow"],
+            errors="coerce",
+        ).to_numpy(dtype=float)
+
+        valid_flows = flow_values[
+            np.isfinite(flow_values) & (flow_values > 0)
+        ]
+
+        if valid_flows.size == 0:
             continue
 
+        max_flow = float(valid_flows.max())
+
         for row in group.itertuples(index=False):
-            x_vals, y_vals = row.geometry.xy
-            linewidth = row.width_factor * (
-                0.5 + 2.5 * np.sqrt(row.flow / max_flow)
+            geometry = row.geometry
+
+            if not isinstance(geometry, LineString):
+                raise TypeError(
+                    "Transport layers must contain LineString geometries, "
+                    f"not {type(geometry).__name__}."
+                )
+
+            flow_value = pd.to_numeric(
+                row.flow,
+                errors="coerce",
             )
+
+            if pd.isna(flow_value):
+                continue
+
+            flow = float(np.asarray(flow_value, dtype=float).item())
+
+            if not np.isfinite(flow) or flow <= 0:
+                continue
+
+            width_factor_value = pd.to_numeric(
+                row.width_factor,
+                errors="coerce",
+            )
+
+            if pd.isna(width_factor_value):
+                continue
+
+            width_factor = float(
+                np.asarray(
+                    width_factor_value,
+                    dtype=float,
+                ).item()
+            )
+
+            x_vals, y_vals = geometry.xy
+
+            linewidth = width_factor * (
+                0.5
+                + 2.5
+                * np.sqrt(flow / max_flow)
+            )
+
             ax.plot(
                 x_vals,
                 y_vals,
@@ -1570,21 +1767,20 @@ def plot_transport_lines_schematic(
 
 
 def plot_transport_lines_web(
-    ax: plt.Axes,
-    tech_links: dict[str, TECH_STYLE],
+    ax: Axes,
+    tech_links: dict[str, TechStyle],
     spacing: PlotSpacing,
 ) -> None:
     """Plot transport-flow lines in EPSG:3857 Web Mercator.
 
-    Builds combined offset transport geometries, converts them back to
-    EPSG:4326, and draws each transport layer on an existing Matplotlib axis.
-    Line widths are scaled within each displayed transport layer using the
-    square root of relative flow magnitude.
+    Builds combined offset transport geometries and draws each transport layer
+    directly in Web Mercator coordinates. Line widths are scaled within each
+    displayed transport layer using the square root of relative positive flow.
 
     Parameters
     ----------
-    ax : plt.Axes
-        Matplotlib axis on which transport lines are drawn.
+    ax : Axes
+        Matplotlib axes on which the transport lines are drawn.
     tech_links : dict[str, TECH_STYLE]
         Transport layers keyed by display name. Each value contains a
         transport-flow DataFrame, plotting color, line style, and width factor.
@@ -1598,18 +1794,85 @@ def plot_transport_lines_web(
         This function draws directly onto ``ax``.
     """
 
-    transport_gdf_3857 = combined_transport_links(tech_links, spacing)
+    transport_gdf_3857 = combined_transport_links(
+        tech_links,
+        spacing,
+    )
+
     if transport_gdf_3857.empty:
         return
 
-    for _, group in transport_gdf_3857.groupby("display_name", sort=False):
-        max_flow = group["flow"].max()
-        if max_flow <= 0 or not np.isfinite(max_flow):
+    for _, group in transport_gdf_3857.groupby(
+        "display_name",
+        sort=False,
+    ):
+        flow_values = pd.to_numeric(
+            group["flow"],
+            errors="coerce",
+        ).to_numpy(dtype=float)
+
+        valid_flows = flow_values[
+            np.isfinite(flow_values) & (flow_values > 0)
+        ]
+
+        if valid_flows.size == 0:
             continue
 
+        max_flow = float(valid_flows.max())
+
         for row in group.itertuples(index=False):
-            x_vals, y_vals = row.geometry.xy
-            linewidth = row.width_factor * (0.5 + 2.5 * np.sqrt(row.flow / max_flow))
+            geometry = row.geometry
+
+            if not isinstance(geometry, LineString):
+                raise TypeError(
+                    "Transport layers must contain LineString geometries, "
+                    f"not {type(geometry).__name__}."
+                )
+
+            flow_value = pd.to_numeric(
+                row.flow,
+                errors="coerce",
+            )
+
+            if pd.isna(flow_value):
+                continue
+
+            flow = float(
+                np.asarray(
+                    flow_value,
+                    dtype=float,
+                ).item()
+            )
+
+            if not np.isfinite(flow) or flow <= 0:
+                continue
+
+            width_factor_value = pd.to_numeric(
+                row.width_factor,
+                errors="coerce",
+            )
+
+            if pd.isna(width_factor_value):
+                continue
+
+            width_factor = float(
+                np.asarray(
+                    width_factor_value,
+                    dtype=float,
+                ).item()
+            )
+
+            if not np.isfinite(width_factor) or width_factor <= 0:
+                continue
+
+            x_vals, y_vals = geometry.xy
+
+            linewidth = width_factor * (
+                0.5
+                + 2.5
+                * np.sqrt(flow / max_flow)
+            )
+
             ax.plot(
                 x_vals,
                 y_vals,
@@ -1626,9 +1889,8 @@ def plot_transport_lines_web(
 # =============================================================================
 
 def build_legend(
-    ax: plt.Axes,
-    tech_links: dict[str, TECH_STYLE],
-    geodata: GeospatialData,
+    ax: Axes,
+    tech_links: dict[str, TechStyle],
     bbox_to_anchor: tuple[float, float],
     fontsize: int | None = None,
     loc: str = "upper right",
@@ -1642,8 +1904,8 @@ def build_legend(
 
     Parameters
     ----------
-    ax : plt.Axes
-        Matplotlib axis whose legend is updated.
+    ax : Axes
+        Matplotlib axes whose legend is updated.
     tech_links : dict[str, TECH_STYLE]
         Transport layers keyed by display name. Each value provides the color,
         line style, and width factor used to create legend proxies.
@@ -1664,9 +1926,14 @@ def build_legend(
     """
 
     handles, labels = ax.get_legend_handles_labels()
-    by_label = dict(zip(labels, handles))
 
-    proxies = [
+    labelled_handles: dict[str, object] = {
+        str(label): handle
+        for label, handle in zip(labels, handles)
+        if str(label)
+    }
+
+    transport_proxies = [
         Line2D(
             [0],
             [0],
@@ -1688,17 +1955,35 @@ def build_legend(
         ),
     ]
 
-    handles2 = context_proxies + list(by_label.values()) + proxies
-    labels2 = (
-        [proxy.get_label() for proxy in context_proxies]
-        + list(by_label.keys())
-        + [proxy.get_label() for proxy in proxies]
+    combined_handles = [
+        *context_proxies,
+        *labelled_handles.values(),
+        *transport_proxies,
+    ]
+
+    combined_labels = [
+        str(proxy.get_label())
+        for proxy in context_proxies
+    ] + [
+        *labelled_handles.keys(),
+    ] + [
+        str(proxy.get_label())
+        for proxy in transport_proxies
+    ]
+
+    unique_legend_entries = dict(
+        zip(
+            combined_labels,
+            combined_handles,
+        )
     )
-    by_label2 = dict(zip(labels2, handles2))
+
+    legend_labels: list[str] = list(unique_legend_entries.keys())
+    legend_handles = list(unique_legend_entries.values())
 
     ax.legend(
-        by_label2.values(),
-        by_label2.keys(),
+        legend_handles,
+        legend_labels,
         title="Legend",
         frameon=False,
         loc=loc,
@@ -1708,14 +1993,43 @@ def build_legend(
 
 
 def plot_points_native(
-    ax: plt.Axes,
-    tech_points: dict[str, POINT_STYLE],
+    ax: Axes,
+    tech_points: dict[str, PointStyle],
     demand_pts: pd.DataFrame,
     size_demand: pd.Series,
     spacing: PlotSpacing,
     target_crs,
 ) -> None:
-    """Plot demand and process points in the graph layer's native CRS."""
+    """Plot demand and process-point layers in the graph layer's native CRS.
+
+    Demand coordinates are converted from WGS84 longitude and latitude to
+    ``target_crs`` and plotted using marker sizes supplied by ``size_demand``.
+    Process points are filtered to positive finite flows, assigned deterministic
+    coordinate jitter to reduce marker overlap, reprojected to ``target_crs``, and
+    scaled relative to the maximum flow within each technology layer.
+
+    Parameters
+    ----------
+    ax : Axes
+        Matplotlib axes on which the point layers are drawn.
+    tech_points : dict[str, POINT_STYLE]
+        Process-point layers keyed by display name. Each value contains a point
+        DataFrame and plotting color.
+    demand_pts : pd.DataFrame
+        Demand-point table containing longitude and latitude coordinates.
+    size_demand : pd.Series
+        Demand marker sizes indexed consistently with ``demand_pts``.
+    spacing : PlotSpacing
+        Resolution-aware plotting settings containing the process-point jitter
+        distance in decimal degrees.
+    target_crs
+        Coordinate reference system used by the destination plot axes. Accepts any
+        CRS representation supported by GeoPandas.
+
+    Returns
+    -------
+    None
+    """
 
     if not demand_pts.empty:
         demand_gdf = build_point_geodataframe(
@@ -1785,8 +2099,8 @@ def plot_points_native(
 
 
 def plot_points_web(
-    ax: plt.Axes,
-    tech_points: dict[str, POINT_STYLE],
+    ax: Axes,
+    tech_points: dict[str, PointStyle],
     demand_pts: pd.DataFrame,
     size_demand: pd.Series,
     spacing: PlotSpacing,
@@ -1802,7 +2116,7 @@ def plot_points_web(
 
     Parameters
     ----------
-    ax : plt.Axes
+    ax : Axes
         Matplotlib axis on which projected point layers are drawn.
     tech_points : dict[str, POINT_STYLE]
         Process-point layers keyed by display name. Each value contains a
@@ -1898,8 +2212,8 @@ def save_polygon_context_figure(
     """Build, display, and save the polygon-context schematic figure.
 
     Creates a native-CRS schematic map showing Canada/province boundaries,
-    region centroids, process and demand points, and transport-flow
-    lines. The figure is saved as a PNG in the selected run's figure directory.
+    region centroids, process and demand points, and transport-flow lines. The
+    figure is saved as a PNG in the selected run's figure directory.
 
     Parameters
     ----------
@@ -1945,6 +2259,7 @@ def save_polygon_context_figure(
         spacing,
         target_crs,
     )
+
     plot_transport_lines_schematic(
         ax,
         layers.tech_links,
@@ -1955,7 +2270,6 @@ def save_polygon_context_figure(
     build_legend(
         ax=ax,
         tech_links=layers.tech_links,
-        geodata=geodata,
         loc="center left",
         bbox_to_anchor=(1.02, 0.5),
     )
@@ -1963,20 +2277,38 @@ def save_polygon_context_figure(
     ax.set_xticks([])
     ax.set_yticks([])
     ax.set_aspect("equal", adjustable="box")
-    sns.despine(top=True, right=True, bottom=True, left=True)
-    plt.tight_layout()
 
+    sns.despine(
+        ax=ax,
+        top=True,
+        right=True,
+        bottom=True,
+        left=True,
+    )
+
+    fig.tight_layout()
+
+    epsg_code = target_crs.to_epsg()
     crs_tag = (
-        f"epsg{target_crs.to_epsg()}"
-        if target_crs.to_epsg() is not None
+        f"epsg{epsg_code}"
+        if epsg_code is not None
         else "native_crs"
     )
+
     fig_path = (
         paths.figure_dir
         / f"{paths.fig_stem}_polygon_context_{crs_tag}.png"
     )
-    plt.savefig(fig_path, dpi=300, bbox_inches="tight")
+
+    fig.savefig(
+        fig_path,
+        dpi=300,
+        bbox_inches="tight",
+    )
+
     plt.show()
+    plt.close(fig)
+
     print(f"Saved polygon-context figure: {fig_path}")
 
     return fig_path
@@ -2021,20 +2353,33 @@ def save_basemap_overlay_figure(
 
     if PLOT_WEB_TILES:
         try:
+            osm_provider = providers.query_name(
+                "OpenStreetMap.Mapnik"
+            )
+
             ctx.add_basemap(
                 ax,
-                source=ctx.providers.OpenStreetMap.Mapnik,
+                source=osm_provider,
                 zorder=0,
             )
-        except Exception as exc:  # pragma: no cover - depends on web/tile service.
+        except (
+            requests.RequestException,
+            URLError,
+            RasterioError,
+            OSError,
+            ValueError,
+        ) as exc:  # pragma: no cover - web service dependent
             print(
                 "Contextily basemap failed; continuing with local layers only. "
                 f"Reason: {exc}"
             )
 
     sites_web_points = gpd.GeoDataFrame(
-        geodata.sites,
-        geometry=gpd.points_from_xy(geodata.sites["lon"], geodata.sites["lat"]),
+        geodata.sites.copy(),
+        geometry=gpd.points_from_xy(
+            geodata.sites["lon"],
+            geodata.sites["lat"],
+        ),
         crs="EPSG:4326",
     ).to_crs(epsg=3857)
 
@@ -2054,28 +2399,45 @@ def save_basemap_overlay_figure(
         layers.size_demand,
         spacing,
     )
-    plot_transport_lines_web(ax, layers.tech_links, spacing)
+
+    plot_transport_lines_web(
+        ax,
+        layers.tech_links,
+        spacing,
+    )
 
     ax.set_title("", fontsize=14, pad=12)
     ax.grid(False)
+
     for spine in ax.spines.values():
         spine.set_visible(False)
 
     build_legend(
         ax=ax,
         tech_links=layers.tech_links,
-        geodata=geodata,
         bbox_to_anchor=(1.35, 1.0),
         fontsize=10,
     )
 
     ax.set_xticks([])
     ax.set_yticks([])
-    plt.tight_layout()
 
-    fig_path = paths.figure_dir / f"{paths.fig_stem}_basemap_polygon_overlay.svg"
-    plt.savefig(fig_path, dpi=300, bbox_inches="tight")
+    fig.tight_layout()
+
+    fig_path = (
+        paths.figure_dir
+        / f"{paths.fig_stem}_basemap_polygon_overlay.svg"
+    )
+
+    fig.savefig(
+        fig_path,
+        dpi=300,
+        bbox_inches="tight",
+    )
+
     plt.show()
+    plt.close(fig)
+
     print(f"Saved basemap polygon-overlay figure: {fig_path}")
 
     return fig_path

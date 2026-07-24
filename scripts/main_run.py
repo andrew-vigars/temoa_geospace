@@ -1,14 +1,28 @@
-# =============================================================================
-# main_run.py
-#
-# Run CANOE/TEMOA from an existing encoded SQLite database.
-#
-# This script assumes schema construction has already happened upstream through
-# the geospatial preprocessing pipeline and build_schema.py. It does not rebuild
-# the database. It only selects a database, selects a config file, points the
-# config to the selected database, creates a timestamped output folder, runs
-# TEMOA, and archives the database before and after the solve.
-# =============================================================================
+"""Run CANOE/TEMOA from an existing encoded SQLite database.
+
+This script executes a CANOE/TEMOA model run using a database produced by the
+upstream geospatial preprocessing and schema-building workflow. It does not
+construct or modify the model schema before execution.
+
+The command-line workflow selects an encoded SQLite database and TEMOA
+configuration file, updates the configuration to reference the selected
+database, creates a timestamped run directory, records run provenance, archives
+the database before and after the solve, executes TEMOA, and exports solved
+``Output*`` tables for inspection.
+
+Inputs
+------
+data_files/processed/schema/*.sqlite
+temoa/data_files/my_configs/*
+
+Outputs
+-------
+output_files/{timestamped_run}/
+    Input and solved SQLite database copies
+    Run configuration and provenance records
+    Solver logs and model outputs
+    Excel export of solved ``Output*`` tables
+"""
 
 from __future__ import annotations
 
@@ -16,6 +30,7 @@ import hashlib
 import json
 import platform
 import shutil
+import sqlite3
 import subprocess
 import sys
 import time
@@ -29,12 +44,21 @@ from export_output_tables import export_output_tables
 # =============================================================================
 
 def find_project_root() -> Path:
-    """Find the project root from the script path or current working directory.
+    """Locate the Geospatial-CANOE project root.
 
-    Searches upward from both ``__file__`` and the current working directory,
-    returning the first parent folder containing ``temoa/main.py`` and
-    ``data_files``. Raises ``FileNotFoundError`` if the repository root cannot
-    be located.
+    The search begins from both the current script path and the active working
+    directory. Each location and its parent directories are inspected until a
+    directory containing both ``temoa/main.py`` and ``data_files/`` is found.
+
+    Returns
+    -------
+    Path
+        Absolute path to the detected project root.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no candidate directory contains the expected project structure.
     """
 
     search_starts = [
@@ -71,7 +95,20 @@ OUTPUT_ROOT = PROJECT_ROOT / "output_files"
 # =============================================================================
 
 def print_header(title: str) -> None:
-    """Print a formatted section header for console output."""
+    """Print a formatted section header to the console.
+
+    The title is displayed between two horizontal separator lines, with a leading
+    blank line to distinguish the section from preceding console output.
+
+    Parameters
+    ----------
+    title : str
+        Text to display as the section heading.
+
+    Returns
+    -------
+    None
+    """
 
     print("\n" + "=" * 78)
     print(title)
@@ -79,11 +116,29 @@ def print_header(title: str) -> None:
 
 
 def select_file(options: list[Path], label: str) -> Path:
-    """Prompt the user to select one file from a numbered list.
+    """Prompt the user to select a file from a numbered list.
 
-    Prints available paths with optional file sizes, repeatedly asks for a valid
-    integer selection, and returns the selected path. Raises ``FileNotFoundError``
-    if no options are available.
+    The available paths are displayed with zero-based indices and, for regular
+    files, their approximate sizes in megabytes. The user is repeatedly prompted
+    until they enter an integer corresponding to a valid option.
+
+    Parameters
+    ----------
+    options : list[Path]
+        File paths available for selection.
+    label : str
+        Human-readable file category used in the section heading, prompt, and error
+        messages.
+
+    Returns
+    -------
+    Path
+        Path selected by the user.
+
+    Raises
+    ------
+    FileNotFoundError
+        If ``options`` is empty.
     """
 
     if not options:
@@ -112,21 +167,50 @@ def select_file(options: list[Path], label: str) -> Path:
 
 
 def safe_name(path: Path) -> str:
-    """Return a filesystem-friendly schema tag for output folder names.
+    """Return a filesystem-safe schema tag derived from a database path.
 
-    Removes the ``CANOE_geospatial_`` prefix from the file stem and replaces
-    spaces with underscores.
+    The filename stem is normalized by removing the standard
+    ``CANOE_geospatial_`` prefix and replacing spaces with underscores. The result
+    is suitable for use in timestamped output-directory names and related run
+    artifacts.
+
+    Parameters
+    ----------
+    path : Path
+        Path whose filename stem will be converted into a schema tag.
+
+    Returns
+    -------
+    str
+        Normalized schema tag derived from ``path``.
     """
 
     return path.stem.replace("CANOE_geospatial_", "").replace(" ", "_")
 
 
 def validate_required_paths(db_path: Path, config_path: Path) -> None:
-    """Validate required run inputs before starting CANOE/TEMOA.
+    """Validate the filesystem inputs required for a CANOE/TEMOA run.
 
-    Checks that the TEMOA main script, selected SQLite database, and selected
-    config file exist. Prints any missing paths before raising
-    ``FileNotFoundError``.
+    The TEMOA entry-point script, selected SQLite database, and selected
+    configuration file are checked before model execution begins. Any missing paths
+    are printed to the console before a ``FileNotFoundError`` is raised.
+
+    Parameters
+    ----------
+    db_path : Path
+        Path to the encoded SQLite database selected for the model run.
+    config_path : Path
+        Path to the TEMOA configuration file selected for the model run.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    FileNotFoundError
+        If the TEMOA main script, selected database, or selected configuration file
+        does not exist.
     """
 
     required = {
@@ -148,10 +232,21 @@ def validate_required_paths(db_path: Path, config_path: Path) -> None:
 # =============================================================================
 
 def sha256_file(path: Path) -> str:
-    """Return the SHA-256 hash for a file.
+    """Calculate the SHA-256 digest of a file.
 
-    Reads the file in 1 MB chunks so large SQLite databases and archived run
-    inputs can be hashed without loading the full file into memory.
+    The file is read incrementally in 1 MB binary chunks so large SQLite databases
+    and archived run inputs can be hashed without loading the complete file into
+    memory.
+
+    Parameters
+    ----------
+    path : Path
+        Path to the file to hash.
+
+    Returns
+    -------
+    str
+        Lowercase hexadecimal SHA-256 digest of the file contents.
     """
 
     h = hashlib.sha256()
@@ -164,10 +259,20 @@ def sha256_file(path: Path) -> str:
 
 
 def file_record(path: Path) -> dict:
-    """Return provenance metadata for one file.
+    """Build a provenance record for one file.
 
-    Records the file path, filename, size in bytes, and SHA-256 hash for use in
-    the run manifest.
+    The record captures the file's full path, filename, size in bytes, and SHA-256
+    digest for inclusion in the model-run manifest.
+
+    Parameters
+    ----------
+    path : Path
+        Path to the file for which provenance metadata will be collected.
+
+    Returns
+    -------
+    dict
+        Mapping containing the file path, filename, size in bytes, and SHA-256 hash.
     """
 
     return {
@@ -179,11 +284,26 @@ def file_record(path: Path) -> dict:
 
 
 def run_git_command(args: list[str]) -> str | None:
-    """Run a git command from the project root and return cleaned stdout.
+    """Run a Git command from the project root and return its output.
 
-    Returns ``None`` if git is unavailable or the command fails, allowing run
-    provenance capture to continue without requiring the repository to be in a
-    valid git environment.
+    The supplied Git arguments are executed with ``PROJECT_ROOT`` as the working
+    directory. Standard output is captured, stripped of leading and trailing
+    whitespace, and returned when the command succeeds.
+
+    Git failures are treated as non-fatal so provenance collection can continue
+    when Git is unavailable, the project is not inside a valid repository, or the
+    requested command returns a nonzero exit status.
+
+    Parameters
+    ----------
+    args : list[str]
+        Git command arguments excluding the leading ``git`` executable.
+
+    Returns
+    -------
+    str | None
+        Cleaned standard output from the Git command, or ``None`` if Git cannot be
+        executed or the command fails.
     """
 
     try:
@@ -201,11 +321,20 @@ def run_git_command(args: list[str]) -> str | None:
 
 
 def get_git_record() -> dict:
-    """Return best-effort git commit, branch, and dirty-state metadata.
+    """Collect best-effort Git provenance metadata for the active repository.
 
-    Captures the current commit hash, branch name, short status output, and a
-    boolean dirty-state flag for the run manifest. Values may be ``None`` if git
-    is unavailable or a command fails.
+    The current commit hash, branch name, and short working-tree status are queried
+    from ``PROJECT_ROOT``. The dirty-state flag is derived from whether the short
+    status output is non-empty.
+
+    Git metadata collection is non-fatal. Individual values may be ``None`` when
+    Git is unavailable, the project is not a valid repository, or a command fails.
+
+    Returns
+    -------
+    dict
+        Mapping containing the current commit hash, branch name, dirty-state flag,
+        and short Git status output.
     """
 
     status = run_git_command(["status", "--short"])
@@ -219,20 +348,43 @@ def get_git_record() -> dict:
 
 
 def read_text_file(path: Path) -> str:
-    """Read a text file as UTF-8 for manifest archival.
+    """Read a text file as UTF-8 for inclusion in the run manifest.
 
-    Invalid characters are replaced so config text can still be captured in the
-    run manifest without failing the model run.
+    The file is decoded using UTF-8. Any invalid byte sequences are replaced rather
+    than raising a decoding error so configuration text can still be archived
+    without interrupting the model-run workflow.
+
+    Parameters
+    ----------
+    path : Path
+        Path to the text file to read.
+
+    Returns
+    -------
+    str
+        Decoded file contents with invalid characters replaced.
     """
 
     return path.read_text(encoding="utf-8", errors="replace")
 
 
 def write_manifest(path: Path, manifest: dict) -> None:
-    """Write the run manifest to stable, human-readable JSON.
+    """Write a run manifest to formatted JSON.
 
-    Serializes the manifest with sorted keys and consistent indentation so run
-    metadata is easy to inspect, compare, and track across model executions.
+    The manifest is serialized with stable key ordering and consistent indentation
+    so model-run metadata remains human-readable and easy to compare across
+    executions. The resulting JSON text is written using UTF-8 encoding.
+
+    Parameters
+    ----------
+    path : Path
+        Destination path for the JSON manifest.
+    manifest : dict
+        Run metadata to serialize.
+
+    Returns
+    -------
+    None
     """
 
     path.write_text(
@@ -242,14 +394,28 @@ def write_manifest(path: Path, manifest: dict) -> None:
 
 
 def extract_objective_from_db(db_path: Path) -> list[dict]:
-    """Extract objective results from a solved SQLite database for the manifest.
+    """Extract solved objective values from a SQLite database.
 
-    Reads scenario-level objective values from ``OutputObjective`` and returns
-    them as dictionaries. Returns an empty list if the table is missing,
-    unreadable, or the database cannot be queried.
+    The ``OutputObjective`` table is queried for scenario names, objective names,
+    and total system costs. Matching rows are ordered by scenario and objective
+    name, then converted into dictionaries suitable for inclusion in the run
+    manifest.
+
+    Database and query failures are treated as non-fatal. If the database cannot be
+    opened, the table is missing, or the query otherwise fails, an empty list is
+    returned.
+
+    Parameters
+    ----------
+    db_path : Path
+        Path to the solved CANOE/TEMOA SQLite database.
+
+    Returns
+    -------
+    list[dict]
+        Objective-result records containing ``scenario``, ``objective_name``, and
+        ``total_system_cost`` fields. Returns an empty list if the query fails.
     """
-
-    import sqlite3
 
     query = """
         SELECT scenario, objective_name, total_system_cost
@@ -279,12 +445,37 @@ def extract_objective_from_db(db_path: Path) -> list[dict]:
 def main() -> None:
     """Run CANOE/TEMOA from a selected existing SQLite schema.
 
-    Interactively selects an encoded SQLite database and config file, validates
-    required paths, creates a timestamped output directory, copies and updates an
-    effective run config, archives the input database, writes an initial run
-    manifest, executes TEMOA/CANOE, records failure or success metadata, archives
-    the solved database, extracts objective results when available, and writes
-    the final manifest.
+    The workflow interactively selects an encoded SQLite database and TEMOA
+    configuration file, validates the required paths, and creates a timestamped
+    output directory for the run. An effective configuration is copied into the
+    run directory and updated to reference the selected database, while the input
+    database is archived before model execution.
+
+    A run manifest records the command, environment, Git state, tracked files,
+    input hashes, configuration text, status, return code, and elapsed time. TEMOA
+    is then executed as a subprocess. Failed runs retain their output directory and
+    receive an updated failure manifest before the original subprocess exception is
+    re-raised.
+
+    After a successful solve, the modified database is archived, solved ``Output*``
+    tables are exported to a single Excel workbook, objective values are extracted
+    when available, and the final output metadata are written to the completed run
+    manifest.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    FileNotFoundError
+        If required model, database, or configuration paths are unavailable.
+    FileExistsError
+        If the generated timestamped output directory already exists.
+    subprocess.CalledProcessError
+        If the TEMOA/CANOE subprocess exits with a nonzero return code.
+    RuntimeError
+        If the solved output export does not produce exactly one Excel workbook.
     """
 
     print_header("CANOE/TEMOA existing-schema run")
