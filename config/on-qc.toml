@@ -22,7 +22,7 @@
 [study_area]
 
 # Filename-safe label propagated into processed outputs.
-label = "provinces_only"
+label = "ON-QC"
 
 # Provinces and territories included in this build profile.
 provinces = [
