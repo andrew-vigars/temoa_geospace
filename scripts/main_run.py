@@ -26,6 +26,7 @@ output_files/{timestamped_run}/
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import platform
@@ -226,6 +227,134 @@ def validate_required_paths(db_path: Path, config_path: Path) -> None:
         for item in missing:
             print(f"  - {item}")
         raise FileNotFoundError("One or more required paths are missing.")
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse optional non-interactive model-run inputs.
+
+    The database and TEMOA configuration arguments are optional so the existing
+    interactive file-selection workflow remains available. When
+    ``--non-interactive`` is supplied, both paths must be provided and TEMOA is
+    executed with its silent command-line flag.
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed database path, configuration path, and non-interactive flag.
+    """
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "Run CANOE/TEMOA from an existing encoded SQLite database."
+        )
+    )
+
+    parser.add_argument(
+        "--database",
+        type=Path,
+        help=(
+            "Path to an encoded CANOE/TEMOA SQLite database. "
+            "When omitted, the database is selected interactively."
+        ),
+    )
+
+    parser.add_argument(
+        "--config",
+        type=Path,
+        help=(
+            "Path to a TEMOA run configuration. "
+            "When omitted, the configuration is selected interactively."
+        ),
+    )
+
+    parser.add_argument(
+        "--non-interactive",
+        action="store_true",
+        help=(
+            "Disable file-selection and TEMOA confirmation prompts. "
+            "Requires both --database and --config."
+        ),
+    )
+
+    return parser.parse_args()
+
+# =============================================================================
+# Run batch scripting helpers
+# =============================================================================
+
+def resolve_project_path(path: Path) -> Path:
+    """Resolve a configured path against the project root.
+
+    Absolute paths are resolved directly. Relative paths are interpreted from
+    ``PROJECT_ROOT`` so commands behave consistently regardless of the active
+    working directory.
+
+    Parameters
+    ----------
+    path : Path
+        Absolute or project-relative filesystem path.
+
+    Returns
+    -------
+    Path
+        Resolved absolute path.
+    """
+
+    path = path.expanduser()
+
+    if path.is_absolute():
+        return path.resolve()
+
+    return (PROJECT_ROOT / path).resolve()
+
+
+def resolve_run_inputs(
+    args: argparse.Namespace,
+) -> tuple[Path, Path]:
+    """Resolve database and configuration paths for one model run.
+
+    Explicit command-line paths are used when supplied. Missing paths are selected
+    interactively from the canonical schema and TEMOA configuration directories.
+
+    Non-interactive execution requires both paths because prompting would otherwise
+    block unattended batch execution.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed command-line arguments.
+
+    Returns
+    -------
+    tuple[Path, Path]
+        Resolved SQLite database path and TEMOA configuration path.
+
+    Raises
+    ------
+    ValueError
+        If non-interactive execution is requested without both required paths.
+    """
+
+    if args.non_interactive and (
+        args.database is None or args.config is None
+    ):
+        raise ValueError(
+            "--non-interactive requires both --database and --config."
+        )
+
+    if args.database is not None:
+        db_path = resolve_project_path(args.database)
+    else:
+        schema_options = sorted(SCHEMA_DIR.glob("*.sqlite"))
+        db_path = select_file(schema_options, "SQLite schema")
+
+    if args.config is not None:
+        config_path = resolve_project_path(args.config)
+    else:
+        config_options = sorted(CONFIG_DIR.glob("*.toml"))
+        config_path = select_file(config_options, "config")
+
+    return db_path, config_path
 
 # =============================================================================
 # Run provenance helpers
@@ -443,24 +572,27 @@ def extract_objective_from_db(db_path: Path) -> list[dict]:
 # =============================================================================
 
 def main() -> None:
-    """Run CANOE/TEMOA from a selected existing SQLite schema.
+    """Run CANOE/TEMOA from an existing encoded SQLite schema.
 
-    The workflow interactively selects an encoded SQLite database and TEMOA
-    configuration file, validates the required paths, and creates a timestamped
-    output directory for the run. An effective configuration is copied into the
-    run directory and updated to reference the selected database, while the input
-    database is archived before model execution.
+    The workflow resolves an encoded SQLite database and TEMOA configuration
+    either from explicit command-line arguments or through interactive file
+    selection. It validates the required paths, creates a timestamped output
+    directory, archives the immutable source database, and creates an isolated
+    working database for model execution.
 
-    A run manifest records the command, environment, Git state, tracked files,
-    input hashes, configuration text, status, return code, and elapsed time. TEMOA
-    is then executed as a subprocess. Failed runs retain their output directory and
-    receive an updated failure manifest before the original subprocess exception is
-    re-raised.
+    An effective configuration is copied into the run directory and updated to
+    reference the working database. TEMOA is executed as a subprocess, with its
+    confirmation prompt suppressed when non-interactive execution is requested.
 
-    After a successful solve, the modified database is archived, solved ``Output*``
-    tables are exported to a single Excel workbook, objective values are extracted
-    when available, and the final output metadata are written to the completed run
-    manifest.
+    A run manifest records the command, execution mode, environment, Git state,
+    tracked files, input hashes, configuration text, status, return code, and
+    elapsed time. Failed solver runs retain their output directory and working
+    database for inspection before the subprocess exception is re-raised.
+
+    After a successful solve, the working database is archived as the solved
+    database, solved ``Output*`` tables are exported to an Excel workbook,
+    objective values are extracted when available, and the final output metadata
+    are written to the completed run manifest.
 
     Returns
     -------
@@ -478,44 +610,52 @@ def main() -> None:
         If the solved output export does not produce exactly one Excel workbook.
     """
 
+    args = parse_args()
+
     print_header("CANOE/TEMOA existing-schema run")
     print(f"Project root: {PROJECT_ROOT}")
     print("This runner does not rebuild the database.")
     print("Use build_schema.py first if the encoded SQLite schema is stale or missing.")
 
-    schema_options = sorted(SCHEMA_DIR.glob("*.sqlite"))
-    config_options = sorted(CONFIG_DIR.glob("*.toml"))
-
-    db_path = select_file(schema_options, "SQLite schema")
-    config_path = select_file(config_options, "config")
+    db_path, config_path = resolve_run_inputs(args)
 
     validate_required_paths(db_path, config_path)
 
     schema_tag = safe_name(db_path)
-    timestamp = datetime.today().strftime("%Y-%m-%d_%H%M")
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
 
     output_dir = OUTPUT_ROOT / f"{timestamp}_{schema_tag}"
     output_dir.mkdir(parents=True, exist_ok=False)
 
     input_db_archive = output_dir / f"input_{db_path.name}"
+    working_db_path = output_dir / f"working_{db_path.name}"
     solved_db_archive = output_dir / f"solved_{db_path.name}"
 
     print_header("Run configuration")
-    print(f"Database: {db_path}")
-    print(f"Config:   {config_path}")
-    print(f"Output:   {output_dir}")
+    print(f"Database:        {db_path}")
+    print(f"Config:          {config_path}")
+    print(f"Non-interactive: {args.non_interactive}")
+    print(f"Output:          {output_dir}")
 
     print_header("Preparing run")
     print("Creating effective run config...")
     effective_config_path = output_dir / f"effective_{config_path.name}"
     shutil.copy2(config_path, effective_config_path)
 
-    print("Updating effective config database path...")
-    update_db_paths(effective_config_path, str(db_path), create_backup=False)
-
-    print("Archiving input database...")
+    print("Archiving immutable input database...")
     shutil.copy2(db_path, input_db_archive)
     print(f"Saved: {input_db_archive.name}")
+
+    print("Creating isolated working database...")
+    shutil.copy2(db_path, working_db_path)
+    print(f"Saved: {working_db_path.name}")
+
+    print("Updating effective config database paths...")
+    update_db_paths(
+        effective_config_path,
+        str(working_db_path),
+        create_backup=False,
+    )
 
     command = [
         sys.executable,
@@ -526,12 +666,16 @@ def main() -> None:
         str(output_dir),
     ]
 
+    if args.non_interactive:
+        command.append("-s")
+
     manifest_path = output_dir / "manifest.json"
 
     manifest = {
         "run": {
             "timestamp": timestamp,
             "status": "started",
+            "non_interactive": args.non_interactive,
             "return_code": None,
             "wall_time_seconds": None,
             "output_dir": str(output_dir),
@@ -550,7 +694,8 @@ def main() -> None:
             },
         },
         "inputs": {
-            "database": file_record(db_path),
+            "source_database": file_record(db_path),
+            "working_database": file_record(working_db_path),
             "source_config": file_record(config_path),
             "effective_config": file_record(effective_config_path),
         },
@@ -593,7 +738,7 @@ def main() -> None:
     elapsed = time.perf_counter() - start
 
     print_header("Archiving solved database")
-    shutil.copy2(db_path, solved_db_archive)
+    shutil.copy2(working_db_path, solved_db_archive)
     print(f"Saved: {solved_db_archive.name}")
 
     print_header("Exporting solved output workbook")
@@ -625,6 +770,21 @@ def main() -> None:
 
     write_manifest(manifest_path, manifest)
     print(f"Manifest updated: {manifest_path.name}")
+
+    try:
+        working_db_path.unlink()
+    except OSError as exc:
+        print(
+            "WARNING: Could not remove temporary working database: "
+            f"{working_db_path}"
+        )
+        print(f"Reason: {exc}")
+    else:
+        print(
+            "Removed temporary working database: "
+            f"{working_db_path.name}"
+        )
+    print(f"Removed temporary working database: {working_db_path.name}")
 
     print_header("Run complete")
     print(f"Elapsed time: {elapsed / 60:.2f} minutes")
