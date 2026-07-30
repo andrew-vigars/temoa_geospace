@@ -26,7 +26,12 @@
 
 .ipynb_checkpoints/
 *.html
+# -----------------------
 
+#Config files
+
+# -----------------------
+config/
 # -----------------------
 
 # Processed data
