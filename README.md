@@ -115,7 +115,7 @@ Stages 1–5 use a shared TOML build profile loaded by `project_config.py`. A ty
 Example profile path:
 
 ```text
-config/build_profiles/provinces_only.toml
+config/provinces_only.toml
 ```
 
 The same profile should be used consistently across basemap, adjacency, road, connectivity, legacy-input, and schema stages.
