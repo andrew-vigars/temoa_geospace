@@ -263,8 +263,8 @@ def solve_instance(
             optimizer.options["Crossover"] = 0 # non basic solution, ie no crossover
             optimizer.options["BarConvTol"] = 1.e-5
             optimizer.options["FeasibilityTol"] = 1.e-6
-            optimizer.options["MIPGap"] = 0.01  # MIP Gap for MILP program. Setting to 0 will cause solver inconsisencies (see: https://support.gurobi.com/hc/en-us/articles/8265539575953-What-is-the-MIPGap)
-                                                # Set at 1% for testing. Ideally 0.001 for core research outputs. 
+            optimizer.options["MIPGap"] = 0.05  # MIP Gap for MILP program. Setting to 0 will cause solver inconsisencies (see: https://support.gurobi.com/hc/en-us/articles/8265539575953-What-is-the-MIPGap)
+                                                # Set at 5% for higher resolution testing. Ideally < 0.01 for core research outputs.
             # optimizer.options["BarOrder"] = 0 # if solve times seem unusually long, try 0 or 1
             optimizer.options["LogFile"] = str(Path(instance.name).with_suffix(".gurobi.log"))
             optimizer.options["LogToConsole"] = 1  # or 0 to silence console output
