@@ -55,6 +55,7 @@ SUPPORTED_ADJACENCY_METHODS = {
 
 SUPPORTED_ROAD_NETWORKS = {
     "backbone",
+    "primary_freight",
     "freight_access",
 }
 
@@ -65,6 +66,7 @@ SUPPORTED_ROAD_CONNECTIVITY_METHODS = {
 
 SUPPORTED_ROAD_LAYERS = {
     "backbone",
+    "primary_freight",
     "freight_access",
 }
 
@@ -191,11 +193,14 @@ class RoadClassConfig:
     ----------
     backbone : tuple[str, ...]
         Ordered source road classes included in the backbone network.
+    primary_freight : tuple[str, ...]
+        Ordered source road classes included in the primary-freight network.
     freight_access : tuple[str, ...]
         Ordered source road classes included in the freight-access network.
     """
 
     backbone: tuple[str, ...]
+    primary_freight: tuple[str, ...]
     freight_access: tuple[str, ...]
 
 
@@ -207,7 +212,7 @@ class RoadConfig:
     ----------
     networks : tuple[str, ...]
         Ordered processed road-network representations to generate, such as
-        ``"backbone"`` and ``"freight_access"``.
+        ``"backbone"``, ``"primary_freight"``, and ``"freight_access"``.
     export_individual_provinces : bool
         Whether filtered road-network outputs are also written separately for each
         selected province or territory.
@@ -232,7 +237,8 @@ class RoadConnectivityConfig:
     ----------
     road_layer : str
         Processed road-network layer used for spatial overlay and connectivity
-        construction, such as ``"backbone"`` or ``"freight_access"``.
+        construction, such as ``"backbone"``, ``"primary_freight"``, or
+        ``"freight_access"``.
     methods : tuple[str, ...]
         Ordered road-connectivity methods to generate, such as ``"weak"`` and
         ``"strong"``.
@@ -819,47 +825,63 @@ def _validate_provinces(
 
 def _validate_road_classes(
     backbone: tuple[str, ...],
+    primary_freight: tuple[str, ...],
     freight_access: tuple[str, ...],
 ) -> None:
-    """Validate nesting and uniqueness of configured road classes.
+    """Validate uniqueness and nesting of configured road classes.
 
-    The backbone and freight-access class sequences are checked independently for
-    duplicate entries. The freight-access network must also include every class
-    selected for the backbone network so that the backbone remains a subset of the
-    broader freight-access representation.
+    Each road-class sequence must contain unique values. The configured
+    networks must also form the nested hierarchy:
+
+    ``backbone`` ⊆ ``primary_freight`` ⊆ ``freight_access``
 
     Parameters
     ----------
     backbone : tuple[str, ...]
         Ordered road classes included in the backbone network.
+    primary_freight : tuple[str, ...]
+        Ordered road classes included in the primary-freight network.
     freight_access : tuple[str, ...]
         Ordered road classes included in the freight-access network.
 
     Raises
     ------
     ValueError
-        If either sequence contains duplicate values or if one or more backbone
-        classes are absent from ``freight_access``.
+        If any sequence contains duplicate values or the configured road
+        classes do not follow the required nested hierarchy.
     """
 
-    if len(backbone) != len(set(backbone)):
-        raise ValueError(
-            "roads.classes.backbone contains duplicate values."
-        )
+    road_class_groups = {
+        "backbone": backbone,
+        "primary_freight": primary_freight,
+        "freight_access": freight_access,
+    }
 
-    if len(freight_access) != len(set(freight_access)):
-        raise ValueError(
-            "roads.classes.freight_access contains duplicate values."
-        )
+    for network_name, road_classes in road_class_groups.items():
+        if len(road_classes) != len(set(road_classes)):
+            raise ValueError(
+                f"roads.classes.{network_name} contains duplicate values."
+            )
 
     missing_backbone_classes = sorted(
-        set(backbone) - set(freight_access)
+        set(backbone) - set(primary_freight)
     )
 
     if missing_backbone_classes:
         raise ValueError(
-            "roads.classes.freight_access must include every backbone "
+            "roads.classes.primary_freight must include every backbone "
             f"class. Missing: {missing_backbone_classes}"
+        )
+
+    missing_primary_freight_classes = sorted(
+        set(primary_freight) - set(freight_access)
+    )
+
+    if missing_primary_freight_classes:
+        raise ValueError(
+            "roads.classes.freight_access must include every "
+            "primary-freight class. "
+            f"Missing: {missing_primary_freight_classes}"
         )
 
 
@@ -1034,6 +1056,13 @@ def load_geospatial_build_config(
         "backbone",
         "roads.classes",
     )
+
+    primary_freight_classes = _require_string_list(
+        road_classes_raw,
+        "primary_freight",
+        "roads.classes",
+    )
+
     freight_access_classes = _require_string_list(
         road_classes_raw,
         "freight_access",
@@ -1042,6 +1071,7 @@ def load_geospatial_build_config(
 
     _validate_road_classes(
         backbone=backbone_classes,
+        primary_freight=primary_freight_classes,
         freight_access=freight_access_classes,
     )
 
@@ -1067,6 +1097,7 @@ def load_geospatial_build_config(
         ),
         classes=RoadClassConfig(
             backbone=backbone_classes,
+            primary_freight=primary_freight_classes,
             freight_access=freight_access_classes,
         ),
     )

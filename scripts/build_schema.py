@@ -26,7 +26,8 @@ Inputs:
     data_files/commodities.csv
 
 Outputs:
-    data_files/processed/schema/CANOE_geospatial_{BASEMAP_STEM}_{CONNECTION_METHOD}.sqlite
+data_files/processed/schema/
+    CANOE_geospatial_{BASEMAP_STEM}_{ROAD_LAYER}_{CONNECTION_METHOD}.sqlite
 """
 
 import argparse
@@ -135,15 +136,17 @@ class ResolvedSchemaConfig:
     """Resolved file configuration for one schema-building run.
 
     This immutable configuration stores the selected basemap variant, selected
-    road-connection method, paths to the required Stage 1–4 geospatial inputs,
-    and the destination SQLite database path. It is created once during runtime
-    selection and passed through the schema-building workflow to keep all file
-    references tied to the same basemap and connectivity choice.
+    road-network layer, selected road-connection method, paths to the required
+    Stage 1–4 geospatial inputs, and the destination SQLite database path.
 
     Attributes
     ----------
     basemap_stem : str
         Stem of the selected Stage 1 basemap file.
+    road_layer : str
+        Processed road-network layer used to create the Stage 4 connectivity
+        products, such as ``"backbone"``, ``"primary_freight"``, or
+        ``"freight_access"``.
     connection_method : str
         Road-connectivity method selected for truck links, such as ``"weak"``
         or ``"strong"``.
@@ -154,18 +157,20 @@ class ResolvedSchemaConfig:
     graph_edge_path : Path
         Path to the Stage 2 graph-edge CSV for the selected basemap.
     road_edge_connections_path : Path
-        Path to the road-edge connection table for the selected basemap and
-        connection method.
+        Path to the road-edge connection table for the selected basemap,
+        road layer, and connection method.
     road_edges_gpkg_path : Path
-        Path to the road-connected edge geometries for the selected basemap and
-        connection method.
+        Path to the road-connected edge geometries for the selected basemap,
+        road layer, and connection method.
     road_region_overlay_path : Path
-        Path to the road-region overlay GeoPackage for the selected basemap.
+        Path to the road-region overlay GeoPackage for the selected basemap and
+        road layer.
     output_sqlite_path : Path
         Path where the encoded CANOE/TEMOA SQLite database will be written.
     """
 
     basemap_stem: str
+    road_layer: str
     connection_method: str
     basemap_path: Path
     graph_node_path: Path
@@ -540,6 +545,7 @@ def resolve_schema_configuration(
                 f"among profile basemaps: {available_stems}"
             )
 
+    road_layer = build_config.road_connectivity.road_layer
     connection_method = build_config.schema.road_connection_method
 
     if connection_method not in build_config.road_connectivity.methods:
@@ -550,6 +556,7 @@ def resolve_schema_configuration(
 
     config = ResolvedSchemaConfig(
         basemap_stem=basemap_stem,
+        road_layer=road_layer,
         connection_method=connection_method,
         basemap_path=PROCESSED_BASEMAPS / f"{basemap_stem}.gpkg",
         graph_node_path=(
@@ -563,26 +570,29 @@ def resolve_schema_configuration(
         road_edge_connections_path=(
             PROCESSED_ROAD_CONNECTIVITY
             / (
-                f"{basemap_stem}_road_connectivity_"
+                f"{basemap_stem}_{road_layer}_road_connectivity_"
                 f"{connection_method}_road_edge_connections.csv"
             )
         ),
         road_edges_gpkg_path=(
             PROCESSED_ROAD_CONNECTIVITY
             / (
-                f"{basemap_stem}_road_connectivity_"
+                f"{basemap_stem}_{road_layer}_road_connectivity_"
                 f"{connection_method}_road_edges.gpkg"
             )
         ),
         road_region_overlay_path=(
             PROCESSED_ROAD_CONNECTIVITY
-            / f"{basemap_stem}_road_connectivity_road_region_overlay.gpkg"
+            / (
+                f"{basemap_stem}_{road_layer}_"
+                "road_connectivity_road_region_overlay.gpkg"
+            )
         ),
         output_sqlite_path=(
             PROCESSED_SCHEMA
             / (
                 f"CANOE_geospatial_{basemap_stem}_"
-                f"{connection_method}.sqlite"
+                f"{road_layer}_{connection_method}.sqlite"
             )
         ),
     )
@@ -1178,6 +1188,7 @@ def build_canonical_links(
         .reset_index(drop=True)
     )
     road_links["canoe_region"] = road_links["edge_region"]
+    road_links["road_layer"] = config.road_layer
 
     pipeline_links = graph_edges.copy()
     pipeline_links["canoe_region"] = pipeline_links["edge_region"]
@@ -1196,7 +1207,11 @@ def build_canonical_links(
     print("\nCanonical topology:")
     print(f"Node regions: {len(region_table):,}")
     print(f"Candidate pipeline/transmission links: {len(pipeline_links):,}")
-    print(f"Road links ({config.connection_method}): {len(road_links):,}")
+    print(
+        f"Road links "
+        f"({config.road_layer}, {config.connection_method}): "
+        f"{len(road_links):,}"
+    )
 
     return canonical
 
@@ -3296,43 +3311,33 @@ def rebuild_transport_efficiency(
     db_encoded: dict[str, pd.DataFrame],
     canonical: CanonicalLinks,
     specs: TechSpecs,
+    road_layer: str,
     connection_method: str,
 ) -> None:
     """Rebuild transport-process rows in the Efficiency table.
 
-    Pipeline and electricity-transmission processes are generated across the full
-    canonical graph-edge topology, while truck processes are generated only across
-    edges retained by the selected road-connectivity method. Existing transport
-    technology rows are removed from the encoded ``Efficiency`` table before the
-    new pipeline, truck, and transmission process definitions are appended.
-
-    The rebuilt transport subsets are checked to confirm that their encoded regions
-    match the expected canonical pipeline and road-edge region sets.
+    Pipeline and electricity-transmission processes are generated across the
+    full canonical graph-edge topology, while truck processes are generated only
+    across edges retained by the selected road layer and connectivity method.
 
     Parameters
     ----------
     db_encoded : dict[str, pd.DataFrame]
-        Mutable mapping of CANOE/TEMOA table names to encoded DataFrames. Existing
-        transport rows in the ``Efficiency`` table are replaced in place.
+        Mutable mapping of CANOE/TEMOA table names to encoded DataFrames.
     canonical : CanonicalLinks
-        Canonical pipeline and road-link topology, including valid encoded
-        edge-region sets.
+        Canonical pipeline and road-link topology.
     specs : TechSpecs
-        Canonical pipeline, truck, transmission, and combined transport technology
-        specifications.
+        Pipeline, truck, and transmission technology specifications.
+    road_layer : str
+        Processed road-network layer used to construct truck links, such as
+        ``"backbone"``, ``"primary_freight"``, or ``"freight_access"``.
     connection_method : str
-        Road-connectivity method used to construct truck links, such as ``"weak"``
-        or ``"strong"``. The value is included in encoded provenance notes.
+        Road-connectivity method used to construct truck links, such as
+        ``"weak"`` or ``"strong"``.
 
     Returns
     -------
     None
-
-    Raises
-    ------
-    AssertionError
-        If the rebuilt pipeline, truck, or transmission rows do not cover exactly
-        their expected canonical edge-region sets.
     """
 
     pipeline_efficiency = build_transport_efficiency(
@@ -3343,7 +3348,10 @@ def rebuild_transport_efficiency(
     truck_efficiency = build_transport_efficiency(
         canonical.road_links,
         specs.truck_tech_specs,
-        f"Existing {connection_method} road-connected transport link",
+        (
+            f"Existing {road_layer} road network with "
+            f"{connection_method} connectivity"
+        ),
     )
     transmission_efficiency = build_transport_efficiency(
         canonical.pipeline_links,
@@ -4319,6 +4327,7 @@ def run_schema_build(
 
     print("\nSelected schema configuration:")
     print(f"Basemap: {config.basemap_stem}")
+    print(f"Road layer: {config.road_layer}")
     print(f"Road connection method: {config.connection_method}")
     print(f"Output SQLite: {config.output_sqlite_path.name}")
 
@@ -4377,9 +4386,9 @@ def run_schema_build(
         db_encoded=db_encoded,
         canonical=canonical,
         specs=specs,
+        road_layer=config.road_layer,
         connection_method=config.connection_method,
     )
-
     print("\nRebuilding process costs...")
     rebuild_node_costs(
         db_encoded,

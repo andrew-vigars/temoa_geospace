@@ -210,16 +210,20 @@ def load_static_datasets(
     """Load and validate the configured road and study-area boundary layers.
 
     The profile-specific filtered road-network GeoPackage and processed WGS84
-    study-area boundary are located and loaded. The selected road layer is
-    validated for a defined CRS, required metadata columns, and consistency with
-    the configured study-area label. A reduced road-overlay table is then created
-    with a unique sequential ``road_id`` for each geometry.
+    study-area boundary are located and loaded. The selected road layer must be
+    enabled in the road-build configuration and present in the processed
+    GeoPackage.
+
+    The selected road layer is validated for a defined CRS, required metadata
+    columns, and consistency with the configured study area. A reduced
+    road-overlay table is then created with a unique sequential ``road_id`` and
+    explicit ``road_layer`` metadata.
 
     Parameters
     ----------
     config : GeospatialBuildConfig
-        Validated geospatial build profile containing the study-area label and
-        configured road-connectivity layer.
+        Validated geospatial build profile containing the study-area label,
+        configured road networks, and road-connectivity layer.
 
     Returns
     -------
@@ -229,12 +233,13 @@ def load_static_datasets(
     Raises
     ------
     FileNotFoundError
-        If the configured road-network GeoPackage or study-area boundary
-        GeoPackage does not exist.
+        If the processed road-network GeoPackage or study-area boundary does
+        not exist.
     ValueError
-        If either loaded layer lacks a defined CRS, the road layer is missing
-        required columns, or its ``study_area`` values do not match the configured
-        study-area label.
+        If the selected road layer was not enabled during road construction,
+        cannot be loaded from the GeoPackage, either spatial layer lacks a CRS,
+        required road columns are missing, or study-area metadata are
+        inconsistent.
     """
 
     road_network_path = (
@@ -249,6 +254,15 @@ def load_static_datasets(
         / f"{config.study_area.label}_boundary_wgs84.gpkg"
     )
 
+    road_layer = config.road_connectivity.road_layer
+
+    if road_layer not in config.roads.networks:
+        raise ValueError(
+            f"Configured road-connectivity layer {road_layer!r} was not "
+            "enabled in roads.networks. "
+            f"Enabled networks: {list(config.roads.networks)}"
+        )
+
     if not road_network_path.exists():
         raise FileNotFoundError(
             f"Configured road network not found: {road_network_path}"
@@ -260,21 +274,35 @@ def load_static_datasets(
         )
 
     print(f"Using road network: {road_network_path.name}")
-    print(f"Using road layer: {config.road_connectivity.road_layer}")
+    print(f"Using road layer: {road_layer}")
     print(f"Using study-area boundary: {boundary_path.name}")
 
-    roads = gpd.read_file(
-        road_network_path,
-        layer=config.road_connectivity.road_layer,
-    )
+    try:
+        roads = gpd.read_file(
+            road_network_path,
+            layer=road_layer,
+        )
+    except Exception as exc:
+        raise ValueError(
+            f"Could not load road layer {road_layer!r} from "
+            f"{road_network_path.name}. Rebuild Stage 3 using a profile that "
+            "exports this layer."
+        ) from exc
 
     study_area_boundary = gpd.read_file(
         boundary_path,
         layer="study_area_boundary",
     )
 
+    if roads.empty:
+        raise ValueError(
+            f"Configured road layer {road_layer!r} contains no segments."
+        )
+
     if roads.crs is None:
-        raise ValueError("Road network CRS is undefined.")
+        raise ValueError(
+            f"Road network CRS is undefined for layer {road_layer!r}."
+        )
 
     if study_area_boundary.crs is None:
         raise ValueError("Study-area boundary CRS is undefined.")
@@ -295,16 +323,21 @@ def load_static_datasets(
 
     if missing_road_columns:
         raise ValueError(
-            "Road network is missing required columns: "
+            f"Road layer {road_layer!r} is missing required columns: "
             f"{missing_road_columns}"
         )
 
-    study_areas = set(roads["study_area"].astype(str).unique())
+    study_areas = set(
+        roads["study_area"]
+        .astype(str)
+        .unique()
+    )
 
     if study_areas != {config.study_area.label}:
         raise ValueError(
-            f"Road file contains study_area values {sorted(study_areas)}, "
-            f"expected only {config.study_area.label!r}."
+            f"Road layer {road_layer!r} contains study_area values "
+            f"{sorted(study_areas)}, expected only "
+            f"{config.study_area.label!r}."
         )
 
     roads_overlay = (
@@ -327,8 +360,15 @@ def load_static_datasets(
         range(len(roads_overlay)),
     )
 
+    roads_overlay.insert(
+        1,
+        "road_layer",
+        road_layer,
+    )
+
     print(f"Loaded road segments: {len(roads):,}")
     print(f"Prepared road overlay geometries: {len(roads_overlay):,}")
+    print(f"Road layer: {road_layer}")
     print(f"Road CRS: {roads_overlay.crs}")
 
     return roads_overlay, study_area_boundary
@@ -400,6 +440,7 @@ def validate_graph_inputs(
 
     required_road_columns = [
         "road_id",
+        "road_layer",
         "ROADCLASS",
         "geometry",
     ]
@@ -1231,7 +1272,11 @@ def build_road_connectivity_for_graph(
         "_graph_nodes.gpkg",
         "",
     )
-    output_stem = f"{graph_stem}_road_connectivity"
+    road_layer_tag = config.road_connectivity.road_layer
+
+    output_stem = (
+        f"{graph_stem}_{road_layer_tag}_road_connectivity"
+    )
 
     road_region_overlay = build_road_region_overlay(
         roads_overlay=roads_for_overlay,
@@ -1339,7 +1384,10 @@ def build_road_connectivity_for_graph(
 
         road_presence_plot_path = (
             plot_dir
-            / f"{graph_stem}_road_presence.png"
+            / (
+                f"{graph_stem}_{road_layer_tag}_"
+                "road_presence.png"
+            )
         )
 
         plot_region_road_presence(
@@ -1353,7 +1401,10 @@ def build_road_connectivity_for_graph(
         for method, result in method_results.items():
             connectivity_plot_path = (
                 plot_dir
-                / f"{graph_stem}_{method}_connectivity.png"
+                / (
+                    f"{graph_stem}_{road_layer_tag}_"
+                    f"{method}_connectivity.png"
+                )
             )
 
             plot_road_edge_connectivity(
