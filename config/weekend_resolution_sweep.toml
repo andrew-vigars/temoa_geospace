@@ -1,0 +1,22 @@
+# =============================================================================
+# Geospatial-CANOE batch-run configuration
+# =============================================================================
+
+[batch]
+name = "natioanl_resolution_sweep"
+continue_on_failure = true
+skip_completed = true
+retry_failed = false
+
+# =============================================================================
+# National runs
+# Run last, from lowest to highest spatial resolution
+# =============================================================================
+
+[[runs]]
+config = "temoa/data_files/my_configs/national_basemap_50km_centroid_freight_access_strong.toml"
+enabled = true
+
+[[runs]]
+config = "temoa/data_files/my_configs/national_basemap_25km_centroid_freight_access_strong.toml"
+enabled = true

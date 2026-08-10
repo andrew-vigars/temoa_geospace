@@ -1,0 +1,193 @@
+# =============================================================================
+# Geospatial-CANOE preprocessing build profile
+# =============================================================================
+#
+# This file defines one coordinated geospatial preprocessing configuration.
+# It is intended to be read by project_config.py and shared across:
+#
+#   build_basemaps.py
+#   build_region_adjacency.py
+#   build_roads.py
+#   map_roads.py
+#   build_schema.py
+#
+# This is separate from the TEMOA solver configuration used by main_run.py.
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# Shared study area
+# -----------------------------------------------------------------------------
+
+[study_area]
+
+# Filename-safe label propagated into processed outputs.
+label = "ON-QC"
+
+# Provinces and territories included in this build profile.
+provinces = [
+    #"NL",
+    #"PE",
+    #"NS",
+    #"NB",
+    "QC",
+    "ON",
+    #"MB",
+    #"SK",
+    #"AB",
+    #"BC",
+    # "YT",
+    # "NT",
+    # "NU",
+]
+
+
+# -----------------------------------------------------------------------------
+# Basemap generation
+# -----------------------------------------------------------------------------
+
+[basemaps]
+
+# Valid values: "geographic", "projected".
+grid_types = [
+    "geographic",
+    "projected",
+]
+
+# Current workflow supports centroid retention.
+keep_method = "centroid"
+
+# Decimal precision used for exported coordinates and grid lookup.
+coordinate_precision = 6
+
+
+[basemaps.geographic]
+
+# EPSG:4326 grid resolutions in decimal degrees.
+resolutions = [
+    0.5,
+]
+
+
+[basemaps.projected]
+
+# EPSG:3347 grid resolutions in kilometres.
+resolutions_km = [
+    10,
+    25,
+    50,
+]
+
+
+# -----------------------------------------------------------------------------
+# Region adjacency
+# -----------------------------------------------------------------------------
+
+[adjacency]
+
+# Current workflow supports four-direction rook adjacency.
+method = "rook"
+
+# Precision used for native-coordinate neighbour lookup.
+coordinate_precision = 6
+
+# Sentinel used when a region has no neighbour in one direction.
+no_neighbor_id = "R-999"
+
+
+# -----------------------------------------------------------------------------
+# Processed road networks
+# -----------------------------------------------------------------------------
+
+[roads]
+
+# Nested processed road-network layers to build.
+networks = [
+    "backbone",
+    "primary_freight",
+    "freight_access",
+]
+
+# Set true to also export one filtered GeoPackage per selected jurisdiction.
+export_individual_provinces = false
+
+# Output CRS for merged processed road networks.
+output_crs = "EPSG:4326"
+
+
+[roads.classes]
+
+# Highest-order intercity corridors.
+backbone = [
+    "Freeway",
+    "Expressway / Highway",
+    "Ramp",
+]
+
+# Major freight-capable road network.
+primary_freight = [
+    "Freeway",
+    "Expressway / Highway",
+    "Ramp",
+    "Arterial",
+]
+
+# Full road-access network used for rural and resource accessibility.
+freight_access = [
+    "Freeway",
+    "Expressway / Highway",
+    "Ramp",
+    "Arterial",
+    "Collector",
+    "Local / Street",
+    "Local / Unknown",
+]
+
+
+# -----------------------------------------------------------------------------
+# Road-to-graph connectivity
+# -----------------------------------------------------------------------------
+
+[road_connectivity]
+
+# Processed road layer used for graph overlay.
+road_layer = "freight_access"
+
+# Connectivity products to generate.
+methods = [
+    #"weak",
+    "strong",
+]
+
+# Save diagnostic PNG outputs.
+plot_outputs = true
+
+
+# -----------------------------------------------------------------------------
+# Schema build selection
+# -----------------------------------------------------------------------------
+
+[schema]
+
+# Road connectivity method used for truck links in the encoded schema.
+road_connection_method = "strong"
+
+# When true, build_schema.py prompts for one generated basemap variant.
+interactive_basemap_selection = true
+
+
+# Points within this distance outside the study-area boundary remain eligible
+# for nearest-region assignment. Buffering is performed in EPSG:3347.
+boundary_buffer_km = 50
+
+# Simplification applied only to the temporary geometry used to construct the
+# outer buffer. The exact boundary is still used for inside-study-area tests.
+boundary_simplify_tolerance_km = 5
+
+# Maximum nearest-region assignment distance as a multiple of the selected
+# grid resolution. A factor of 2 permits up to 150 km on a 75 km grid,
+# 100 km on a 50 km grid, and 20 km on a 10 km grid.
+max_snap_distance_factor = 2.0
+
+# When interactive_basemap_selection is false, uncomment and set this:
+# basemap_stem = "provinces_only_basemap_50km_centroid"
