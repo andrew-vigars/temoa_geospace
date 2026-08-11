@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 import sys
+import tomllib
 from typing import TypeAlias
 from urllib.error import URLError
 
@@ -484,32 +485,74 @@ def infer_basemap_stem(db_path: Path) -> str:
     sys.exit(1)
 
 
-def build_figure_stem(selected_run: SelectedRun) -> str:
-    """Build a figure filename stem from the selected run and database.
+def sanitize_run_label(value: str, max_length: int = 48) -> str:
+    """Return a short filesystem-safe run label.
 
-    Uses the model-run directory name as the primary figure tag and appends the
-    selected database stem when the database identifier is not already present
-    in the run name. The standard ``CANOE_geospatial_`` database prefix is
-    removed before comparison to keep figure filenames shorter.
-
-    Parameters
-    ----------
-    selected_run : SelectedRun
-        Selected model-run directory and SQLite database path.
-
-    Returns
-    -------
-    str
-        Filename stem used when saving generated map figures.
+    The label is normalized to lowercase snake_case and capped so map artifacts
+    do not recreate Windows path-length problems when they are written inside an
+    already descriptive timestamped run directory.
     """
 
-    run_tag = selected_run.run_dir.name.replace(" ", "_")
-    db_tag = selected_run.db_path.stem
+    label = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip().lower())
+    label = re.sub(r"_+", "_", label).strip("_.-")
+    return (label or "run")[:max_length].rstrip("_.-")
 
-    if db_tag.startswith("CANOE_geospatial_"):
-        db_tag = db_tag[len("CANOE_geospatial_"):]
 
-    return run_tag if db_tag in run_tag else f"{run_tag}_{db_tag}"
+def infer_short_run_label_from_database(db_path: Path) -> str:
+    """Infer a compact study-area/resolution label from a database filename.
+
+    Example
+    -------
+    ``solved_CANOE_geospatial_on_qc_basemap_25km_centroid_freight_access_strong``
+    becomes ``on_qc_25km``.
+    """
+
+    text = db_path.stem
+    text = re.sub(r"^(?:input_|working_|solved_)", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"^CANOE_geospatial_", "", text, flags=re.IGNORECASE)
+
+    match = re.search(
+        r"(?P<study>[A-Za-z0-9_]+?)_basemap_"
+        r"(?P<resolution>\d+(?:\.\d+)?(?:deg|km))_",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        return sanitize_run_label(
+            f"{match.group('study')}_{match.group('resolution')}"
+        )
+
+    return "run"
+
+
+def build_figure_stem(selected_run: SelectedRun) -> str:
+    """Build a concise map-artifact stem for the selected model run.
+
+    Preference order:
+
+    1. Read ``scenario`` from the archived effective TEMOA configuration in the
+       selected run directory. This keeps map names aligned with the solver run
+       name rather than the much longer encoded database filename.
+    2. Fall back to ``<study_area>_<resolution>`` inferred from the database
+       filename, for example ``on_qc_25km``.
+
+    The final stem is sanitized and length-capped for Windows path safety.
+    """
+
+    effective_configs = sorted(selected_run.run_dir.glob("effective_*.toml"))
+
+    for config_path in effective_configs:
+        try:
+            with config_path.open("rb") as config_file:
+                config = tomllib.load(config_file)
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+
+        scenario = config.get("scenario")
+        if isinstance(scenario, str) and scenario.strip():
+            return sanitize_run_label(scenario)
+
+    return infer_short_run_label_from_database(selected_run.db_path)
 
 
 def infer_geospatial_paths(
@@ -2912,3 +2955,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
