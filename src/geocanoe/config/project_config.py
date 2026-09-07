@@ -1,15 +1,14 @@
 """
 project_config.py
 
-Shared configuration loader for Geospatial-CANOE preprocessing build profiles.
+Shared configuration models and loader for Geospatial-CANOE build profiles.
 
-This module loads a TOML build profile, validates shared study-area and
-geospatial workflow settings, and exposes immutable dataclasses for use by
-build_basemaps.py, build_roads.py, map_roads.py, build_region_adjacency.py,
-and build_schema.py.
+This module loads and validates geospatial preprocessing TOML profiles and
+exposes immutable configuration objects for use throughout the ``geocanoe``
+package.
 
-The configuration describes one preprocessing build profile. It is separate
-from the TEMOA solver configuration used by main_run.py.
+Build profiles are separate from TEMOA solver configurations and batch-run
+profiles.
 """
 
 from __future__ import annotations
@@ -890,7 +889,7 @@ def _validate_road_classes(
 # =============================================================================
 
 def load_geospatial_build_config(
-    config_path: Path,
+    config_path: Path | str,
 ) -> GeospatialBuildConfig:
     """Load, validate, and normalize a geospatial preprocessing build profile.
 
@@ -930,7 +929,7 @@ def load_geospatial_build_config(
         If the configuration file contains invalid TOML syntax.
     """
 
-    config_path = config_path.expanduser().resolve()
+    config_path = Path(config_path).expanduser().resolve()
 
     if not config_path.exists():
         raise FileNotFoundError(
@@ -1284,13 +1283,13 @@ def print_build_config(
 
 
 def default_config_path(
-    project_root: Path,
+    project_root: Path | str,
 ) -> Path:
     """Return the canonical path to the default preprocessing build profile.
 
     Parameters
     ----------
-    project_root : Path
+    project_root : Path | str
         Root directory of the Geospatial-CANOE project.
 
     Returns
@@ -1300,4 +1299,19 @@ def default_config_path(
         ``DEFAULT_CONFIG_RELATIVE_PATH``.
     """
 
-    return project_root / DEFAULT_CONFIG_RELATIVE_PATH
+    return Path(project_root) / DEFAULT_CONFIG_RELATIVE_PATH
+
+__all__ = [
+    "AdjacencyConfig",
+    "BasemapConfig",
+    "BasemapGridFamilyConfig",
+    "GeospatialBuildConfig",
+    "RoadClassConfig",
+    "RoadConfig",
+    "RoadConnectivityConfig",
+    "SchemaConfig",
+    "StudyAreaConfig",
+    "default_config_path",
+    "load_geospatial_build_config",
+    "print_build_config",
+]

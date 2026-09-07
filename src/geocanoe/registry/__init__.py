@@ -1,12 +1,12 @@
 """Registry helper for bronze data inputs.
 
 Loads the repository-level ``registry/bronze_registry.yaml`` file and exposes
-a small ``Registry`` helper for discovering and resolving registered raw input
+a small ``Registry`` helper for discovering and resolving registered bronze
 datasets.
 
 Usage
 -----
-from src.registry import Registry, load_registry
+from geocanoe.registry import Registry, load_registry
 
 meta = load_registry()
 registry = Registry()
@@ -18,7 +18,7 @@ print(registry.resolve_path("commodities"))
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+
 
 try:
     import yaml
@@ -91,7 +91,7 @@ REGISTRY_FILE = (
 # =============================================================================
 
 def load_registry(
-    path: Optional[Path | str] = None,
+    path: Path | str | None = None,
 ) -> dict:
     """Load and validate the bronze dataset registry.
 
@@ -185,8 +185,8 @@ class Registry:
 
     def __init__(
         self,
-        path: Optional[Path | str] = None,
-        repo_root: Optional[Path] = None,
+        path: Path | str | None = None,
+        repo_root: Path | str | None = None,
     ) -> None:
         """Load the registry and initialize dataset lookup.
 
@@ -194,7 +194,7 @@ class Registry:
         ----------
         path : Path | str | None, optional
             Explicit bronze registry path.
-        repo_root : Path | None, optional
+        repo_root : Path | str | None, optional
             Explicit repository root used to resolve registered relative paths.
             When omitted, the detected project root is used.
         """
@@ -221,7 +221,7 @@ class Registry:
     def get(
         self,
         dataset_id: str,
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """Return registry metadata for one dataset."""
 
         return self._datasets.get(dataset_id)
@@ -229,7 +229,7 @@ class Registry:
     def resolve_path(
         self,
         dataset_id: str,
-    ) -> Optional[Path]:
+    ) -> Path | None:
         """Resolve the registered path for one dataset.
 
         Relative paths are interpreted from the repository root.
