@@ -1,0 +1,30 @@
+datasets:
+  - id: commodities
+    path: data_files/commodities.csv
+    schema: commodities
+    description: "Commodity list CSV (raw)"
+
+  - id: demand
+    path: data_files/demand.csv
+    schema: demand
+    description: "Demand input CSV (raw)"
+
+  - id: sites
+    path: data_files/sites.csv
+    schema: sites
+    description: "Site definitions (raw)"
+
+  - id: generation_efficiency
+    path: data_files/generation_efficiency.csv
+    schema: generation_efficiency
+    description: "Generator efficiency table (raw)"
+
+  - id: techs
+    path: data_files/techs.csv
+    schema: techs
+    description: "Technology definitions (raw)"
+
+  - id: transport_techs
+    path: data_files/transport_techs.csv
+    schema: transport_techs
+    description: "Transport technology data (raw)"
