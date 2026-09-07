@@ -98,6 +98,7 @@ OUTPUT_ROOT = PROJECT_ROOT / "output_files"
 DEFAULT_BATCH_CONFIG = (
     PROJECT_ROOT
     / "config"
+    / "batch_profiles"
     / "batch_run.toml"
 )
 
@@ -509,7 +510,8 @@ def load_batch_config(
 def normalize_schema_name(value: str) -> list[str]:
     """Normalize a scenario or database name for schema matching."""
 
-    normalized = value.lower().replace("-", "_")
+    normalized = value.lo
+    r().replace("-", "_")
 
     normalized = normalized.removeprefix("canoe_geospatial_")
 
