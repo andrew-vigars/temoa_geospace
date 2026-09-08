@@ -37,6 +37,8 @@ from typing import TypedDict
 import numpy as np
 import pandas as pd
 
+from geocanoe.paths import find_project_root
+
 
 # =============================================================================
 # Canonical configuration
@@ -200,59 +202,6 @@ class FittedCostModel(TypedDict):
 # =============================================================================
 # Project discovery and paths
 # =============================================================================
-
-def find_project_root(start_path: Path | None = None) -> Path:
-    """Locate the Geospatial-CANOE repository root.
-
-    The search begins from ``start_path`` when supplied. Otherwise, it begins from
-    both the current script location and the current working directory. Each
-    starting location and its parent directories are inspected in order, and the
-    first directory containing both ``scripts/`` and ``data_files/`` is returned.
-
-    Parameters
-    ----------
-    start_path : Path | None, optional
-        Explicit file or directory from which to begin the upward search. When
-        omitted, the script location and current working directory are used.
-
-    Returns
-    -------
-    Path
-        Resolved path to the detected Geospatial-CANOE repository root.
-
-    Raises
-    ------
-    FileNotFoundError
-        If no searched directory contains both ``scripts/`` and ``data_files/``.
-    """
-
-    search_starts: list[Path] = []
-
-    if start_path is not None:
-        search_starts.append(start_path.resolve())
-    else:
-        search_starts.extend(
-            [
-                Path(__file__).resolve(),
-                Path.cwd().resolve(),
-            ]
-        )
-
-    for start in search_starts:
-        candidate_start = start if start.is_dir() else start.parent
-
-        for candidate in [candidate_start, *candidate_start.parents]:
-            if (
-                (candidate / "scripts").is_dir()
-                and (candidate / "data_files").is_dir()
-            ):
-                return candidate
-
-    raise FileNotFoundError(
-        "Could not locate the Geospatial-CANOE project root. "
-        "Expected to find both scripts/ and data_files/."
-    )
-
 
 def default_input_path(project_root: Path) -> Path:
     """Return the canonical normalized H2 pipeline capacity-cost CSV path.
@@ -1964,6 +1913,168 @@ def build_h2_pipeline_cost_models(
         opex_template,
     )
 
+def run_h2_pipeline_cost_model_build(
+    input_path: Path | None = None,
+    model_selection_path: Path | None = None,
+    etlsegment_path: Path | None = None,
+    opex_path: Path | None = None,
+    segment_count: int = DEFAULT_ETL_SEGMENT_COUNT,
+    spacing: str = DEFAULT_ETL_SPACING,
+    data_id: str = DEFAULT_DATA_ID,
+) -> tuple[
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+]:
+    """Run the H2 pipeline cost-model fitting and template-build workflow.
+
+    The workflow resolves the Geospatial-CANOE repository root, selects either
+    user-supplied or canonical input and output paths, reports the active model
+    configuration, fits candidate H2 pipeline cost functions, selects the
+    configured model forms, constructs topology-free ETLSegment and OPEX
+    templates, and exports the resulting cost-model products.
+
+    Parameters
+    ----------
+    input_path : Path | None, optional
+        Path to the normalized H2 pipeline capacity-cost CSV. When omitted, the
+        canonical processed input path is resolved automatically.
+    model_selection_path : Path | None, optional
+        Destination path for the selected cost-model CSV. When omitted, the
+        canonical processed cost-model path is used.
+    etlsegment_path : Path | None, optional
+        Destination path for the topology-free ETLSegment template CSV. When
+        omitted, the canonical processed template path is used.
+    opex_path : Path | None, optional
+        Destination path for the topology-free OPEX coefficient CSV. When
+        omitted, the canonical processed coefficient path is used.
+    segment_count : int, optional
+        Number of ETLSegment intervals used to approximate the selected CAPEX
+        power model.
+    spacing : str, optional
+        Capacity-breakpoint spacing method, either ``"log"`` or ``"linear"``.
+    data_id : str, optional
+        Data-quality identifier assigned to generated schema-template rows.
+
+    Returns
+    -------
+    tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]
+        Candidate regression results, selected cost models, topology-free
+        ETLSegment CAPEX template, and topology-free OPEX coefficient template.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the repository root or normalized capacity-cost input file cannot be
+        located.
+    ValueError
+        If the input data, regression configuration, selected models, or generated
+        templates fail validation.
+    OSError
+        If any required output CSV cannot be created successfully.
+    """
+
+    project_root = find_project_root()
+
+    input_path = (
+        input_path.resolve()
+        if input_path is not None
+        else default_input_path(project_root)
+    )
+
+    model_selection_path = (
+        model_selection_path.resolve()
+        if model_selection_path is not None
+        else default_model_selection_path(project_root)
+    )
+
+    etlsegment_path = (
+        etlsegment_path.resolve()
+        if etlsegment_path is not None
+        else default_etlsegment_template_path(project_root)
+    )
+
+    opex_path = (
+        opex_path.resolve()
+        if opex_path is not None
+        else default_opex_coefficient_path(project_root)
+    )
+
+    print("\n" + "=" * 78)
+    print("Build H2 pipeline cost models and topology-free templates")
+    print("=" * 78)
+    print(f"Project root:      {project_root}")
+    print(f"Input CSV:         {input_path}")
+    print(f"Model selection:   {model_selection_path}")
+    print(f"ETLSegment output: {etlsegment_path}")
+    print(f"OPEX output:       {opex_path}")
+    print(f"ETL segments:      {segment_count}")
+    print(f"ETL spacing:       {spacing}")
+    print(f"Data ID:           {data_id}")
+
+    (
+        regressions,
+        selected_models,
+        etlsegment_template,
+        opex_template,
+    ) = build_h2_pipeline_cost_models(
+        input_path=input_path,
+        model_selection_path=model_selection_path,
+        etlsegment_template_path=etlsegment_path,
+        opex_coefficient_path=opex_path,
+        segment_count=segment_count,
+        spacing=spacing,
+        data_id=data_id,
+    )
+
+    input_table = load_capacity_cost_table(input_path)
+
+    print("\nInput capacity-cost table validated.")
+    print(f"  Rows:        {len(input_table):,}")
+    print(f"  Technology:  {input_table['technology'].iloc[0]}")
+    print(f"  Commodity:   {input_table['commodity'].iloc[0]}")
+    print(
+        "  Capacity:    "
+        f"{input_table[CAPACITY_COLUMN].min():,.0f} to "
+        f"{input_table[CAPACITY_COLUMN].max():,.0f} t H2/year"
+    )
+
+    print("\nCandidate cost models fitted.")
+    print(f"  Models:      {len(regressions):,}")
+
+    for row in regressions.itertuples(index=False):
+        print(
+            f"  {row.cost_type:<14} {row.model_type:<7} "
+            f"R²={row.r_squared:.6f}  "
+            f"RMSE={row.rmse:,.6f}"
+        )
+
+    print("\nSelected cost models:")
+    for row in selected_models.itertuples(index=False):
+        print(f"  {row.cost_type:<14} -> {row.model_type}")
+
+    print("\nTopology-free templates built.")
+    print(f"  ETLSegment rows: {len(etlsegment_template):,}")
+    print(f"  OPEX rows:       {len(opex_template):,}")
+    print(
+        "  Capacity range:  "
+        f"{etlsegment_template['cap_lower'].min():,.0f} to "
+        f"{etlsegment_template['cap_upper'].max():,.0f} t H2/year"
+    )
+
+    print("\nBuild complete.")
+    print(f"  Model selection: {model_selection_path}")
+    print(f"  ETLSegment:      {etlsegment_path}")
+    print(f"  OPEX:            {opex_path}")
+
+    return (
+        regressions,
+        selected_models,
+        etlsegment_template,
+        opex_template,
+    )
+
 
 # =============================================================================
 # CLI
@@ -2048,123 +2159,19 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Run the H2 pipeline cost-model fitting and template-export workflow.
-
-    Command-line arguments are parsed, the project root and input/output paths are
-    resolved, and the configured workflow is executed. The resulting regression
-    tables and topology-free templates are summarized in the console together with
-    the validated input range and final export locations.
-
-    Returns
-    -------
-    None
-
-    Raises
-    ------
-    FileNotFoundError
-        If the project root or normalized capacity-cost input file cannot be found.
-    ValueError
-        If the input data, fitted models, selected regressions, or generated
-        templates fail validation.
-    OSError
-        If an expected output CSV is not created successfully.
-    """
+    """Parse CLI arguments and run the H2 pipeline cost-model workflow."""
 
     args = parse_args()
-    project_root = find_project_root()
 
-    input_path = (
-        args.input.resolve()
-        if args.input is not None
-        else default_input_path(project_root)
-    )
-
-    model_selection_path = (
-        args.model_selection_output.resolve()
-        if args.model_selection_output is not None
-        else default_model_selection_path(project_root)
-    )
-
-    etlsegment_path = (
-        args.etlsegment_output.resolve()
-        if args.etlsegment_output is not None
-        else default_etlsegment_template_path(project_root)
-    )
-
-    opex_path = (
-        args.opex_output.resolve()
-        if args.opex_output is not None
-        else default_opex_coefficient_path(project_root)
-    )
-
-    print("\n" + "=" * 78)
-    print("Build H2 pipeline cost models and topology-free templates")
-    print("=" * 78)
-    print(f"Project root:      {project_root}")
-    print(f"Input CSV:         {input_path}")
-    print(f"Model selection:   {model_selection_path}")
-    print(f"ETLSegment output: {etlsegment_path}")
-    print(f"OPEX output:       {opex_path}")
-    print(f"ETL segments:      {args.segment_count}")
-    print(f"ETL spacing:       {args.spacing}")
-    print(f"Data ID:           {args.data_id}")
-
-    (
-        regressions,
-        selected_models,
-        etlsegment_template,
-        opex_template,
-    ) = build_h2_pipeline_cost_models(
-        input_path=input_path,
-        model_selection_path=model_selection_path,
-        etlsegment_template_path=etlsegment_path,
-        opex_coefficient_path=opex_path,
+    run_h2_pipeline_cost_model_build(
+        input_path=args.input,
+        model_selection_path=args.model_selection_output,
+        etlsegment_path=args.etlsegment_output,
+        opex_path=args.opex_output,
         segment_count=args.segment_count,
         spacing=args.spacing,
         data_id=args.data_id,
     )
-
-    input_table = load_capacity_cost_table(
-        input_path=input_path,
-    )
-
-    print("\nInput capacity-cost table validated.")
-    print(f"  Rows:        {len(input_table):,}")
-    print(f"  Technology:  {input_table['technology'].iloc[0]}")
-    print(f"  Commodity:   {input_table['commodity'].iloc[0]}")
-    print(
-        "  Capacity:    "
-        f"{input_table[CAPACITY_COLUMN].min():,.0f} to "
-        f"{input_table[CAPACITY_COLUMN].max():,.0f} t H2/year"
-    )
-
-    print("\nCandidate cost models fitted.")
-    print(f"  Models:      {len(regressions):,}")
-
-    for row in regressions.itertuples(index=False):
-        print(
-            f"  {row.cost_type:<14} {row.model_type:<7} "
-            f"R²={row.r_squared:.6f}  "
-            f"RMSE={row.rmse:,.6f}"
-        )
-
-    print("\nSelected cost models:")
-    for row in selected_models.itertuples(index=False):
-        print(f"  {row.cost_type:<14} -> {row.model_type}")
-
-    print("\nTopology-free templates built.")
-    print(f"  ETLSegment rows: {len(etlsegment_template):,}")
-    print(f"  OPEX rows:       {len(opex_template):,}")
-    print(
-        "  Capacity range:  "
-        f"{etlsegment_template['cap_lower'].min():,.0f} to "
-        f"{etlsegment_template['cap_upper'].max():,.0f} t H2/year"
-    )
-
-    print("\nBuild complete.")
-    print(f"  Model selection: {model_selection_path}")
-    print(f"  ETLSegment:      {etlsegment_path}")
-    print(f"  OPEX:            {opex_path}")
 
 
 if __name__ == "__main__":

@@ -29,7 +29,7 @@ data_files/processed/basemaps/
     basemap_summary.csv
 
 Configuration is loaded from a project-level TOML build profile through
-project_config.py. The same profile is shared by downstream graph, road,
+``geocanoe.config``. The same profile is shared by downstream graph, road,
 connectivity, and schema-building stages.
 """
 
@@ -46,18 +46,19 @@ import pandas as pd
 from shapely.geometry import Point, box
 from tqdm.auto import tqdm
 
-from project_config import (
+from geocanoe.config import (
     GeospatialBuildConfig,
     load_geospatial_build_config,
     print_build_config,
 )
+from geocanoe.paths import find_project_root
 
 
 # =============================================================================
 # Project paths
 # =============================================================================
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = find_project_root()
 
 RAW_BASEMAP = PROJECT_ROOT / "data_files" / "raw" / "basemaps"
 PROCESSED_BASEMAP = PROJECT_ROOT / "data_files" / "processed" / "basemaps"

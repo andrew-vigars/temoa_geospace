@@ -33,6 +33,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from geocanoe.paths import find_project_root
 
 # =============================================================================
 # Canonical configuration
@@ -96,62 +97,6 @@ DEFAULT_COST_MODEL_VERSION = "v1"
 # =============================================================================
 # Project discovery and paths
 # =============================================================================
-
-def find_project_root(start_path: Path | None = None) -> Path:
-    """Locate and return the Geospatial-CANOE repository root.
-
-    The search begins from ``start_path`` when provided. Otherwise, it begins from
-    both the current script location and the current working directory. Each starting
-    location and its parent directories are inspected in order, and the first
-    directory containing both ``scripts/`` and ``data_files/`` is treated as the
-    repository root.
-
-    Parameters
-    ----------
-    start_path : Path | None, optional
-        Explicit file or directory from which to begin the upward search. File paths
-        are converted to their parent directory before searching. When omitted, the
-        script location and current working directory are searched.
-
-    Returns
-    -------
-    Path
-        Absolute path to the detected Geospatial-CANOE repository root.
-
-    Raises
-    ------
-    FileNotFoundError
-        If no searched directory contains both the expected ``scripts/`` and
-        ``data_files/`` directories.
-    """
-
-    search_starts: list[Path] = []
-
-    if start_path is not None:
-        search_starts.append(start_path.resolve())
-    else:
-        search_starts.extend(
-            [
-                Path(__file__).resolve(),
-                Path.cwd().resolve(),
-            ]
-        )
-
-    for start in search_starts:
-        candidate_start = start if start.is_dir() else start.parent
-
-        for candidate in [candidate_start, *candidate_start.parents]:
-            if (
-                (candidate / "scripts").is_dir()
-                and (candidate / "data_files").is_dir()
-            ):
-                return candidate
-
-    raise FileNotFoundError(
-        "Could not locate the Geospatial-CANOE project root. "
-        "Expected to find both scripts/ and data_files/."
-    )
-
 
 def default_workbook_path(project_root: Path) -> Path:
     """Construct the canonical H2 pipeline master-workbook path.
@@ -998,6 +943,126 @@ def build_h2_pipeline_capacity_costs(
     return pipeline_cost_table
 
 
+def run_h2_pipeline_cost_build(
+    workbook_path: Path | None = None,
+    output_path: Path | None = None,
+    technology: str = DEFAULT_TECHNOLOGY,
+    commodity: str = DEFAULT_COMMODITY,
+    currency: str = DEFAULT_CURRENCY,
+    currency_year: int = DEFAULT_CURRENCY_YEAR,
+    cost_model_version: str = DEFAULT_COST_MODEL_VERSION,
+) -> pd.DataFrame:
+    """Run the normalized H2 pipeline capacity-cost build.
+
+    The workflow resolves the Geospatial-CANOE repository root, selects either
+    user-supplied or canonical workbook and output paths, reports the active
+    configuration, inspects the available workbook worksheets, and executes the
+    complete normalized H2 pipeline cost-processing workflow.
+
+    Data loading, validation, column standardization, engineering-case matching,
+    cost-component merging, metadata assignment, and CSV export are delegated to
+    ``build_h2_pipeline_capacity_costs``. The completed canonical cost table is
+    returned after export.
+
+    Parameters
+    ----------
+    workbook_path : Path | None, optional
+        Path to the controlled H2 pipeline master workbook. When omitted, the
+        canonical project workbook path is resolved automatically.
+    output_path : Path | None, optional
+        Destination path for the processed H2 pipeline capacity-cost CSV. When
+        omitted, the canonical processed cost-layer path is used.
+    technology : str, optional
+        Canonical pipeline technology identifier assigned to each output row.
+    commodity : str, optional
+        Canonical transported-commodity identifier assigned to each output row.
+    currency : str, optional
+        Currency code associated with the monetary values.
+    currency_year : int, optional
+        Reference year associated with the monetary values.
+    cost_model_version : str, optional
+        Version identifier assigned to the processed cost dataset.
+
+    Returns
+    -------
+    pd.DataFrame
+        Canonical H2 pipeline capacity-cost table containing standardized
+        engineering cases, CAPEX, fixed OPEX, variable OPEX, and provenance
+        metadata.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the Geospatial-CANOE repository root or source workbook cannot be
+        located.
+    ValueError
+        If required worksheets or columns are missing, worksheet data are empty,
+        numeric values are invalid, engineering cases are duplicated or
+        inconsistent across cost components, or the final table does not match
+        the canonical output schema.
+    pandas.errors.MergeError
+        If the normalized cost tables violate the required one-to-one merge
+        relationship.
+    OSError
+        If the processed output CSV cannot be created or inspected after export.
+    """
+
+    project_root = find_project_root()
+
+    workbook_path = (
+        workbook_path.resolve()
+        if workbook_path is not None
+        else default_workbook_path(project_root)
+    )
+
+    output_path = (
+        output_path.resolve()
+        if output_path is not None
+        else default_output_path(project_root)
+    )
+
+    print("\n" + "=" * 78)
+    print("Build H2 pipeline normalized capacity-cost dataset")
+    print("=" * 78)
+    print(f"Project root: {project_root}")
+    print(f"Workbook:     {workbook_path}")
+    print(f"Output CSV:   {output_path}")
+
+    available_sheets = list_workbook_sheets(workbook_path)
+
+    print("\nWorkbook worksheets:")
+    for index, sheet_name in enumerate(available_sheets):
+        print(f"  [{index}] {sheet_name}")
+
+    print("\nSelected normalized cost worksheets:")
+    for cost_type, sheet_name in NORMALIZED_COST_SHEETS.items():
+        print(f"  {cost_type}: {sheet_name}")
+
+    pipeline_cost_table = build_h2_pipeline_capacity_costs(
+        workbook_path=workbook_path,
+        output_path=output_path,
+        technology=technology,
+        commodity=commodity,
+        currency=currency,
+        currency_year=currency_year,
+        cost_model_version=cost_model_version,
+    )
+
+    print("\nBuild complete.")
+    print(f"  Rows:       {len(pipeline_cost_table):,}")
+    print(f"  Columns:    {len(pipeline_cost_table.columns):,}")
+    print(f"  Output:     {output_path}")
+    print(f"  Size:       {output_path.stat().st_size:,} bytes")
+    print(
+        "  Capacity:   "
+        f"{pipeline_cost_table['capacity_t_h2_per_year'].min():,.0f} to "
+        f"{pipeline_cost_table['capacity_t_h2_per_year'].max():,.0f} "
+        "t H2/year"
+    )
+
+    return pipeline_cost_table
+
+
 # =============================================================================
 # CLI
 # =============================================================================
@@ -1096,88 +1161,18 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Run the H2 pipeline capacity-cost build workflow.
-
-    This command-line entry point resolves the Geospatial-CANOE repository root,
-    selects either user-supplied or canonical workbook and output paths, reports the
-    active configuration, executes the complete normalized cost-build pipeline, and
-    prints a summary of the exported dataset.
-
-    The workflow lists the available workbook worksheets before processing, reports
-    the configured CAPEX and OPEX worksheet selections, and then delegates data
-    loading, validation, standardization, merging, metadata assignment, and CSV
-    export to ``build_h2_pipeline_capacity_costs``.
-
-    Returns
-    -------
-    None
-
-    Raises
-    ------
-    FileNotFoundError
-        If the project root or source workbook cannot be located.
-    ValueError
-        If workbook contents, cost tables, engineering cases, numeric values, or
-        final output columns fail validation.
-    pandas.errors.MergeError
-        If the normalized cost tables violate the required one-to-one merge
-        relationship.
-    OSError
-        If the processed output CSV cannot be created or inspected after export.
-    """
+    """Parse CLI arguments and run the H2 pipeline capacity-cost build."""
 
     args = parse_args()
-    project_root = find_project_root()
 
-    workbook_path = (
-        args.workbook.resolve()
-        if args.workbook is not None
-        else default_workbook_path(project_root)
-    )
-
-    output_path = (
-        args.output.resolve()
-        if args.output is not None
-        else default_output_path(project_root)
-    )
-
-    print("\n" + "=" * 78)
-    print("Build H2 pipeline normalized capacity-cost dataset")
-    print("=" * 78)
-    print(f"Project root: {project_root}")
-    print(f"Workbook:     {workbook_path}")
-    print(f"Output CSV:   {output_path}")
-
-    available_sheets = list_workbook_sheets(workbook_path)
-
-    print("\nWorkbook worksheets:")
-    for index, sheet_name in enumerate(available_sheets):
-        print(f"  [{index}] {sheet_name}")
-
-    print("\nSelected normalized cost worksheets:")
-    for cost_type, sheet_name in NORMALIZED_COST_SHEETS.items():
-        print(f"  {cost_type}: {sheet_name}")
-
-    pipeline_cost_table = build_h2_pipeline_capacity_costs(
-        workbook_path=workbook_path,
-        output_path=output_path,
+    run_h2_pipeline_cost_build(
+        workbook_path=args.workbook,
+        output_path=args.output,
         technology=args.technology,
         commodity=args.commodity,
         currency=args.currency,
         currency_year=args.currency_year,
         cost_model_version=args.cost_model_version,
-    )
-
-    print("\nBuild complete.")
-    print(f"  Rows:       {len(pipeline_cost_table):,}")
-    print(f"  Columns:    {len(pipeline_cost_table.columns):,}")
-    print(f"  Output:     {output_path}")
-    print(f"  Size:       {output_path.stat().st_size:,} bytes")
-    print(
-        "  Capacity:   "
-        f"{pipeline_cost_table['capacity_t_h2_per_year'].min():,.0f} to "
-        f"{pipeline_cost_table['capacity_t_h2_per_year'].max():,.0f} "
-        "t H2/year"
     )
 
 

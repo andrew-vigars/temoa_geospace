@@ -26,6 +26,8 @@ from pathlib import Path
 import geopandas as gpd
 import pandas as pd
 
+from geocanoe.paths import find_project_root
+
 
 # =============================================================================
 # Dataset configuration
@@ -44,7 +46,7 @@ SOURCE_FORMATS = ["CSV", "GeoJSON"]
 # Project paths
 # =============================================================================
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = find_project_root()
 
 RAW_DIR = PROJECT_ROOT / "data_files" / "raw" / "emissions" / f"{DATASET_NAME}_{DATASET_YEAR}"
 PROCESSED_DIR = PROJECT_ROOT / "data_files" / "processed" / "emissions" / f"{DATASET_NAME}_{DATASET_YEAR}"
@@ -465,21 +467,11 @@ def export_outputs(
 
 
 # =============================================================================
-# Main
+# Main workflow
 # =============================================================================
+def run_emissions_build() -> None:
+    """Run the emissions preprocessing workflow."""
 
-def main() -> None:
-    """Run the emissions preprocessing workflow.
-
-    This entry point validates the required source files, loads the raw
-    emissions inputs, builds a column audit, standardizes the emissions table,
-    validates the cleaned records, creates the spatial emissions layer, builds
-    metadata, and exports all processed emissions outputs.
-
-    Returns
-    -------
-    None
-    """
     print("=" * 78)
     print("Geospatial-CANOE emissions preprocessing")
     print("=" * 78)
@@ -494,9 +486,30 @@ def main() -> None:
     co2_spatial = build_spatial_emissions(co2)
     metadata = build_metadata(co2, co2_spatial)
 
-    export_outputs(co2, co2_spatial, column_audit, metadata)
+    export_outputs(
+        co2,
+        co2_spatial,
+        column_audit,
+        metadata,
+    )
 
     print("\nStage complete.")
+
+
+def main() -> None:
+    """Run the emissions preprocessing workflow.
+
+    This entry point validates the required source files, loads the raw
+    emissions inputs, builds a column audit, standardizes the emissions table,
+    validates the cleaned records, creates the spatial emissions layer, builds
+    metadata, and exports all processed emissions outputs.
+
+    Returns
+    -------
+    None
+    """
+    run_emissions_build()
+
 
 
 if __name__ == "__main__":

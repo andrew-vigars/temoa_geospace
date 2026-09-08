@@ -24,20 +24,23 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 from time import perf_counter
-import sys
 
 import geopandas as gpd
 import pandas as pd
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from project_config import (
+from geocanoe.config import (
     GeospatialBuildConfig,
     load_geospatial_build_config,
     print_build_config,
 )
+from geocanoe.paths import find_project_root
+
+
+# =============================================================================
+# Project paths
+# =============================================================================
+
+PROJECT_ROOT = find_project_root()
 
 
 DATA_FILES = PROJECT_ROOT / "data_files"

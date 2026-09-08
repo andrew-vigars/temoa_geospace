@@ -59,18 +59,19 @@ import pandas as pd
 from pyproj import CRS
 from shapely.geometry.base import BaseGeometry
 
-from project_config import (
+from geocanoe.config import (
     GeospatialBuildConfig,
     load_geospatial_build_config,
     print_build_config,
 )
+from geocanoe.paths import find_project_root
 
 
 # =============================================================================
 # Project paths
 # =============================================================================
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = find_project_root()
 
 RAW_NRN = PROJECT_ROOT / "data_files" / "raw" / "nrn"
 PROCESSED_NRN = PROJECT_ROOT / "data_files" / "processed" / "nrn"
