@@ -112,17 +112,83 @@ Active reusable code belongs under `src/geocanoe/`. Generated intermediate produ
 
 ## Installation
 
-Install the package into the active development environment from the repository root:
+Choose the installation method based on how you plan to use Geospatial-CANOE.
+
+### Standard runtime installation
+
+Use this option if you only need to run the Geospatial-CANOE workflow and CANOE/TEMOA model.
+
+From the repository root, install the runtime dependencies:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+`requirements.txt` installs the Geospatial-CANOE runtime dependencies and also installs the TEMOA dependencies referenced by `temoa/requirements.txt`.
+
+Then install Geospatial-CANOE into the active environment in editable mode:
 
 ```bash
 python -m pip install -e .
 ```
 
-A successful installation should make package modules importable without modifying `PYTHONPATH`:
+A successful installation should make the package importable without modifying `PYTHONPATH`:
 
 ```bash
 python -c "import geocanoe; print(geocanoe.__version__)"
 ```
+
+### Development installation
+
+Use this option if you plan to modify the codebase, run tests, use linting or type checking, or work interactively with Jupyter.
+
+Install the development dependencies:
+
+```bash
+python -m pip install -r requirements-dev.txt
+```
+
+`requirements-dev.txt` includes all runtime dependencies from `requirements.txt` and adds development tools such as `pytest`, `pytest-cov`, `mypy`, `ruff`, `pre-commit`, `ipykernel`, `jupyter`, and `jupyterlab`.
+
+Then install Geospatial-CANOE into the active environment in editable mode:
+
+```bash
+python -m pip install -e .
+```
+
+Verify the installation with:
+
+```bash
+python -c "import geocanoe; print(geocanoe.__version__)"
+```
+
+### Reproducing the pinned environment
+
+Use this option if you need to reproduce the exact package versions captured in the current project environment as closely as possible.
+
+Install the pinned dependency set:
+
+```bash
+python -m pip install -r requirements-lock.txt
+```
+
+Then install Geospatial-CANOE into the active environment in editable mode:
+
+```bash
+python -m pip install -e .
+```
+
+Verify the installation with:
+
+```bash
+python -c "import geocanoe; print(geocanoe.__version__)"
+```
+
+In general:
+
+- Use `requirements.txt` for normal runtime use.
+- Use `requirements-dev.txt` for development, testing, linting, and Jupyter work.
+- Use `requirements-lock.txt` when reproducibility of the exact dependency versions is important.
 
 ## Configuration
 
