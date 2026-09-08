@@ -118,19 +118,21 @@ Choose the installation method based on how you plan to use Geospatial-CANOE.
 
 Use this option if you only need to run the Geospatial-CANOE workflow and CANOE/TEMOA model.
 
-From the repository root, install the runtime dependencies:
+From the repository root, install the runtime dependency set:
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-`requirements.txt` installs the Geospatial-CANOE runtime dependencies and also installs the TEMOA dependencies referenced by `temoa/requirements.txt`.
+`requirements.txt` is the canonical runtime environment for Geospatial-CANOE and includes the nested TEMOA backend requirements defined in `temoa/requirements.txt`. This is the intended environment bootstrap for executing the workflow and solver stack together.
 
 Then install Geospatial-CANOE into the active environment in editable mode:
 
 ```bash
 python -m pip install -e .
 ```
+
+This keeps the package install separate from the environment bootstrap: the dependency file configures the active environment, while the editable package install makes the local source tree importable without altering `PYTHONPATH`.
 
 A successful installation should make the package importable without modifying `PYTHONPATH`:
 
