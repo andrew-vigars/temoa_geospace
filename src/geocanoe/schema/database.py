@@ -1,11 +1,10 @@
 from __future__ import annotations
-import pandas as pd
+
+import re
 import sqlite3
 from pathlib import Path
-import re
-import os
-import sqlite3
-from typing import Dict, Iterable, Optional
+from typing import Optional
+
 import pandas as pd
 
 

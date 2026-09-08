@@ -1,7 +1,7 @@
 """
 get_raw_basemap.py
 
-Batch script for Cartographic Canadian basemap (2021 Census).
+Acquire the Statistics Canada 2021 provincial and territorial basemap (2021 Census).
 
 Download, extract, flatten, and validate the raw Statistics Canada provincial
 and territorial boundary shapefile used by the geospatial basemap workflow.
@@ -36,12 +36,14 @@ from pathlib import Path
 
 import requests
 
+from geocanoe.paths import find_project_root
+
 
 # =============================================================================
 # Project paths
 # =============================================================================
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = find_project_root()
 DATA_FILES = PROJECT_ROOT / "data_files"
 RAW_BASEMAPS = DATA_FILES / "raw" / "basemaps"
 

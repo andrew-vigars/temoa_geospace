@@ -35,12 +35,14 @@ from typing import Dict, Iterable
 
 import requests
 
+from geocanoe.paths import find_project_root
+
 
 # =============================================================================
 # Project paths
 # =============================================================================
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = find_project_root()
 DATA_FILES = PROJECT_ROOT / "data_files"
 RAW_NRN = DATA_FILES / "raw" / "nrn"
 

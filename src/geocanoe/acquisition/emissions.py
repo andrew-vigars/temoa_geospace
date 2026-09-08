@@ -1,11 +1,13 @@
 """
 get_raw_emissions_data.py
 
-Batch script for Greenhouse gas emissions from large facilities (CO2 equivalents) (2024).
+Acquire raw large-facility greenhouse gas emissions data for Geospatial-CANOE
+(2024 CO2 equivalents).
 
-Downloads and organizes the raw large-facility greenhouse gas emissions data
-required by later emissions preprocessing steps. This script does not clean,
-spatially process, aggregate, or encode emissions data into the CANOE schema.
+This module downloads and organizes the 2024 large-facility greenhouse gas
+emissions data required by downstream emissions preprocessing. It does not
+clean, spatially process, aggregate, or encode emissions data into the CANOE
+schema.
 
 Outputs:
     data_files/raw/emissions/co2_large_facilities_2024/
@@ -23,12 +25,14 @@ from pathlib import Path
 
 import requests
 
+from geocanoe.paths import find_project_root
+
 
 # =============================================================================
 # Project paths
 # =============================================================================
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = find_project_root()
 DATA_FILES = PROJECT_ROOT / "data_files"
 RAW_DATA = DATA_FILES / "raw"
 RAW_EMISSIONS = RAW_DATA / "emissions" / "co2_large_facilities_2024"
