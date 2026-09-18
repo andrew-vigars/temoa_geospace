@@ -77,7 +77,7 @@ DATA_FILES = PROJECT_ROOT / "data_files"
 # =============================================================================
 
 StageMethod = Literal["function", "script"]
-StageCallable = Callable[[GeospatialBuildConfig], Any]
+StageCallable = Callable[..., Any]
 
 
 class ExternalInputCheck(TypedDict):
@@ -135,10 +135,15 @@ class FunctionExecutor:
     Attributes
     ----------
     callable : StageCallable
-        Stage function that accepts the loaded geospatial build profile.
+        Stage function invoked by the silver workflow.
+    pass_config : bool, default=True
+        Whether to pass the loaded geospatial build profile to ``callable``.
+        Config-independent stages use their own canonical project paths and are
+        invoked without arguments.
     """
 
     callable: StageCallable
+    pass_config: bool = True
     method: StageMethod = "function"
 
 
@@ -462,21 +467,24 @@ def build_stage_executors(
                 stage_modules["emissions"],
                 "run_emissions_build",
                 "emissions",
-            )
+            ),
+            pass_config=False,
         ),
         "h2_pipeline_costs": FunctionExecutor(
             require_stage_callable(
                 stage_modules["h2_pipeline_costs"],
                 "run_h2_pipeline_cost_build",
                 "h2_pipeline_costs",
-            )
+            ),
+            pass_config=False,
         ),
         "h2_pipeline_cost_models": FunctionExecutor(
             require_stage_callable(
                 stage_modules["h2_pipeline_cost_models"],
                 "run_h2_pipeline_cost_model_build",
                 "h2_pipeline_cost_models",
-            )
+            ),
+            pass_config=False,
         ),
         "basemaps": FunctionExecutor(
             require_stage_callable(
@@ -1005,10 +1013,11 @@ def execute_silver_stage(
 ) -> Any:
     """Execute one registered silver preprocessing stage.
 
-    Function stages execute in the current process and receive ``config``.
-    Script stages execute with the active Python interpreter in a subprocess whose
-    working directory is the repository root. Successful results are written to
-    ``state`` before being returned.
+    Function stages execute in the current process. Config-aware functions receive
+    ``config``; config-independent functions are invoked without arguments. Script
+    stages execute with the active Python interpreter in a subprocess whose working
+    directory is the repository root. Successful results are written to ``state``
+    before being returned.
 
     Parameters
     ----------
@@ -1051,7 +1060,11 @@ def execute_silver_stage(
     start_time = perf_counter()
     try:
         if isinstance(executor, FunctionExecutor):
-            result = executor.callable(config)
+            result = (
+                executor.callable(config)
+                if executor.pass_config
+                else executor.callable()
+            )
         else:
             result = subprocess.run(
                 [sys.executable, str(executor.path), *executor.arguments],
