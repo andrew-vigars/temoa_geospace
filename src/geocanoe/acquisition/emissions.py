@@ -25,6 +25,7 @@ from pathlib import Path
 
 import requests
 
+from geocanoe import __version__
 from geocanoe.paths import find_project_root
 
 
@@ -44,7 +45,7 @@ RAW_EMISSIONS = RAW_DATA / "emissions" / "co2_large_facilities_2024"
 
 HEADERS = {
     "User-Agent": (
-        "Geospatial-CANOE/0.1.0 "
+        f"Geospatial-CANOE/{__version__} "
         "(University of Toronto Academic Research)"
     )
 }

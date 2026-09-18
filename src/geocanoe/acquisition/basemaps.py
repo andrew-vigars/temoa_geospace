@@ -36,6 +36,7 @@ from pathlib import Path
 
 import requests
 
+from geocanoe import __version__
 from geocanoe.paths import find_project_root
 
 
@@ -54,7 +55,7 @@ RAW_BASEMAPS = DATA_FILES / "raw" / "basemaps"
 
 HEADERS = {
     "User-Agent": (
-        "Geospatial-CANOE/0.1.0 "
+        f"Geospatial-CANOE/{__version__} "
         "(University of Toronto Academic Research)"
     )
 }

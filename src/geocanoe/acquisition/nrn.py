@@ -35,6 +35,7 @@ from typing import Dict, Iterable
 
 import requests
 
+from geocanoe import __version__
 from geocanoe.paths import find_project_root
 
 
@@ -53,7 +54,7 @@ RAW_NRN = DATA_FILES / "raw" / "nrn"
 
 HEADERS = {
     "User-Agent": (
-        "Geospatial-CANOE/0.1.0 "
+        f"Geospatial-CANOE/{__version__} "
         "(University of Toronto Academic Research)" # Change to your name or organization if desired.
     )
 }

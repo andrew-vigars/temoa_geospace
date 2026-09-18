@@ -4,12 +4,24 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "geocanoe"
-version = "0.1.0"
+version = "0.5.0"
 description = "Geospatial preprocessing and execution framework for CANOE"
+readme = "README.md"
 requires-python = ">=3.12"
+dynamic = ["dependencies", "optional-dependencies"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt", "temoa/requirements.txt"]}
+
+[tool.setuptools.dynamic.optional-dependencies]
+dev = {file = [
+    "requirements.txt",
+    "requirements-dev.txt",
+    "temoa/requirements-dev.txt",
+]}
 
 [tool.setuptools.packages.find]
 where = ["src"]

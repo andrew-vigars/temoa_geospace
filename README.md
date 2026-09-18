@@ -45,9 +45,10 @@ The tree below is intentionally curated. It shows the active project architectur
 ```text
 Geospatial-CANOE/
 ├── README.md
-├── pyproject.toml
-├── requirements.txt
-├── requirements-dev.txt
+├── pyproject.toml                 Package and dynamic dependency mapping
+├── requirements.txt               Geospatial runtime requirements
+├── requirements-dev.txt           Geospatial development requirements
+├── requirements-lock.txt          Optional reproducibility constraints
 │
 ├── config/
 │   ├── build_profiles/
@@ -112,27 +113,26 @@ Active reusable code belongs under `src/geocanoe/`. Generated intermediate produ
 
 ## Installation
 
-Choose the installation method based on how you plan to use Geospatial-CANOE.
+The root `pyproject.toml` is the canonical package and installation interface
+for Geospatial-CANOE. Setuptools dynamically combines the root requirement
+fragments with the corresponding files from the bundled TEMOA backend, so no
+separate requirements-file installation is needed.
+
+Runtime installation reads `requirements.txt` and `temoa/requirements.txt`.
+The `dev` extra additionally reads `requirements-dev.txt` and
+`temoa/requirements-dev.txt`. Updating the bundled TEMOA checkout therefore
+updates the backend dependency set used by the next installation.
 
 ### Standard runtime installation
 
 Use this option if you only need to run the Geospatial-CANOE workflow and CANOE/TEMOA model.
 
-From the repository root, install the runtime dependency set:
-
-```bash
-python -m pip install -r requirements.txt
-```
-
-`requirements.txt` is the canonical runtime environment for Geospatial-CANOE and includes the nested TEMOA backend requirements defined in `temoa/requirements.txt`. This is the intended environment bootstrap for executing the workflow and solver stack together.
-
-Then install Geospatial-CANOE into the active environment in editable mode:
+From the repository root, install Geospatial-CANOE and its runtime dependencies
+in editable mode:
 
 ```bash
 python -m pip install -e .
 ```
-
-This keeps the package install separate from the environment bootstrap: the dependency file configures the active environment, while the editable package install makes the local source tree importable without altering `PYTHONPATH`.
 
 A successful installation should make the package importable without modifying `PYTHONPATH`:
 
@@ -144,19 +144,14 @@ python -c "import geocanoe; print(geocanoe.__version__)"
 
 Use this option if you plan to modify the codebase, run tests, use linting or type checking, or work interactively with Jupyter.
 
-Install the development dependencies:
+Install Geospatial-CANOE with its development extra:
 
 ```bash
-python -m pip install -r requirements-dev.txt
+python -m pip install -e ".[dev]"
 ```
 
-`requirements-dev.txt` includes all runtime dependencies from `requirements.txt` and adds development tools such as `pytest`, `pytest-cov`, `mypy`, `ruff`, `pre-commit`, `ipykernel`, `jupyter`, and `jupyterlab`.
-
-Then install Geospatial-CANOE into the active environment in editable mode:
-
-```bash
-python -m pip install -e .
-```
+The `dev` extra adds testing, coverage, linting, type-checking, pre-commit, and
+interactive Jupyter tooling to the complete runtime environment.
 
 Verify the installation with:
 
@@ -168,16 +163,10 @@ python -c "import geocanoe; print(geocanoe.__version__)"
 
 Use this option if you need to reproduce the exact package versions captured in the current project environment as closely as possible.
 
-Install the pinned dependency set:
+Use the lock file as a constraints file while installing from `pyproject.toml`:
 
 ```bash
-python -m pip install -r requirements-lock.txt
-```
-
-Then install Geospatial-CANOE into the active environment in editable mode:
-
-```bash
-python -m pip install -e .
+python -m pip install -c requirements-lock.txt -e ".[dev]"
 ```
 
 Verify the installation with:
@@ -186,11 +175,8 @@ Verify the installation with:
 python -c "import geocanoe; print(geocanoe.__version__)"
 ```
 
-In general:
-
-- Use `requirements.txt` for normal runtime use.
-- Use `requirements-dev.txt` for development, testing, linting, and Jupyter work.
-- Use `requirements-lock.txt` when reproducibility of the exact dependency versions is important.
+In general, use `-e .` for runtime work, `-e ".[dev]"` for development, and
+add `-c requirements-lock.txt` when reproducing the currently pinned environment.
 
 ## Configuration
 
