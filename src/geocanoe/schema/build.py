@@ -66,6 +66,7 @@ from geocanoe.config import (
 )
 from geocanoe.paths import find_project_root
 from geocanoe.schema import database
+from geocanoe.schema.artifacts import resolve_schema_artifact_paths
 
 # =============================================================================
 # Project paths
@@ -569,47 +570,24 @@ def resolve_schema_configuration(
             "configured road-connectivity stage."
         )
 
+    artifacts = resolve_schema_artifact_paths(
+        project_root=PROJECT_ROOT,
+        basemap_stem=basemap_stem,
+        road_layer=road_layer,
+        connection_method=connection_method,
+    )
+
     config = ResolvedSchemaConfig(
         basemap_stem=basemap_stem,
         road_layer=road_layer,
         connection_method=connection_method,
-        basemap_path=PROCESSED_BASEMAPS / f"{basemap_stem}.gpkg",
-        graph_node_path=(
-            PROCESSED_GRAPH
-            / f"{basemap_stem}_graph_nodes.gpkg"
-        ),
-        graph_edge_path=(
-            PROCESSED_GRAPH
-            / f"{basemap_stem}_graph_edges.csv"
-        ),
-        road_edge_connections_path=(
-            PROCESSED_ROAD_CONNECTIVITY
-            / (
-                f"{basemap_stem}_{road_layer}_road_connectivity_"
-                f"{connection_method}_road_edge_connections.csv"
-            )
-        ),
-        road_edges_gpkg_path=(
-            PROCESSED_ROAD_CONNECTIVITY
-            / (
-                f"{basemap_stem}_{road_layer}_road_connectivity_"
-                f"{connection_method}_road_edges.gpkg"
-            )
-        ),
-        road_region_overlay_path=(
-            PROCESSED_ROAD_CONNECTIVITY
-            / (
-                f"{basemap_stem}_{road_layer}_"
-                "road_connectivity_road_region_overlay.gpkg"
-            )
-        ),
-        output_sqlite_path=(
-            PROCESSED_SCHEMA
-            / (
-                f"CANOE_geospatial_{basemap_stem}_"
-                f"{road_layer}_{connection_method}.sqlite"
-            )
-        ),
+        basemap_path=artifacts.basemap,
+        graph_node_path=artifacts.graph_nodes,
+        graph_edge_path=artifacts.graph_edges,
+        road_edge_connections_path=artifacts.road_edge_connections,
+        road_edges_gpkg_path=artifacts.road_edges,
+        road_region_overlay_path=artifacts.road_region_overlay,
+        output_sqlite_path=artifacts.schema,
     )
 
     ensure_baseline_sqlite_exists()

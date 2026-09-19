@@ -59,6 +59,10 @@ from pathlib import Path
 import geopandas as gpd
 import pandas as pd
 
+from geocanoe.diagnostics.models import DiagnosticResult
+from geocanoe.diagnostics.renderers import render_console_result
+from geocanoe.schema.artifacts import resolve_schema_artifact_paths
+
 
 # =============================================================================
 # Project paths
@@ -74,8 +78,9 @@ PROCESSED_ROAD_CONNECTIVITY = DATA_FILES / "processed" / "road_connectivity"
 PROCESSED_SCHEMA = DATA_FILES / "processed" / "schema"
 PROCESSED_AUDITS = DATA_FILES / "processed" / "audits" / "input_audit"
 
-SITES_PATH = DATA_FILES / "sites_full.csv"
-DEMAND_PATH = DATA_FILES / "demand.csv"
+PROCESSED_LEGACY_INPUTS = DATA_FILES / "processed" / "legacy_inputs"
+SITES_PATH = PROCESSED_LEGACY_INPUTS / "sites_full_with_province.csv"
+DEMAND_PATH = PROCESSED_LEGACY_INPUTS / "demand_with_province.csv"
 TRANSPORT_TECHS_PATH = REGISTRY_DIR / "transport_techs.csv"
 TECHNOLOGIES_PATH = REGISTRY_DIR / "techs.csv"
 
@@ -194,6 +199,7 @@ NUMERIC_SCHEMA_CHECKS = [
 @dataclass(frozen=True)
 class AuditConfig:
     basemap_stem: str
+    road_layer: str
     connection_method: str
     basemap_path: Path
     graph_node_path: Path
@@ -204,14 +210,7 @@ class AuditConfig:
     audit_dir: Path
 
 
-@dataclass
-class CheckResult:
-    name: str
-    passed: bool
-    severity: str
-    detail: str
-    failures: pd.DataFrame | None = None
-    ran: bool = True
+CheckResult = DiagnosticResult
 
 
 # =============================================================================
@@ -240,12 +239,19 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--road-layer",
+        default="freight_access",
+        help="Processed road layer used by the schema. Default: freight_access.",
+    )
+
+    parser.add_argument(
         "--schema",
         type=Path,
         default=None,
         help=(
             "Optional explicit encoded SQLite schema path. If omitted, the script "
-            "uses data_files/processed/schema/CANOE_geospatial_<basemap>_<connection>.sqlite."
+            "uses data_files/processed/schema/"
+            "CANOE_geospatial_<basemap>_<road-layer>_<connection>.sqlite."
         ),
     )
 
@@ -292,16 +298,7 @@ def print_banner(title: str) -> None:
 
 
 def print_result(result: CheckResult, max_rows: int = 20) -> None:
-    if not result.ran:
-        status = "SKIP"
-    else:
-        status = "PASS" if result.passed else result.severity
-
-    print(f"[{status}] {result.name}")
-    print(f"       {result.detail}")
-
-    if not result.passed and result.failures is not None and not result.failures.empty:
-        print(result.failures.head(max_rows).to_string(index=False))
+    print(render_console_result(result, max_rows=max_rows))
 
 
 def safe_csv_name(name: str) -> str:
@@ -321,13 +318,17 @@ def safe_csv_name(name: str) -> str:
 
 def build_audit_config(
     basemap_stem: str,
+    road_layer: str,
     connection_method: str,
     schema_override: Path | None = None,
 ) -> AuditConfig:
-    default_schema_path = (
-        PROCESSED_SCHEMA
-        / f"CANOE_geospatial_{basemap_stem}_{connection_method}.sqlite"
+    artifacts = resolve_schema_artifact_paths(
+        project_root=PROJECT_ROOT,
+        basemap_stem=basemap_stem,
+        road_layer=road_layer,
+        connection_method=connection_method,
     )
+    default_schema_path = artifacts.schema
 
     schema_path = schema_override if schema_override is not None else default_schema_path
 
@@ -341,18 +342,13 @@ def build_audit_config(
 
     return AuditConfig(
         basemap_stem=basemap_stem,
+        road_layer=road_layer,
         connection_method=connection_method,
-        basemap_path=PROCESSED_BASEMAPS / f"{basemap_stem}.gpkg",
-        graph_node_path=PROCESSED_GRAPH / f"{basemap_stem}_graph_nodes.gpkg",
-        graph_edge_path=PROCESSED_GRAPH / f"{basemap_stem}_graph_edges.csv",
-        road_edge_connections_path=(
-            PROCESSED_ROAD_CONNECTIVITY
-            / f"{basemap_stem}_road_connectivity_{connection_method}_road_edge_connections.csv"
-        ),
-        road_edges_gpkg_path=(
-            PROCESSED_ROAD_CONNECTIVITY
-            / f"{basemap_stem}_road_connectivity_{connection_method}_road_edges.gpkg"
-        ),
+        basemap_path=artifacts.basemap,
+        graph_node_path=artifacts.graph_nodes,
+        graph_edge_path=artifacts.graph_edges,
+        road_edge_connections_path=artifacts.road_edge_connections,
+        road_edges_gpkg_path=artifacts.road_edges,
         schema_path=schema_path,
         audit_dir=PROCESSED_AUDITS / audit_tag,
     )
@@ -578,9 +574,11 @@ def snap_points_to_nodes_for_audit(
     if nodes_gdf.crs is None:
         nodes_gdf = nodes_gdf.set_crs("EPSG:4326")
 
+    nodes_for_within = nodes_gdf.to_crs(points_gdf.crs)
+
     within = gpd.sjoin(
         points_gdf,
-        nodes_gdf,
+        nodes_for_within,
         how="left",
         predicate="within",
     ).drop(columns="index_right")
@@ -1378,12 +1376,14 @@ def main() -> int:
 
     config = build_audit_config(
         basemap_stem=args.basemap,
+        road_layer=args.road_layer,
         connection_method=args.connection,
         schema_override=args.schema,
     )
 
     print("\nSelected gate configuration:")
     print(f"Basemap: {config.basemap_stem}")
+    print(f"Road layer: {config.road_layer}")
     print(f"Road connection method: {config.connection_method}")
     print(f"Schema path: {config.schema_path}")
     print(f"Audit output directory: {config.audit_dir}")
