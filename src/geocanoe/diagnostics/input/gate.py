@@ -49,6 +49,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any, cast
 
 import geopandas as gpd
 import pandas as pd
@@ -860,7 +861,7 @@ def numeric_metric(summary: pd.DataFrame, metric: str, default: float = 0.0) -> 
 
     value = get_metric(summary, metric)
     try:
-        return float(value)
+        return float(cast(Any, value))
     except (TypeError, ValueError):
         return default
 

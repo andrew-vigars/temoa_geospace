@@ -21,7 +21,6 @@ Outputs:
         co2_large_facilities_2024_column_audit.csv
 """
 
-from pathlib import Path
 
 import geopandas as gpd
 import pandas as pd

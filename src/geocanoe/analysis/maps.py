@@ -18,11 +18,13 @@ from pathlib import Path
 import re
 import sys
 import tomllib
+from collections.abc import Sequence
 from typing import TypeAlias
 from urllib.error import URLError
 
 import contextily as ctx
 import folium
+from branca.element import Figure
 from folium.plugins import Fullscreen, MeasureControl, MiniMap
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -2475,7 +2477,7 @@ def _html_escape(value: object) -> str:
     )
 
 
-def _popup_table(rows: list[tuple[str, object]]) -> folium.Popup:
+def _popup_table(rows: Sequence[tuple[str, object]]) -> folium.Popup:
     """Build a compact HTML popup table from label-value rows."""
 
     body = "".join(
@@ -2830,7 +2832,10 @@ def add_map_title(model_map: folium.Map, title: str) -> None:
         {safe_title}
     </div>
     """
-    model_map.get_root().html.add_child(folium.Element(title_html))
+    root = model_map.get_root()
+    if not isinstance(root, Figure):
+        raise TypeError("Folium map root is not an HTML figure.")
+    root.html.add_child(folium.Element(title_html))
 
 
 def save_folium_map(

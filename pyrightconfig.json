@@ -1,0 +1,21 @@
+{
+  "include": [
+    "src/geocanoe",
+    "scripts",
+    "diagnostics"
+  ],
+  "exclude": [
+    "legacy_files",
+    "legacy_workflow",
+    "notebooks",
+    "temoa"
+  ],
+  "extraPaths": [
+    "src"
+  ],
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.12",
+  "useLibraryCodeForTypes": false,
+  "typeCheckingMode": "basic"
+}

@@ -26,6 +26,7 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import pandas as pd
 from shapely import make_valid
+from shapely.geometry import GeometryCollection
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
@@ -91,7 +92,7 @@ def _polygonal_geometry(geometry: BaseGeometry | None) -> BaseGeometry | None:
     valid_geometry = geometry if geometry.is_valid else make_valid(geometry)
     if valid_geometry.geom_type in {"Polygon", "MultiPolygon"}:
         return valid_geometry
-    if valid_geometry.geom_type == "GeometryCollection":
+    if isinstance(valid_geometry, GeometryCollection):
         polygon_parts = [
             part
             for part in valid_geometry.geoms

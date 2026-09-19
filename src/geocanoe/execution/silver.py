@@ -58,7 +58,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
 from types import ModuleType
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, TypedDict, cast
 
 from geocanoe.config import GeospatialBuildConfig
 from geocanoe.paths import find_project_root
@@ -871,6 +871,7 @@ def validate_external_inputs(
         raise AttributeError(
             "build_h2_pipeline_costs must expose default_workbook_path()."
         )
+    workbook_path_resolver = cast(Callable[[Path], str | Path], workbook_path_resolver)
 
     check_required_file(
         checks,
@@ -891,6 +892,7 @@ def validate_external_inputs(
             "geocanoe.geospatial.co2_storage must expose "
             "find_latest_raw_storage_gpkg()."
         )
+    raw_storage_resolver = cast(Callable[[Path], str | Path], raw_storage_resolver)
     try:
         raw_storage_gpkg = Path(raw_storage_resolver(raw_storage_dir))
     except FileNotFoundError as exc:

@@ -41,6 +41,8 @@ class DiagnosticResult:
     remediation: str | None = None
 
     def __post_init__(self) -> None:
+        """Normalize severity and lifecycle stage values to their enums."""
+
         self.severity = DiagnosticSeverity(str(self.severity).upper())
         self.stage = DiagnosticStage(str(self.stage).lower())
 
