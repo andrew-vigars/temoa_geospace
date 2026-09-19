@@ -7,6 +7,8 @@ from geocanoe.diagnostics.output.gate import (
     check_objective_cost_consistency,
     infer_edge_technology_sets,
     resolve_database_path,
+    OutputDiagnosticRun,
+    run_output_database_checks,
 )
 
 __all__ = [
@@ -16,4 +18,6 @@ __all__ = [
     "check_objective_cost_consistency",
     "infer_edge_technology_sets",
     "resolve_database_path",
+    "OutputDiagnosticRun",
+    "run_output_database_checks",
 ]

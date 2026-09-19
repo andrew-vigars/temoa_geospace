@@ -439,6 +439,40 @@ output_files/batches/<batch_name>_<timestamp>/
     batch.log
 ```
 
+### Diagnostics
+
+Run the central diagnostics command and choose one of two workflows:
+
+```powershell
+python diagnostics/check.py
+```
+
+Choose `inputs` to select a silver build profile and its processed basemap. The
+suite derives the road layer, connectivity method, schema, and associated input
+artifacts from that profile, then runs spatial, schema, technology-readiness,
+numeric, and unit checks.
+
+Choose `outputs` to select a solved SQLite run and check commodity balance, edge
+flow capacity, and objective-cost consistency. Both workflows write CSV evidence
+by default.
+
+For a scripted run, selections can be provided directly:
+
+```powershell
+python diagnostics/check.py inputs --config config/build_profiles/on-qc.toml --basemap on_qc_basemap_25km_centroid
+python diagnostics/check.py outputs output_files/<run>
+```
+
+Unit findings remain warnings because legacy schemas contain incomplete unit
+metadata.
+
+Model execution runs pre- and post-solve diagnostics in non-blocking `report`
+mode by default. Select the policy explicitly with
+`scripts/main_run.py --diagnostics {off,report,strict}`. Strict mode stops before
+the solve when input diagnostics fail and marks post-solve validation failures in
+the run manifest. Failed solver runs retain their working database and record any
+postmortem diagnostics that can still be evaluated.
+
 ### Export solved output tables
 
 Export available `Output*` tables from a solved SQLite database:

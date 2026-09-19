@@ -2,9 +2,8 @@
 Pre-solve input and schema-construction gate for Geospatial-CANOE.
 
 This script audits the geospatial preprocessing artifacts and encoded
-CANOE/TEMOA SQLite schema before a solve is run. It is intentionally
-non-interactive: it prints a pass/fail report and exits with a deterministic
-status code.
+CANOE/TEMOA SQLite schema before a solve is run. By default it interactively
+selects a silver build profile and one of that profile's processed basemaps.
 
 The script does not mutate model inputs or SQLite databases.
 
@@ -23,8 +22,7 @@ Checks
 Exit codes
 ----------
 0
-    All fatal checks passed. Warnings may still be present unless
-    --fail-on-warning is used.
+    All error-level checks passed. Warnings may still be present.
 
 1
     One or more fatal checks failed.
@@ -34,17 +32,13 @@ Exit codes
 
 Examples
 --------
-Run the pre-solve gate:
+Run the pre-solve gate interactively:
 
-    python diagnostics/check_inputs.py --basemap canada_basemap_0.5deg_centroid --connection strong
+    python diagnostics/check.py inputs
 
-Write CSV audit outputs:
+Run it non-interactively:
 
-    python diagnostics/check_inputs.py --basemap canada_basemap_0.5deg_centroid --connection strong --write-csv
-
-Fail on warnings as well as errors:
-
-    python diagnostics/check_inputs.py --basemap canada_basemap_0.5deg_centroid --connection strong --fail-on-warning
+    python diagnostics/check.py inputs --config config/build_profiles/on-qc.toml --basemap on_qc_basemap_25km_centroid
 """
 
 from __future__ import annotations
@@ -59,13 +53,18 @@ from pathlib import Path
 import geopandas as gpd
 import pandas as pd
 
+from geocanoe.config import load_geospatial_build_config
 from geocanoe.diagnostics.models import DiagnosticResult
 from geocanoe.diagnostics.input.numeric import (
-    NumericColumnRule,
+    DEFAULT_NUMERIC_RULES,
     check_numeric_columns,
 )
 from geocanoe.diagnostics.input.readiness import check_technology_readiness
+from geocanoe.diagnostics.input.units import check_table_units
 from geocanoe.diagnostics.renderers import render_console_result
+from geocanoe.diagnostics.selection import select_numbered
+from geocanoe.paths import find_project_root
+from geocanoe.preprocessing.legacy_inputs import PROVINCE_NAME_TO_CODE
 from geocanoe.schema.artifacts import resolve_schema_artifact_paths
 
 
@@ -73,7 +72,7 @@ from geocanoe.schema.artifacts import resolve_schema_artifact_paths
 # Project paths
 # =============================================================================
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = find_project_root()
 DATA_FILES = PROJECT_ROOT / "data_files"
 REGISTRY_DIR = PROJECT_ROOT / "registry"
 
@@ -82,6 +81,7 @@ PROCESSED_GRAPH = DATA_FILES / "processed" / "graph"
 PROCESSED_ROAD_CONNECTIVITY = DATA_FILES / "processed" / "road_connectivity"
 PROCESSED_SCHEMA = DATA_FILES / "processed" / "schema"
 PROCESSED_AUDITS = DATA_FILES / "processed" / "audits" / "input_audit"
+BUILD_PROFILES = PROJECT_ROOT / "config" / "build_profiles"
 
 PROCESSED_LEGACY_INPUTS = DATA_FILES / "processed" / "legacy_inputs"
 SITES_PATH = PROCESSED_LEGACY_INPUTS / "sites_full_with_province.csv"
@@ -185,18 +185,6 @@ PARAM_TABLES = {
     },
 }
 
-NUMERIC_SCHEMA_CHECKS: list[NumericColumnRule] = [
-    NumericColumnRule("Demand", "demand", "non_negative"),
-    NumericColumnRule("Efficiency", "efficiency", "positive"),
-    NumericColumnRule("CostVariable", "cost", "non_negative"),
-    NumericColumnRule("CostInvest", "cost", "non_negative"),
-    NumericColumnRule("ETLSegment", "cap_lower", "non_negative"),
-    NumericColumnRule("ETLSegment", "cap_upper", "non_negative"),
-    NumericColumnRule("ETLSegment", "cost_lower", "non_negative"),
-    NumericColumnRule("ETLSegment", "cost_upper", "non_negative"),
-]
-
-
 # =============================================================================
 # Data containers
 # =============================================================================
@@ -224,76 +212,72 @@ CheckResult = DiagnosticResult
 # CLI
 # =============================================================================
 
-def parse_args() -> argparse.Namespace:
-    """Parse command-line options for the pre-solve diagnostic gate."""
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse the optional silver profile and basemap selection."""
 
     parser = argparse.ArgumentParser(
-        description="Run a non-interactive pre-solve input and schema gate for Geospatial-CANOE."
+        prog="check.py inputs",
+        description="Validate all inputs associated with one silver build profile.",
     )
 
+    parser.add_argument(
+        "--config",
+        type=Path,
+        help=(
+            "Silver build profile. If omitted, choose from config/build_profiles."
+        ),
+    )
     parser.add_argument(
         "--basemap",
-        required=True,
-        help=(
-            "Basemap stem, for example "
-            "canada_basemap_0.5deg_centroid or canada_basemap_1deg_intersects."
-        ),
+        help="Processed basemap stem. If omitted, choose one for the profile.",
     )
 
-    parser.add_argument(
-        "--connection",
-        required=True,
-        choices=["weak", "strong"],
-        help="Road connectivity method.",
-    )
+    return parser.parse_args(argv)
 
-    parser.add_argument(
-        "--road-layer",
-        default="freight_access",
-        help="Processed road layer used by the schema. Default: freight_access.",
-    )
 
-    parser.add_argument(
-        "--schema",
-        type=Path,
-        default=None,
-        help=(
-            "Optional explicit encoded SQLite schema path. If omitted, the script "
-            "uses data_files/processed/schema/"
-            "CANOE_geospatial_<basemap>_<road-layer>_<connection>.sqlite."
-        ),
-    )
+def resolve_profile_selection(
+    args: argparse.Namespace,
+) -> tuple[Path, str, str, str, tuple[str, ...]]:
+    """Resolve a build profile and its schema-producing artifact selections."""
 
-    parser.add_argument(
-        "--write-csv",
-        action="store_true",
-        help="Write audit CSV outputs.",
-    )
+    if args.config is None:
+        profiles = sorted(BUILD_PROFILES.glob("*.toml"))
+        config_path = select_numbered(
+            profiles,
+            "silver configuration",
+            display=lambda path: path.stem,
+        )
+    else:
+        config_path = args.config
+        if not config_path.is_absolute():
+            config_path = PROJECT_ROOT / config_path
 
-    parser.add_argument(
-        "--fail-on-warning",
-        action="store_true",
-        help="Return exit code 1 if warnings are present.",
-    )
+    build_config = load_geospatial_build_config(config_path)
+    if args.basemap is not None:
+        basemap_stem = args.basemap
+    elif not build_config.schema.interactive_basemap_selection:
+        if build_config.schema.basemap_stem is None:
+            raise ValueError(f"No basemap is configured in {config_path}")
+        basemap_stem = build_config.schema.basemap_stem
+    else:
+        pattern = (
+            f"{build_config.study_area.label}_basemap_*_"
+            f"{build_config.basemaps.keep_method}.gpkg"
+        )
+        basemap_stems = sorted(
+            path.stem
+            for path in PROCESSED_BASEMAPS.glob(pattern)
+            if "_boundary_" not in path.name
+        )
+        basemap_stem = select_numbered(basemap_stems, "processed basemap")
 
-    parser.add_argument(
-        "--allow-offshore-co2-critical-snaps",
-        action="store_true",
-        help=(
-            "Treat critical snap distances for CO2 facilities as WARNING instead "
-            "of ERROR. Use only when those offshore facilities are excluded or "
-            "handled elsewhere in preprocessing."
-        ),
+    return (
+        config_path.resolve(),
+        basemap_stem,
+        build_config.road_connectivity.road_layer,
+        build_config.schema.road_connection_method,
+        build_config.study_area.provinces,
     )
-
-    parser.add_argument(
-        "--max-report-rows",
-        type=int,
-        default=20,
-        help="Maximum number of failure rows to print per failed check.",
-    )
-
-    return parser.parse_args()
 
 
 # =============================================================================
@@ -345,6 +329,7 @@ def build_audit_config(
         road_layer=road_layer,
         connection_method=connection_method,
     )
+
     default_schema_path = artifacts.schema
 
     schema_path = schema_override if schema_override is not None else default_schema_path
@@ -488,10 +473,33 @@ def read_schema_tables(db_path: Path) -> dict[str, pd.DataFrame]:
 # Point preparation
 # =============================================================================
 
-def prepare_sites_points() -> pd.DataFrame:
+def filter_profile_provinces(
+    table: pd.DataFrame,
+    provinces: tuple[str, ...],
+    source_name: str,
+) -> pd.DataFrame:
+    """Keep only rows belonging to the selected build profile's study area."""
+
+    if "province" not in table.columns:
+        raise ValueError(f"{source_name} must contain a province column.")
+    selected = {province.upper() for province in provinces}
+    name_to_code = {
+        province_name.upper(): province_code
+        for province_name, province_code in PROVINCE_NAME_TO_CODE.items()
+    }
+    raw_provinces = table["province"].astype(str).str.strip().str.upper()
+    normalized = raw_provinces.map(name_to_code).fillna(raw_provinces)
+    return table.loc[normalized.isin(selected)].copy()
+
+
+def prepare_sites_points(provinces: tuple[str, ...]) -> pd.DataFrame:
     """Load site coordinates into the common point-audit representation."""
 
-    sites = pd.read_csv(SITES_PATH)
+    sites = filter_profile_provinces(
+        pd.read_csv(SITES_PATH),
+        provinces,
+        "sites input",
+    )
 
     lon_col = get_first_existing_column(sites, ["lon", "longitude", "Longitude"])
     lat_col = get_first_existing_column(sites, ["lat", "latitude", "Latitude"])
@@ -520,10 +528,14 @@ def prepare_sites_points() -> pd.DataFrame:
     return out.dropna(subset=["lon", "lat"]).copy()
 
 
-def prepare_demand_points() -> pd.DataFrame:
+def prepare_demand_points(provinces: tuple[str, ...]) -> pd.DataFrame:
     """Load demand coordinates into the common point-audit representation."""
 
-    demand = pd.read_csv(DEMAND_PATH)
+    demand = filter_profile_provinces(
+        pd.read_csv(DEMAND_PATH),
+        provinces,
+        "demand input",
+    )
 
     lon_col = get_first_existing_column(demand, ["lon", "longitude", "Longitude"])
     lat_col = get_first_existing_column(demand, ["lat", "latitude", "Latitude"])
@@ -551,10 +563,14 @@ def prepare_demand_points() -> pd.DataFrame:
     return out.dropna(subset=["lon", "lat"]).copy()
 
 
-def prepare_co2_points() -> pd.DataFrame:
+def prepare_co2_points(provinces: tuple[str, ...]) -> pd.DataFrame:
     """Load positive-emission facilities into the point-audit representation."""
 
-    co2 = gpd.read_file(CO2_CLEAN_GPKG_PATH)
+    co2 = filter_profile_provinces(
+        gpd.read_file(CO2_CLEAN_GPKG_PATH),
+        provinces,
+        "CO2 facilities input",
+    )
 
     lon_col = get_first_existing_column(co2, ["longitude", "lon", "Longitude"])
     lat_col = get_first_existing_column(co2, ["latitude", "lat", "Latitude"])
@@ -1287,7 +1303,7 @@ def check_graph_node_region_mapping(
 def check_numeric_schema_values(tables: dict[str, pd.DataFrame]) -> list[CheckResult]:
     """Validate required numeric schema columns using strict coercion rules."""
 
-    return check_numeric_columns(tables, NUMERIC_SCHEMA_CHECKS)
+    return check_numeric_columns(tables, DEFAULT_NUMERIC_RULES)
 
 
 def check_etl_segment_monotonicity(tables: dict[str, pd.DataFrame]) -> CheckResult:
@@ -1361,6 +1377,7 @@ def write_csv_outputs(
     duplicate_summary: pd.DataFrame,
     region_coverage: pd.DataFrame,
     technology_readiness: pd.DataFrame,
+    unit_inventory: pd.DataFrame,
     results: list[CheckResult],
 ) -> None:
     """Write detailed pre-solve audit tables and row-level evidence."""
@@ -1379,7 +1396,18 @@ def write_csv_outputs(
         config.audit_dir / "technology_readiness.csv",
         index=False,
     )
+    unit_inventory.to_csv(config.audit_dir / "unit_inventory.csv", index=False)
 
+    write_result_outputs(config, results)
+
+
+def write_result_outputs(
+    config: AuditConfig,
+    results: list[CheckResult],
+) -> None:
+    """Write verdicts and available row-level evidence for diagnostic results."""
+
+    config.audit_dir.mkdir(parents=True, exist_ok=True)
     verdict_rows = [
         {
             "check_id": result.check_id,
@@ -1407,25 +1435,34 @@ def write_csv_outputs(
 # Main workflow
 # =============================================================================
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     """Run the complete pre-solve diagnostic gate and return its exit code."""
 
-    args = parse_args()
+    args = parse_args(argv)
 
-    print_banner("Geospatial-CANOE pre-solve input and schema-construction gate")
+    try:
+        profile_path, basemap_stem, road_layer, connection_method, provinces = (
+            resolve_profile_selection(args)
+        )
+        config = build_audit_config(
+            basemap_stem=basemap_stem,
+            road_layer=road_layer,
+            connection_method=connection_method,
+        )
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        print_banner("Input diagnostic selection error")
+        print(exc)
+        return 2
+
+    print_banner("Geospatial-CANOE input diagnostics")
     print(f"Project root: {PROJECT_ROOT}")
 
-    config = build_audit_config(
-        basemap_stem=args.basemap,
-        road_layer=args.road_layer,
-        connection_method=args.connection,
-        schema_override=args.schema,
-    )
-
     print("\nSelected gate configuration:")
+    print(f"Silver profile: {profile_path}")
     print(f"Basemap: {config.basemap_stem}")
     print(f"Road layer: {config.road_layer}")
     print(f"Road connection method: {config.connection_method}")
+    print(f"Study area provinces: {', '.join(provinces)}")
     print(f"Schema path: {config.schema_path}")
     print(f"Audit output directory: {config.audit_dir}")
 
@@ -1435,10 +1472,12 @@ def main() -> int:
     results.append(required_paths_result)
 
     print_banner("Required input files")
-    print_result(required_paths_result, max_rows=args.max_report_rows)
+    print_result(required_paths_result)
 
     if not required_paths_result.passed:
         results.append(check_gate_coverage(results))
+        write_result_outputs(config, results)
+        print(f"\nCSV reports written to: {config.audit_dir}")
         print_banner("Pre-solve input gate result")
         print("FAILED: one or more required input files are missing.")
         return 1
@@ -1465,9 +1504,9 @@ def main() -> int:
 
         print_banner("Preparing point inputs")
 
-        sites_points = prepare_sites_points()
-        demand_points = prepare_demand_points()
-        co2_points = prepare_co2_points()
+        sites_points = prepare_sites_points(provinces)
+        demand_points = prepare_demand_points(provinces)
+        co2_points = prepare_co2_points(provinces)
 
         all_points = pd.concat([sites_points, demand_points, co2_points], ignore_index=True)
 
@@ -1501,7 +1540,7 @@ def main() -> int:
     results.extend(
         check_snap_distances(
             snap_audit=snap_audit,
-            allow_offshore_co2_critical_snaps=args.allow_offshore_co2_critical_snaps,
+            allow_offshore_co2_critical_snaps=False,
         )
     )
 
@@ -1521,6 +1560,11 @@ def main() -> int:
     results.append(check_graph_node_region_mapping(graph_nodes=graph_nodes, tables=schema_tables))
     technology_readiness, readiness_results = check_technology_readiness(schema_tables)
     results.extend(readiness_results)
+    unit_inventory, unit_results = check_table_units(
+        schema_tables,
+        strict=False,
+    )
+    results.extend(unit_results)
     results.extend(check_numeric_schema_values(schema_tables))
     results.append(check_etl_segment_monotonicity(schema_tables))
     results.append(check_gate_coverage(results))
@@ -1531,7 +1575,7 @@ def main() -> int:
     any_warning = False
 
     for result in results:
-        print_result(result, max_rows=args.max_report_rows)
+        print_result(result)
 
         if result.ran and not result.passed and result.severity == "ERROR":
             any_error = True
@@ -1553,22 +1597,25 @@ def main() -> int:
     print_banner("Technology readiness")
     print(technology_readiness.to_string(index=False))
 
-    if args.write_csv:
-        write_csv_outputs(
-            config=config,
-            topology_summary=topology_summary,
-            snap_audit=snap_audit,
-            snap_summary=snap_summary,
-            long_snaps=long_snaps,
-            table_counts=table_counts,
-            duplicate_summary=duplicate_summary,
-            region_coverage=region_coverage,
-            technology_readiness=technology_readiness,
-            results=results,
-        )
+    print_banner("Unit inventory")
+    print(unit_inventory.to_string(index=False))
 
-        print_banner("CSV reports")
-        print(f"Audit outputs written to: {config.audit_dir}")
+    write_csv_outputs(
+        config=config,
+        topology_summary=topology_summary,
+        snap_audit=snap_audit,
+        snap_summary=snap_summary,
+        long_snaps=long_snaps,
+        table_counts=table_counts,
+        duplicate_summary=duplicate_summary,
+        region_coverage=region_coverage,
+        technology_readiness=technology_readiness,
+        unit_inventory=unit_inventory,
+        results=results,
+    )
+
+    print_banner("CSV reports")
+    print(f"Audit outputs written to: {config.audit_dir}")
 
     print_banner("Pre-solve input and schema-construction gate result")
 
@@ -1577,10 +1624,6 @@ def main() -> int:
         return 1
 
     if any_warning:
-        if args.fail_on_warning:
-            print("FAILED: warnings present and --fail-on-warning was used.")
-            return 1
-
         print("PASSED WITH WARNINGS: no fatal input/schema checks failed.")
         return 0
 

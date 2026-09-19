@@ -37,9 +37,7 @@ Checks
    Verify that the reported objective matches the summed model cost components.
    By default, the gate accepts either discounted or raw cost agreement because
    the current model is single-period and both conventions can be useful during
-   development. The script still reports which convention matched. For future
-   multi-period runs, use --objective-cost-mode discounted to require discounted
-   objective accounting.
+   development. The script still reports which convention matched.
 
 Exit codes
 ----------
@@ -56,12 +54,13 @@ Examples
 --------
 Run the balance gate on a solved database or run output folder:
 
-    python diagnostics/check_balance.py output_files/<run>
-    python diagnostics/check_balance.py output_files/<run>/solved_CANOE_geospatial_*.sqlite
+    python diagnostics/check.py outputs
 
-Write diagnostic CSV files beside the solved database:
+For a non-interactive run, provide the database or run directory:
 
-    python diagnostics/check_balance.py output_files/<run> --write-csv
+    python diagnostics/check.py outputs output_files/<run>
+
+Diagnostic CSV files are always written beside the solved database.
 """
 
 from __future__ import annotations
@@ -69,6 +68,7 @@ from __future__ import annotations
 import argparse
 import sqlite3
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
@@ -79,6 +79,8 @@ from geocanoe.diagnostics.models import (
     DiagnosticStage,
 )
 from geocanoe.diagnostics.renderers import write_json_report
+from geocanoe.diagnostics.selection import select_numbered
+from geocanoe.paths import find_project_root
 
 
 # =============================================================================
@@ -90,6 +92,7 @@ DEFAULT_REL_TOL = 1e-6
 
 TRANSPORT_EDGE_SEPARATOR = "-"
 DEFAULT_EXCLUDED_BALANCE_FLAGS = {"s", "e"}
+OUTPUT_ROOT = find_project_root() / "output_files"
 
 
 # =============================================================================
@@ -832,86 +835,203 @@ def check_objective_cost_consistency(
 # Main CLI
 # =============================================================================
 
-def parse_args() -> argparse.Namespace:
-    """Parse command-line options for the post-solve validation gate."""
+@dataclass(frozen=True)
+class OutputDiagnosticRun:
+    """Structured post-solve report and detailed validation evidence."""
+
+    report: DiagnosticReport
+    balance: pd.DataFrame
+    balance_failures: pd.DataFrame
+    balance_excluded: pd.DataFrame
+    technology_summary: pd.DataFrame
+    edge_flow_summary: pd.DataFrame
+    capacity_failures: pd.DataFrame
+    objective_comparison: pd.DataFrame
+
+
+def run_output_database_checks(
+    database: Path,
+    *,
+    abs_tol: float = DEFAULT_ABS_TOL,
+    rel_tol: float = DEFAULT_REL_TOL,
+    objective_cost_mode: str = "either",
+    strict_capacity_flow: bool = False,
+    excluded_balance_flags: set[str] | None = None,
+) -> OutputDiagnosticRun:
+    """Run all core post-solve checks without console or file side effects."""
+
+    db_path = resolve_database_path(database)
+    with connect(db_path) as con:
+        flow_in = read_table(con, "OutputFlowIn")
+        flow_out = read_table(con, "OutputFlowOut")
+        demand = read_table(con, "Demand")
+        commodity = read_optional_table(con, "Commodity")
+        objective = read_optional_table(con, "OutputObjective")
+        output_cost = read_optional_table(con, "OutputCost")
+        net_capacity = read_optional_table(con, "OutputNetCapacity")
+        efficiency = read_optional_table(con, "Efficiency")
+        cost_variable = read_optional_table(con, "CostVariable")
+        cost_invest = read_optional_table(con, "CostInvest")
+        etl_segment = read_optional_table(con, "ETLSegment")
+
+    tech_sets, tech_summary = infer_edge_technology_sets(
+        flow_in=flow_in,
+        flow_out=flow_out,
+        efficiency=efficiency,
+        cost_variable=cost_variable,
+        cost_invest=cost_invest,
+        etl_segment=etl_segment,
+        net_capacity=net_capacity,
+        abs_tol=abs_tol,
+    )
+    balance_passed, balance, balance_failures, balance_excluded = (
+        check_commodity_balance(
+            flow_in=flow_in,
+            flow_out=flow_out,
+            demand=demand,
+            commodity=commodity,
+            excluded_flags=(
+                DEFAULT_EXCLUDED_BALANCE_FLAGS
+                if excluded_balance_flags is None
+                else excluded_balance_flags
+            ),
+            abs_tol=abs_tol,
+            rel_tol=rel_tol,
+        )
+    )
+    edge_flow_summary = build_positive_edge_flow_summary(
+        flow_out=flow_out,
+        tech_summary=tech_summary,
+        abs_tol=abs_tol,
+    )
+    capacity_passed, capacity_failures = check_etl_defined_edge_flow_capacity(
+        flow_out=flow_out,
+        net_capacity=net_capacity,
+        etl_defined_edge_techs=tech_sets["etl_defined_edge_techs"],
+        abs_tol=abs_tol,
+        strict_capacity_flow=strict_capacity_flow,
+    )
+    objective_passed, objective_comparison = check_objective_cost_consistency(
+        objective=objective,
+        output_cost=output_cost,
+        abs_tol=abs_tol,
+        rel_tol=rel_tol,
+        objective_cost_mode=objective_cost_mode,
+    )
+
+    report = DiagnosticReport(
+        metadata={
+            "database": str(db_path),
+            "abs_tol": abs_tol,
+            "rel_tol": rel_tol,
+            "objective_cost_mode": objective_cost_mode,
+            "strict_capacity_flow": strict_capacity_flow,
+        }
+    )
+    report.add(
+        DiagnosticResult(
+            name="Node commodity balance",
+            passed=balance_passed,
+            severity="ERROR",
+            detail=f"checked={len(balance)}, failures={len(balance_failures)}",
+            failures=balance_failures if not balance_failures.empty else None,
+            check_id="OUTPUT.BALANCE.RESIDUAL",
+            stage=DiagnosticStage.OUTPUT,
+        ),
+        DiagnosticResult(
+            name="Positive ETLSegment-defined edge flow has reported capacity",
+            passed=capacity_passed,
+            severity="ERROR",
+            detail=f"failures={len(capacity_failures)}",
+            failures=capacity_failures if not capacity_failures.empty else None,
+            check_id="OUTPUT.CAPACITY.EDGE_FLOW_WITHOUT_CAPACITY",
+            stage=DiagnosticStage.OUTPUT,
+        ),
+        DiagnosticResult(
+            name="Objective matches cost components",
+            passed=objective_passed,
+            severity="ERROR",
+            detail=f"checked={len(objective_comparison)}",
+            failures=(
+                objective_comparison.loc[~objective_comparison["passed"]].copy()
+                if not objective_passed
+                else None
+            ),
+            check_id="OUTPUT.OBJECTIVE.COST_MISMATCH",
+            stage=DiagnosticStage.OUTPUT,
+        ),
+    )
+
+    return OutputDiagnosticRun(
+        report=report,
+        balance=balance,
+        balance_failures=balance_failures,
+        balance_excluded=balance_excluded,
+        technology_summary=tech_summary,
+        edge_flow_summary=edge_flow_summary,
+        capacity_failures=capacity_failures,
+        objective_comparison=objective_comparison,
+    )
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse an optional solved database or run directory."""
 
     parser = argparse.ArgumentParser(
-        description="Run post-solve balance and accounting diagnostics on a CANOE/TEMOA SQLite database."
+        prog="check.py outputs",
+        description="Validate one solved CANOE/TEMOA run and write CSV evidence.",
     )
 
     parser.add_argument(
         "database",
+        nargs="?",
         type=Path,
-        help="Path to solved SQLite database or run output directory containing one solved_*.sqlite file.",
-    )
-
-    parser.add_argument(
-        "--abs-tol",
-        type=float,
-        default=DEFAULT_ABS_TOL,
-        help=f"Absolute tolerance. Default: {DEFAULT_ABS_TOL}",
-    )
-
-    parser.add_argument(
-        "--rel-tol",
-        type=float,
-        default=DEFAULT_REL_TOL,
-        help=f"Relative tolerance. Default: {DEFAULT_REL_TOL}",
-    )
-
-    parser.add_argument(
-        "--objective-cost-mode",
-        choices=["either", "discounted"],
-        default="either",
         help=(
-            "Objective-cost reconciliation rule. Default 'either' is appropriate "
-            "for the current single-period model and passes if OutputObjective "
-            "matches either discounted or raw OutputCost sums. Use 'discounted' "
-            "when the model becomes genuinely multi-period."
+            "Solved SQLite database or run directory. If omitted, choose a "
+            "solved run interactively."
         ),
     )
+    parser.set_defaults(
+        abs_tol=DEFAULT_ABS_TOL,
+        rel_tol=DEFAULT_REL_TOL,
+        objective_cost_mode="either",
+        strict_capacity_flow=False,
+        max_report_rows=20,
+        write_csv=True,
+        exclude_balance_flags=sorted(DEFAULT_EXCLUDED_BALANCE_FLAGS),
+    )
+    return parser.parse_args(argv)
 
-    parser.add_argument(
-        "--strict-capacity-flow",
-        action="store_true",
-        help=(
-            "Also fail when ETLSegment-defined edge flow exceeds reported capacity. "
-            "Use only if units are confirmed comparable."
-        ),
+
+def select_solved_database() -> Path:
+    """Interactively choose a solved SQLite database from the run archive."""
+
+    databases = sorted(
+        OUTPUT_ROOT.glob("**/solved_*.sqlite"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    return select_numbered(
+        databases,
+        "solved run",
+        display=lambda path: str(path.relative_to(OUTPUT_ROOT)),
     )
 
-    parser.add_argument(
-        "--max-report-rows",
-        type=int,
-        default=20,
-        help="Maximum failure rows to print per check.",
-    )
 
-    parser.add_argument(
-        "--write-csv",
-        action="store_true",
-        help="Write diagnostic CSV files beside the database.",
-    )
-
-    parser.add_argument(
-        "--exclude-balance-flags",
-        nargs="*",
-        default=sorted(DEFAULT_EXCLUDED_BALANCE_FLAGS),
-        help=(
-            "Commodity flags excluded from conservation balance. "
-            "Default excludes source and emission commodities: s e"
-        ),
-    )
-
-    return parser.parse_args()
-
-
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     """Run post-solve physical and accounting checks from the command line."""
 
-    args = parse_args()
+    args = parse_args(argv)
 
-    db_path = resolve_database_path(args.database)
+    try:
+        db_path = (
+            resolve_database_path(args.database)
+            if args.database is not None
+            else select_solved_database()
+        )
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        print_section("Output diagnostic selection error")
+        print(exc)
+        return 2
     report_dir = db_path.parent / "diagnostics"
 
     balance = pd.DataFrame()

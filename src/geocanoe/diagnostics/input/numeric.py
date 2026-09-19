@@ -24,6 +24,18 @@ class NumericColumnRule:
     severity: str = "ERROR"
 
 
+DEFAULT_NUMERIC_RULES: list[NumericColumnRule] = [
+    NumericColumnRule("Demand", "demand", "non_negative"),
+    NumericColumnRule("Efficiency", "efficiency", "positive"),
+    NumericColumnRule("CostVariable", "cost", "non_negative"),
+    NumericColumnRule("CostInvest", "cost", "non_negative"),
+    NumericColumnRule("ETLSegment", "cap_lower", "non_negative"),
+    NumericColumnRule("ETLSegment", "cap_upper", "non_negative"),
+    NumericColumnRule("ETLSegment", "cost_lower", "non_negative"),
+    NumericColumnRule("ETLSegment", "cost_upper", "non_negative"),
+]
+
+
 def check_numeric_columns(
     tables: dict[str, pd.DataFrame],
     rules: list[NumericColumnRule],

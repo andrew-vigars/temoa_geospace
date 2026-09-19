@@ -39,6 +39,9 @@ from datetime import datetime
 from pathlib import Path
 
 from geocanoe.analysis.exports import export_output_tables
+from geocanoe.diagnostics.input.database import run_schema_database_checks
+from geocanoe.diagnostics.output.gate import run_output_database_checks
+from geocanoe.diagnostics.renderers import write_json_report
 from geocanoe.paths import find_project_root
 from geocanoe.schema.database import update_db_paths
 
@@ -54,6 +57,15 @@ MAIN_PATH = PROJECT_ROOT / "temoa" / "main.py"
 CONFIG_DIR = PROJECT_ROOT / "temoa" / "data_files" / "my_configs"
 SCHEMA_DIR = PROJECT_ROOT / "data_files" / "processed" / "schema"
 OUTPUT_ROOT = PROJECT_ROOT / "output_files"
+
+DIAGNOSTIC_EXCEPTIONS = (
+    FileNotFoundError,
+    KeyError,
+    OSError,
+    TypeError,
+    ValueError,
+    sqlite3.Error,
+)
 
 
 # =============================================================================
@@ -194,18 +206,20 @@ def validate_required_paths(db_path: Path, config_path: Path) -> None:
         raise FileNotFoundError("One or more required paths are missing.")
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse optional non-interactive model-run inputs.
 
     The database and TEMOA configuration arguments are optional so the existing
     interactive file-selection workflow remains available. When
     ``--non-interactive`` is supplied, both paths must be provided and TEMOA is
-    executed with its silent command-line flag.
+    executed with its silent command-line flag. The diagnostic policy controls
+    whether validation is disabled, recorded without blocking, or enforced.
 
     Returns
     -------
     argparse.Namespace
-        Parsed database path, configuration path, and non-interactive flag.
+        Parsed database path, configuration path, execution mode, and diagnostic
+        policy.
     """
 
     parser = argparse.ArgumentParser(
@@ -241,7 +255,17 @@ def parse_args() -> argparse.Namespace:
         ),
     )
 
-    return parser.parse_args()
+    parser.add_argument(
+        "--diagnostics",
+        choices=["off", "report", "strict"],
+        default="report",
+        help=(
+            "Diagnostic policy. 'report' records findings without blocking, "
+            "'strict' stops on diagnostic errors, and 'off' disables checks."
+        ),
+    )
+
+    return parser.parse_args(argv)
 
 # =============================================================================
 # Run batch scripting helpers
@@ -552,7 +576,9 @@ def main() -> None:
     A run manifest records the command, execution mode, environment, Git state,
     tracked files, input hashes, configuration text, status, return code, and
     elapsed time. Failed solver runs retain their output directory and working
-    database for inspection before the subprocess exception is re-raised.
+    database for inspection before the subprocess exception is re-raised. When
+    diagnostics are enabled, pre-solve findings, post-solve validation, and any
+    available failure postmortem are also recorded under the run directory.
 
     After a successful solve, the working database is archived as the solved
     database, solved ``Output*`` tables are exported to an Excel workbook,
@@ -600,6 +626,7 @@ def main() -> None:
     print(f"Database:        {db_path}")
     print(f"Config:          {config_path}")
     print(f"Non-interactive: {args.non_interactive}")
+    print(f"Diagnostics:     {args.diagnostics}")
     print(f"Output:          {output_dir}")
 
     print_header("Preparing run")
@@ -671,10 +698,76 @@ def main() -> None:
         "results": {
             "objectives": [],
         },
+        "diagnostics": {
+            "mode": args.diagnostics,
+        },
     }
 
     write_manifest(manifest_path, manifest)
     print(f"Manifest started: {manifest_path.name}")
+
+    diagnostics_dir = output_dir / "diagnostics"
+    if args.diagnostics != "off":
+        print_header("Pre-solve diagnostics")
+        pre_solve = None
+        try:
+            pre_solve = run_schema_database_checks(
+                db_path,
+                strict_units=args.diagnostics == "strict",
+            )
+        except DIAGNOSTIC_EXCEPTIONS as diagnostic_exc:
+            manifest["diagnostics"]["pre_solve"] = {
+                "status": "unavailable",
+                "detail": str(diagnostic_exc),
+            }
+            write_manifest(manifest_path, manifest)
+            print(f"WARNING: Pre-solve diagnostics unavailable: {diagnostic_exc}")
+            if args.diagnostics == "strict":
+                manifest["run"]["status"] = "validation_failed"
+                manifest["run"]["return_code"] = 2
+                write_manifest(manifest_path, manifest)
+                raise RuntimeError(
+                    "Strict pre-solve diagnostics could not run."
+                ) from diagnostic_exc
+        else:
+            diagnostics_dir.mkdir(parents=True, exist_ok=True)
+            write_json_report(
+                pre_solve.report,
+                diagnostics_dir / "pre_solve_report.json",
+            )
+            pre_solve.technology_readiness.to_csv(
+                diagnostics_dir / "technology_readiness.csv",
+                index=False,
+            )
+            pre_solve.unit_inventory.to_csv(
+                diagnostics_dir / "unit_inventory.csv",
+                index=False,
+            )
+            manifest["diagnostics"]["pre_solve"] = {
+                "status": "completed",
+                "has_errors": pre_solve.report.has_errors,
+                "has_warnings": pre_solve.report.has_warnings,
+                "checks": len(pre_solve.report.results),
+                "report": str(diagnostics_dir / "pre_solve_report.json"),
+            }
+            write_manifest(manifest_path, manifest)
+            print(
+                "Pre-solve diagnostics: "
+                f"errors={pre_solve.report.has_errors}, "
+                f"warnings={pre_solve.report.has_warnings}"
+            )
+
+        if (
+            args.diagnostics == "strict"
+            and pre_solve is not None
+            and pre_solve.report.has_errors
+        ):
+            manifest["run"]["status"] = "validation_failed"
+            manifest["run"]["return_code"] = 1
+            write_manifest(manifest_path, manifest)
+            raise RuntimeError(
+                "Strict pre-solve diagnostics failed. See diagnostics/pre_solve_report.json."
+            )
 
     print_header("Starting solver")
     print("Command:")
@@ -691,6 +784,26 @@ def main() -> None:
         manifest["run"]["status"] = "failed"
         manifest["run"]["return_code"] = exc.returncode
         manifest["run"]["wall_time_seconds"] = elapsed
+
+        if args.diagnostics != "off":
+            try:
+                postmortem = run_output_database_checks(working_db_path)
+            except DIAGNOSTIC_EXCEPTIONS as diagnostic_exc:
+                manifest["diagnostics"]["postmortem"] = {
+                    "status": "unavailable",
+                    "detail": str(diagnostic_exc),
+                }
+            else:
+                diagnostics_dir.mkdir(parents=True, exist_ok=True)
+                write_json_report(
+                    postmortem.report,
+                    diagnostics_dir / "postmortem_report.json",
+                )
+                manifest["diagnostics"]["postmortem"] = {
+                    "status": "completed",
+                    "has_errors": postmortem.report.has_errors,
+                    "report": str(diagnostics_dir / "postmortem_report.json"),
+                }
         write_manifest(manifest_path, manifest)
 
         print_header("Run failed")
@@ -705,6 +818,71 @@ def main() -> None:
     print_header("Archiving solved database")
     shutil.copy2(working_db_path, solved_db_archive)
     print(f"Saved: {solved_db_archive.name}")
+
+    if args.diagnostics != "off":
+        print_header("Post-solve diagnostics")
+        post_solve = None
+        try:
+            post_solve = run_output_database_checks(solved_db_archive)
+        except DIAGNOSTIC_EXCEPTIONS as diagnostic_exc:
+            manifest["diagnostics"]["post_solve"] = {
+                "status": "unavailable",
+                "detail": str(diagnostic_exc),
+            }
+            write_manifest(manifest_path, manifest)
+            print(f"WARNING: Post-solve diagnostics unavailable: {diagnostic_exc}")
+            if args.diagnostics == "strict":
+                manifest["run"]["status"] = "validation_failed"
+                manifest["run"]["return_code"] = 2
+                manifest["run"]["wall_time_seconds"] = elapsed
+                write_manifest(manifest_path, manifest)
+                raise RuntimeError(
+                    "Strict post-solve diagnostics could not run."
+                ) from diagnostic_exc
+        else:
+            diagnostics_dir.mkdir(parents=True, exist_ok=True)
+            write_json_report(
+                post_solve.report,
+                diagnostics_dir / "post_solve_report.json",
+            )
+            post_solve.balance_failures.to_csv(
+                diagnostics_dir / "commodity_balance_failures.csv",
+                index=False,
+            )
+            post_solve.capacity_failures.to_csv(
+                diagnostics_dir / "edge_capacity_failures.csv",
+                index=False,
+            )
+            post_solve.objective_comparison.to_csv(
+                diagnostics_dir / "objective_cost_comparison.csv",
+                index=False,
+            )
+            manifest["diagnostics"]["post_solve"] = {
+                "status": "completed",
+                "has_errors": post_solve.report.has_errors,
+                "has_warnings": post_solve.report.has_warnings,
+                "checks": len(post_solve.report.results),
+                "report": str(diagnostics_dir / "post_solve_report.json"),
+            }
+            write_manifest(manifest_path, manifest)
+            print(
+                "Post-solve diagnostics: "
+                f"errors={post_solve.report.has_errors}, "
+                f"warnings={post_solve.report.has_warnings}"
+            )
+
+        if (
+            args.diagnostics == "strict"
+            and post_solve is not None
+            and post_solve.report.has_errors
+        ):
+            manifest["run"]["status"] = "validation_failed"
+            manifest["run"]["return_code"] = 1
+            manifest["run"]["wall_time_seconds"] = elapsed
+            write_manifest(manifest_path, manifest)
+            raise RuntimeError(
+                "Strict post-solve diagnostics failed. See diagnostics/post_solve_report.json."
+            )
 
     print_header("Exporting solved output workbook")
 
