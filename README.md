@@ -591,7 +591,7 @@ The current transport infrastructure formulation uses piecewise capacity-cost se
 Priority extensions include:
 
 - commodity-specific CO₂, hydrogen, fuel, and natural-gas pipeline cost models;
-- geological CO₂ storage, DAC, BECCS, and additional carbon-management pathways;
+- geological CO₂ capacity and injectivity storage representation, DAC, BECCS, and additional carbon-management pathways;
 - rail, marine, reused natural-gas corridors, and expanded electricity transmission;
 - e-diesel, e-SAF, and e-methanol pathways;
 - multi-period optimization and improved temporal representation;
@@ -602,6 +602,6 @@ Priority extensions include:
 
 ## Status
 
-The preprocessing, schema-building, execution, export, and interactive mapping pipeline is operational for the current road, truck, pipeline, and electricity-transmission representation. The codebase remains under active refactoring and should be treated as research software rather than a stable public API.
+The preprocessing, schema-building, execution, export, diagnostics, and interactive mapping pipeline is partially operational for the current road, truck, pipeline, electricity-transmission, and geological-storage preprocessing representation. Truck cost representation is still required as well as CO2 and end-fuel pipeline representation. The major scripts-to-package refactor is complete, although the codebase remains active research software and should not yet be treated as a stable public API.
 
 For the workflow overview, see [`scripts/model_workflow.md`](scripts/model_workflow.md).
