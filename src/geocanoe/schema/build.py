@@ -19,6 +19,7 @@ Processed geospatial products:
     data_files/processed/graph/*_graph_edges.csv
     data_files/processed/road_connectivity/*_road_edge_connections.csv
     data_files/processed/road_connectivity/*_road_edges.gpkg
+    data_files/processed/co2_storage/*_co2_storage.gpkg
 
 Schema and baseline database:
     data_files/canoe_dataset_schema.sql
@@ -62,6 +63,7 @@ import pandas as pd
 from geocanoe.config import (
     GeospatialBuildConfig,
     load_geospatial_build_config,
+    load_model_config,
     print_build_config,
 )
 from geocanoe.paths import find_project_root
@@ -102,6 +104,7 @@ TRANSPORT_TECHS_PATH = REGISTRY_DIR / "transport_techs.csv"
 GEN_EFFICIENCIES_PATH = REGISTRY_DIR / "generation_efficiency.csv"
 TECHNOLOGIES_PATH = REGISTRY_DIR / "techs.csv"
 COMMODITIES_PATH = REGISTRY_DIR / "commodities.csv"
+MODEL_CONFIG_PATH = REGISTRY_DIR / "model.toml"
 
 PROCESSED_COSTS = DATA_FILES / "processed" / "costs"
 H2_PIPELINE_COST_DIR = (
@@ -122,6 +125,12 @@ H2_OPEX_COEFFICIENT_PATH = (
 DATA_ID = "GEO001"
 STAT_CANADA_LAMBERT_CRS = "EPSG:3347"
 CO2_KT_TO_T_FACTOR = 1000.0
+
+STORAGE_ELIGIBILITY_COLUMNS = {
+    "all_mapped": "storage_accessible",
+    "quantitative": "has_quantitative_storage_evidence",
+    "qualitative": "has_qualitative_storage_evidence",
+}
 
 PLANT_TECHS = {"GSL_PLANT", "METOH_PLANT"}
 NODE_COSTVARIABLE_TECHS = ["ELC_GEN", "CO2_CAP", "GSL_BACKUP"]
@@ -181,6 +190,27 @@ class ResolvedSchemaConfig:
     road_region_overlay_path : Path
         Path to the road-region overlay GeoPackage for the selected basemap and
         road layer.
+    co2_storage_path : Path
+        Path to the Silver CO2-storage GeoPackage matching the selected basemap.
+    storage_eligibility : str
+        Configured Silver evidence rule for ``CO2_INJECT`` availability.
+    storage_use_capacity_bound : bool
+        Whether a numerical geological storage capacity bound was requested.
+    model_config_path : Path
+        Path to the canonical non-spatial model registry.
+    model_start_year : int
+        Start year and sole optimization-period label.
+    model_end_year : int
+        Exclusive terminal boundary used to calculate period length.
+    global_discount_rate : float
+        Social discount rate used for present-value calculations.
+    default_loan_rate : float
+        Default rate used to annualize investment costs.
+    storage_requirement : str
+        Registry policy for requiring geological storage.
+    storage_minimum_annual_activity : float
+        System-wide lower bound on annual ``CO2_INJECT`` activity when the
+        storage requirement is ``"minimum_annual_activity"``.
     output_sqlite_path : Path
         Path where the encoded CANOE/TEMOA SQLite database will be written.
     """
@@ -194,6 +224,16 @@ class ResolvedSchemaConfig:
     road_edge_connections_path: Path
     road_edges_gpkg_path: Path
     road_region_overlay_path: Path
+    co2_storage_path: Path
+    storage_eligibility: str
+    storage_use_capacity_bound: bool
+    model_config_path: Path
+    model_start_year: int
+    model_end_year: int
+    global_discount_rate: float
+    default_loan_rate: float
+    storage_requirement: str
+    storage_minimum_annual_activity: float
     output_sqlite_path: Path
 
 
@@ -219,6 +259,8 @@ class LoadedInputs:
         Road-connectivity table for the selected basemap and connection method.
     road_edges_gdf : gpd.GeoDataFrame
         Spatial road-edge geometries for the selected road-connectivity method.
+    storage_regions : gpd.GeoDataFrame
+        Regional Silver storage evidence matching the selected basemap.
     db : dict[str, pd.DataFrame]
         Baseline CANOE/TEMOA SQLite database loaded as table DataFrames.
     sites_raw : pd.DataFrame
@@ -246,6 +288,7 @@ class LoadedInputs:
     graph_edges: pd.DataFrame
     road_edge_connections: pd.DataFrame
     road_edges_gdf: gpd.GeoDataFrame
+    storage_regions: gpd.GeoDataFrame
     db: dict[str, pd.DataFrame]
     sites_raw: pd.DataFrame
     demand_raw: pd.DataFrame
@@ -539,6 +582,11 @@ def resolve_schema_configuration(
         by the configured workflow.
     """
 
+    model_config = load_model_config(MODEL_CONFIG_PATH)
+
+    validate_storage_capacity_bound_setting(
+        build_config.storage.use_capacity_bound
+    )
     available_stems = discover_basemap_stems(build_config)
 
     if build_config.schema.interactive_basemap_selection:
@@ -587,6 +635,18 @@ def resolve_schema_configuration(
         road_edge_connections_path=artifacts.road_edge_connections,
         road_edges_gpkg_path=artifacts.road_edges,
         road_region_overlay_path=artifacts.road_region_overlay,
+        co2_storage_path=artifacts.co2_storage,
+        storage_eligibility=build_config.storage.eligibility,
+        storage_use_capacity_bound=build_config.storage.use_capacity_bound,
+        model_config_path=model_config.source_path,
+        model_start_year=model_config.time.start_year,
+        model_end_year=model_config.time.end_year,
+        global_discount_rate=model_config.finance.global_discount_rate,
+        default_loan_rate=model_config.finance.default_loan_rate,
+        storage_requirement=model_config.storage.requirement,
+        storage_minimum_annual_activity=(
+            model_config.storage.minimum_annual_activity
+        ),
         output_sqlite_path=artifacts.schema,
     )
 
@@ -662,6 +722,7 @@ def validate_required_paths(config: ResolvedSchemaConfig) -> None:
         "generation_efficiency": GEN_EFFICIENCIES_PATH,
         "techs": TECHNOLOGIES_PATH,
         "commodities": COMMODITIES_PATH,
+        "model_config": config.model_config_path,
         "h2_etlsegment_template": H2_ETLSEGMENT_TEMPLATE_PATH,
         "h2_opex_coefficients": H2_OPEX_COEFFICIENT_PATH,
         "processed_basemap": config.basemap_path,
@@ -670,6 +731,7 @@ def validate_required_paths(config: ResolvedSchemaConfig) -> None:
         "road_edge_connections": config.road_edge_connections_path,
         "road_edges_gpkg": config.road_edges_gpkg_path,
         "road_region_overlay": config.road_region_overlay_path,
+        "co2_storage": config.co2_storage_path,
     }
 
     missing_paths = {
@@ -708,6 +770,126 @@ def sort_region_ids(region_series: pd.Series) -> pd.Series:
 # =============================================================================
 # Loading and canonical graph/link construction
 # =============================================================================
+
+def validate_storage_region_coverage(
+    storage_regions: pd.DataFrame,
+    graph_nodes: pd.DataFrame,
+    eligibility: str = "all_mapped",
+) -> None:
+    """Validate exact Silver storage coverage of the selected graph regions.
+
+    The regional storage-evidence layer must contain one and only one row for
+    every selected graph node. This prevents a storage product built for a
+    different basemap from silently changing ``CO2_INJECT`` availability.
+
+    Parameters
+    ----------
+    storage_regions : pd.DataFrame
+        Silver ``regional_storage_evidence`` layer.
+    graph_nodes : pd.DataFrame
+        Selected graph-node layer.
+    eligibility : str, default="all_mapped"
+        Configured evidence rule whose boolean Silver column is validated.
+
+    Raises
+    ------
+    ValueError
+        If required columns are missing, region identifiers are null or
+        duplicated, eligibility values are null or non-boolean, or the two
+        region sets differ.
+    """
+    if eligibility not in STORAGE_ELIGIBILITY_COLUMNS:
+        raise ValueError(
+            "Unsupported storage eligibility mode: "
+            f"{eligibility!r}."
+        )
+
+    eligibility_column = STORAGE_ELIGIBILITY_COLUMNS[eligibility]
+    required_columns = {"region", eligibility_column}
+    missing_columns = required_columns - set(storage_regions.columns)
+    if missing_columns:
+        raise ValueError(
+            "Regional storage evidence is missing required columns: "
+            f"{sorted(missing_columns)}"
+        )
+
+    if "region" not in graph_nodes.columns:
+        raise ValueError("Graph nodes are missing required column: 'region'.")
+
+    if storage_regions["region"].isna().any():
+        raise ValueError("Regional storage evidence contains null region IDs.")
+
+    duplicate_regions = sorted(
+        storage_regions.loc[
+            storage_regions["region"].duplicated(keep=False),
+            "region",
+        ].astype(str).unique()
+    )
+    if duplicate_regions:
+        raise ValueError(
+            "Regional storage evidence contains duplicate region IDs: "
+            f"{duplicate_regions[:10]}"
+        )
+
+    eligibility_values = storage_regions[eligibility_column]
+    if (
+        eligibility_values.isna().any()
+        or not eligibility_values.isin([True, False]).all()
+    ):
+        raise ValueError(
+            f"Regional storage evidence {eligibility_column} values must be "
+            "non-null booleans."
+        )
+
+    storage_region_ids = set(storage_regions["region"].astype(str))
+    graph_region_ids = set(graph_nodes["region"].astype(str))
+    missing_regions = sorted(graph_region_ids - storage_region_ids)
+    extra_regions = sorted(storage_region_ids - graph_region_ids)
+    if missing_regions or extra_regions:
+        raise ValueError(
+            "Regional storage evidence does not exactly cover selected graph "
+            f"regions. Missing: {missing_regions[:10]}; extra: {extra_regions[:10]}"
+        )
+
+    print("Regional storage evidence coverage validated.")
+
+
+def validate_storage_capacity_bound_setting(
+    use_capacity_bound: bool,
+) -> None:
+    """Reject unsupported numerical storage-capacity bounds early."""
+    if use_capacity_bound:
+        raise ValueError(
+            "storage.use_capacity_bound=true is not supported by the current "
+            "Silver product because it has no allocated numerical regional "
+            "CO2 storage-capacity field. Keep it false until that field is "
+            "available."
+        )
+
+
+def select_storage_eligible_regions(
+    storage_regions: pd.DataFrame,
+    eligibility: str,
+) -> pd.Series:
+    """Return regions enabled by the configured Silver evidence rule."""
+    if eligibility not in STORAGE_ELIGIBILITY_COLUMNS:
+        raise ValueError(
+            "Unsupported storage eligibility mode: "
+            f"{eligibility!r}."
+        )
+
+    eligibility_column = STORAGE_ELIGIBILITY_COLUMNS[eligibility]
+    if eligibility_column not in storage_regions.columns:
+        raise ValueError(
+            "Regional storage evidence is missing eligibility column: "
+            f"{eligibility_column!r}."
+        )
+
+    return storage_regions.loc[
+        storage_regions[eligibility_column].eq(True),
+        "region",
+    ].astype(str).reset_index(drop=True)
+
 
 def validate_clean_emissions(co2_raw: gpd.GeoDataFrame) -> None:
     """Validate the processed emissions layer used for schema building.
@@ -1061,6 +1243,10 @@ def load_inputs(config: ResolvedSchemaConfig) -> LoadedInputs:
         graph_edges=pd.read_csv(config.graph_edge_path),
         road_edge_connections=pd.read_csv(config.road_edge_connections_path),
         road_edges_gdf=gpd.read_file(config.road_edges_gpkg_path),
+        storage_regions=gpd.read_file(
+            config.co2_storage_path,
+            layer="regional_storage_evidence",
+        ),
         db=database.sqlite_to_dfs(BASELINE_SQLITE_PATH),
         sites_raw=pd.read_csv(SITES_PATH),
         demand_raw=pd.read_csv(DEMAND_PATH),
@@ -1088,6 +1274,11 @@ def load_inputs(config: ResolvedSchemaConfig) -> LoadedInputs:
         )
 
     validate_clean_emissions(inputs.co2_raw)
+    validate_storage_region_coverage(
+        inputs.storage_regions,
+        inputs.graph_nodes,
+        config.storage_eligibility,
+    )
     validate_h2_etlsegment_template(inputs.h2_etlsegment_template)
     validate_h2_opex_coefficients(inputs.h2_opex_coefficients)
 
@@ -1096,6 +1287,7 @@ def load_inputs(config: ResolvedSchemaConfig) -> LoadedInputs:
     print(f"Graph edges: {len(inputs.graph_edges):,}")
     print(f"Road edge connections: {len(inputs.road_edge_connections):,}")
     print(f"Road edge geometries: {len(inputs.road_edges_gdf):,}")
+    print(f"Regional storage evidence rows: {len(inputs.storage_regions):,}")
     print(f"Baseline database tables: {len(inputs.db):,}")
     print(f"Clean spatial CO2 facilities: {len(inputs.co2_raw):,}")
     print(f"H2 ETLSegment template rows: {len(inputs.h2_etlsegment_template):,}")
@@ -2055,6 +2247,7 @@ def build_site_attributes(
 def rebuild_demand(
     db_encoded: dict[str, pd.DataFrame],
     site_attributes: pd.DataFrame,
+    model_period: int,
 ) -> None:
     """Rebuild the gasoline-demand table from snapped node attributes.
 
@@ -2095,7 +2288,7 @@ def rebuild_demand(
     db_encoded["Demand"] = pd.DataFrame(
         {
             "region": demand_sites["region"],
-            "period": 1,
+            "period": model_period,
             "commodity": "d_gsl",
             "demand": demand_sites["demand"],
             "units": None,
@@ -2121,6 +2314,7 @@ def rebuild_demand(
 def rebuild_capacity_limits(
     db_encoded: dict[str, pd.DataFrame],
     site_attributes: pd.DataFrame,
+    model_period: int,
 ) -> None:
     """Rebuild node-level capacity limits for CO2 capture and electricity generation.
 
@@ -2156,7 +2350,7 @@ def rebuild_capacity_limits(
             pd.DataFrame(
                 {
                     "region": site_attributes["region"],
-                    "period": 1,
+                    "period": model_period,
                     "tech_or_group": "CO2_CAP",
                     "operator": "le",
                     "capacity": site_attributes["co2"],
@@ -2176,7 +2370,7 @@ def rebuild_capacity_limits(
             pd.DataFrame(
                 {
                     "region": site_attributes["region"],
-                    "period": 1,
+                    "period": model_period,
                     "tech_or_group": "ELC_GEN",
                     "operator": "le",
                     "capacity": site_attributes["max_elc"],
@@ -2203,9 +2397,104 @@ def rebuild_capacity_limits(
     print(f"LimitCapacity rows: {len(db_encoded['LimitCapacity']):,}")
 
 
+def rebuild_storage_activity_limit(
+    db_encoded: dict[str, pd.DataFrame],
+    requirement: str,
+    minimum_annual_activity: float,
+    model_period: int,
+) -> None:
+    """Rebuild the optional system-wide minimum geological-storage constraint.
+
+    ``minimum_annual_activity`` policy rows use Temoa's existing
+    ``LimitActivity`` formulation to require annual ``CO2_INJECT`` output across
+    all model regions.
+    Because ``CO2_INJECT`` has unit efficiency to ``co2_stored``, the activity
+    lower bound is also the minimum annual stored-CO2 flow. Existing constraints
+    for other technologies are preserved.
+    """
+
+    if requirement not in {"none", "minimum_annual_activity"}:
+        raise ValueError(
+            "Storage requirement must be 'none' or "
+            "'minimum_annual_activity'."
+        )
+
+    if minimum_annual_activity < 0:
+        raise ValueError("Storage minimum activity cannot be negative.")
+
+    limit_activity = db_encoded["LimitActivity"]
+    db_encoded["LimitActivity"] = limit_activity.loc[
+        limit_activity["tech_or_group"] != "CO2_INJECT"
+    ].copy()
+
+    if requirement == "none":
+        if minimum_annual_activity != 0:
+            raise ValueError(
+                "Storage minimum activity must be zero when the requirement "
+                "is 'none'."
+            )
+        print("CO2 storage minimum activity: disabled")
+        return
+
+    if minimum_annual_activity <= 0:
+        raise ValueError(
+            "Storage minimum activity must be positive when the requirement "
+            "is 'minimum_annual_activity'."
+        )
+
+    storage_processes = db_encoded["Efficiency"].loc[
+        db_encoded["Efficiency"]["tech"] == "CO2_INJECT"
+    ]
+    if storage_processes.empty:
+        raise ValueError(
+            "A minimum storage activity was requested, but no CO2_INJECT "
+            "processes are available under the selected storage eligibility."
+        )
+
+    row = {
+        "region": "global",
+        "period": model_period,
+        "tech_or_group": "CO2_INJECT",
+        "operator": "ge",
+        "activity": float(minimum_annual_activity),
+        "units": "t CO2e/year",
+        "notes": "Minimum annual geological CO2 storage required by model registry",
+        "data_source": None,
+        "dq_cred": None,
+        "dq_geog": None,
+        "dq_struc": None,
+        "dq_tech": None,
+        "dq_time": None,
+        "data_id": DATA_ID,
+    }
+    storage_limit = pd.DataFrame(
+        [row],
+        columns=db_encoded["LimitActivity"].columns,
+    )
+    db_encoded["LimitActivity"] = pd.concat(
+        [db_encoded["LimitActivity"], storage_limit],
+        ignore_index=True,
+    )
+
+    encoded = db_encoded["LimitActivity"].loc[
+        db_encoded["LimitActivity"]["tech_or_group"] == "CO2_INJECT"
+    ]
+    assert len(encoded) == 1
+    assert encoded.iloc[0]["region"] == "global"
+    assert encoded.iloc[0]["period"] == model_period
+    assert encoded.iloc[0]["operator"] == "ge"
+    assert encoded.iloc[0]["activity"] == float(minimum_annual_activity)
+
+    print(
+        "CO2 storage minimum activity: "
+        f"{minimum_annual_activity:,.2f} t CO2e/year"
+    )
+
+
 def rebuild_node_costs(
     db_encoded: dict[str, pd.DataFrame],
     site_attributes: pd.DataFrame,
+    model_period: int,
 ) -> None:
     """Rebuild node-level cost tables from snapped site attributes.
 
@@ -2236,9 +2525,9 @@ def rebuild_node_costs(
             pd.DataFrame(
                 {
                     "region": site_attributes["region"],
-                    "period": 1,
+                    "period": model_period,
                     "tech": "ELC_GEN",
-                    "vintage": 1,
+                    "vintage": model_period,
                     "cost": site_attributes["LCOE"],
                     "units": "M$/MWh",
                     "notes": "Electricity generation cost snapped to selected graph node",
@@ -2254,9 +2543,9 @@ def rebuild_node_costs(
             pd.DataFrame(
                 {
                     "region": site_attributes["region"],
-                    "period": 1,
+                    "period": model_period,
                     "tech": "CO2_CAP",
-                    "vintage": 1,
+                    "vintage": model_period,
                     "cost": site_attributes["co2_cost"],
                     "units": "M$/t",
                     "notes": "CO2 capture cost snapped to selected graph node",
@@ -2272,9 +2561,9 @@ def rebuild_node_costs(
             pd.DataFrame(
                 {
                     "region": site_attributes["region"],
-                    "period": 1,
+                    "period": model_period,
                     "tech": "GSL_BACKUP",
-                    "vintage": 1,
+                    "vintage": model_period,
                     "cost": 500000,
                     "units": "M$/MWh",
                     "notes": "Backup gasoline supply cost",
@@ -2305,7 +2594,7 @@ def rebuild_node_costs(
                 {
                     "region": site_attributes["region"],
                     "tech": "ELC_GEN",
-                    "vintage": 1,
+                    "vintage": model_period,
                     "cost": 1000,
                     "units": None,
                     "notes": "Electricity generation fixed investment cost",
@@ -2322,7 +2611,7 @@ def rebuild_node_costs(
                 {
                     "region": site_attributes["region"],
                     "tech": "CO2_CAP",
-                    "vintage": 1,
+                    "vintage": model_period,
                     "cost": 1000,
                     "units": None,
                     "notes": "CO2 capture fixed investment cost",
@@ -2356,6 +2645,7 @@ def build_input_split(
     tech: str,
     input_comm: list[str],
     proportion: list[float],
+    model_period: int,
     operator: str = "ge",
 ) -> pd.DataFrame:
     """Build annual input-split rows for one technology across regions.
@@ -2405,7 +2695,7 @@ def build_input_split(
             pd.DataFrame(
                 {
                     "region": regions,
-                    "period": 1,
+                    "period": model_period,
                     "input_comm": comm,
                     "tech": tech,
                     "operator": operator,
@@ -2428,6 +2718,7 @@ def build_input_split(
 def rebuild_input_splits(
     db_encoded: dict[str, pd.DataFrame],
     site_attributes: pd.DataFrame,
+    model_period: int,
 ) -> None:
     """Rebuild annual input-split constraints for node production technologies.
 
@@ -2458,6 +2749,7 @@ def rebuild_input_splits(
         "GSL_PLANT",
         ["ch3oh", "h2"],
         [0.997782705, 0.002217295],
+        model_period,
     )
 
     metoh_input_split = build_input_split(
@@ -2465,6 +2757,7 @@ def rebuild_input_splits(
         "METOH_PLANT",
         ["co2", "h2", "elc"],
         [0.79230333899, 0.10865874363, 0.09903791737],
+        model_period,
     )
 
     db_encoded["LimitTechInputSplitAnnual"] = pd.concat(
@@ -2479,6 +2772,7 @@ def rebuild_node_efficiency(
     db_encoded: dict[str, pd.DataFrame],
     site_attributes: pd.DataFrame,
     gen_efficiencies_raw: pd.DataFrame,
+    model_period: int,
 ) -> None:
     """Rebuild node-level efficiency rows on the selected graph regions.
 
@@ -2533,7 +2827,7 @@ def rebuild_node_efficiency(
                     "region": regions,
                     "input_comm": row.input_comm,
                     "tech": row.tech,
-                    "vintage": 1,
+                    "vintage": model_period,
                     "output_comm": row.output_comm,
                     "efficiency": row.efficiency,
                     "notes": "Node-level efficiency rebuilt from snapped graph regions",
@@ -2557,7 +2851,7 @@ def rebuild_node_efficiency(
             "region": demand_regions,
             "input_comm": "gsl",
             "tech": "GSL_DEMAND",
-            "vintage": 1,
+            "vintage": model_period,
             "output_comm": "d_gsl",
             "efficiency": 1.0,
             "notes": "Gasoline demand technology rebuilt from snapped demand regions",
@@ -2597,6 +2891,116 @@ def rebuild_node_efficiency(
     assert not db_encoded["Efficiency"]["region"].astype(str).str.contains("-", regex=False).any()
 
     print(f"Node Efficiency rows added: {len(node_efficiency):,}")
+
+
+def rebuild_storage_efficiency(
+    db_encoded: dict[str, pd.DataFrame],
+    storage_regions: pd.DataFrame,
+    model_period: int,
+    eligibility: str = "all_mapped",
+) -> None:
+    """Rebuild region-specific geological CO2 injection process rows.
+
+    Only regions satisfying the configured Silver evidence rule receive the
+    physical process
+    ``co2 -> CO2_INJECT -> co2_stored``.
+
+    Parameters
+    ----------
+    db_encoded : dict[str, pd.DataFrame]
+        Mutable mapping of CANOE/TEMOA tables being rebuilt.
+    storage_regions : pd.DataFrame
+        Validated regional Silver storage-evidence layer.
+    eligibility : str, default="all_mapped"
+        Evidence rule used to select injection-enabled regions.
+
+    Returns
+    -------
+    None
+        ``db_encoded["Efficiency"]`` is modified in place.
+
+    Raises
+    ------
+    ValueError
+        If the regional storage evidence lacks required columns or contains
+        duplicate eligible region identifiers.
+    AssertionError
+        If encoded ``CO2_INJECT`` coverage differs from accessible storage
+        coverage or the physical process fields are incorrect.
+    """
+    eligibility_column = STORAGE_ELIGIBILITY_COLUMNS.get(eligibility)
+    required_columns = {
+        "region",
+        eligibility_column,
+    }
+    required_columns.discard(None)
+    missing_columns = required_columns - set(storage_regions.columns)
+    if missing_columns:
+        raise ValueError(
+            "Regional storage evidence is missing required columns: "
+            f"{sorted(missing_columns)}"
+        )
+
+    eligible_regions = select_storage_eligible_regions(
+        storage_regions,
+        eligibility,
+    )
+
+    if eligible_regions.duplicated().any():
+        raise ValueError(
+            "Accessible storage evidence contains duplicate region IDs."
+        )
+
+    storage_efficiency = pd.DataFrame(
+        {
+            "region": eligible_regions.reset_index(drop=True),
+            "input_comm": "co2",
+            "tech": "CO2_INJECT",
+            "vintage": model_period,
+            "output_comm": "co2_stored",
+            "efficiency": 1.0,
+            "notes": (
+                "CO2 injection availability derived from mapped geological "
+                "storage evidence"
+            ),
+            "data_source": None,
+            "dq_cred": None,
+            "dq_geog": None,
+            "dq_struc": None,
+            "dq_tech": None,
+            "dq_time": None,
+            "data_id": DATA_ID,
+        }
+    )
+    storage_efficiency = storage_efficiency[
+        db_encoded["Efficiency"].columns
+    ].copy()
+
+    existing_efficiency = db_encoded["Efficiency"].loc[
+        db_encoded["Efficiency"]["tech"] != "CO2_INJECT"
+    ].copy()
+    if existing_efficiency.empty:
+        db_encoded["Efficiency"] = storage_efficiency.copy()
+    elif storage_efficiency.empty:
+        db_encoded["Efficiency"] = existing_efficiency
+    else:
+        db_encoded["Efficiency"] = pd.concat(
+            [existing_efficiency, storage_efficiency],
+            ignore_index=True,
+        )
+
+    encoded_storage = db_encoded["Efficiency"].loc[
+        db_encoded["Efficiency"]["tech"] == "CO2_INJECT"
+    ]
+    expected_regions = set(eligible_regions)
+    assert len(encoded_storage) == len(expected_regions)
+    assert set(encoded_storage["region"]) == expected_regions
+    assert encoded_storage["region"].is_unique
+    assert encoded_storage["input_comm"].eq("co2").all()
+    assert encoded_storage["output_comm"].eq("co2_stored").all()
+    assert encoded_storage["efficiency"].eq(1.0).all()
+
+    print(f"CO2_INJECT Efficiency rows added: {len(storage_efficiency):,}")
 
 
 # =============================================================================
@@ -3119,6 +3523,7 @@ def build_transport_efficiency(
     links: pd.DataFrame,
     tech_specs: pd.DataFrame,
     notes: str,
+    model_period: int,
 ) -> pd.DataFrame:
     """Build edge-region Efficiency rows for transport technologies.
 
@@ -3151,7 +3556,7 @@ def build_transport_efficiency(
                     "region": links["canoe_region"],
                     "input_comm": tech.input_comm,
                     "tech": tech.tech,
-                    "vintage": 1,
+                    "vintage": model_period,
                     "output_comm": tech.output_comm,
                     "efficiency": 1.0,
                     "notes": notes,
@@ -3172,6 +3577,7 @@ def build_transport_costvariable(
     links: pd.DataFrame,
     tech_specs: pd.DataFrame,
     notes: str,
+    model_period: int,
 ) -> pd.DataFrame:
     """Build edge-region CostVariable rows for transport technologies.
 
@@ -3275,9 +3681,9 @@ def build_transport_costvariable(
             pd.DataFrame(
                 {
                     "region": link_regions,
-                    "period": 1,
+                    "period": model_period,
                     "tech": technology,
-                    "vintage": 1,
+                    "vintage": model_period,
                     "cost": (
                         intercept_cost_per_km
                         + cost_per_km * link_distances
@@ -3306,6 +3712,7 @@ def rebuild_transport_efficiency(
     specs: TechSpecs,
     road_layer: str,
     connection_method: str,
+    model_period: int,
 ) -> None:
     """Rebuild transport-process rows in the Efficiency table.
 
@@ -3337,6 +3744,7 @@ def rebuild_transport_efficiency(
         canonical.pipeline_links,
         specs.pipeline_tech_specs,
         "Candidate pipeline transport link on canonical graph edge",
+        model_period,
     )
     truck_efficiency = build_transport_efficiency(
         canonical.road_links,
@@ -3345,11 +3753,13 @@ def rebuild_transport_efficiency(
             f"Existing {road_layer} road network with "
             f"{connection_method} connectivity"
         ),
+        model_period,
     )
     transmission_efficiency = build_transport_efficiency(
         canonical.pipeline_links,
         specs.transmission_tech_specs,
         "Candidate electricity transmission link on canonical graph edge",
+        model_period,
     )
 
     db_encoded["Efficiency"] = db_encoded["Efficiency"].loc[
@@ -3384,6 +3794,7 @@ def rebuild_legacy_transport_costvariable(
     canonical: CanonicalLinks,
     specs: TechSpecs,
     connection_method: str,
+    model_period: int,
 ) -> None:
     """Rebuild legacy variable-cost rows for truck and transmission links.
 
@@ -3430,6 +3841,7 @@ def rebuild_legacy_transport_costvariable(
             "Truck transport cost rebuilt from transport_techs.csv and "
             f"selected {connection_method} road-connected graph distance"
         ),
+        model_period,
     )
     transmission_costvariable = build_transport_costvariable(
         canonical.pipeline_links,
@@ -3438,6 +3850,7 @@ def rebuild_legacy_transport_costvariable(
             "Electricity transmission cost rebuilt from "
             "transport_techs.csv and selected graph-edge distance"
         ),
+        model_period,
     )
 
     non_edge_costvariable = db_encoded["CostVariable"].loc[
@@ -3464,6 +3877,7 @@ def build_generalized_pipeline_opex_rows(
     pipeline_links: pd.DataFrame,
     pipeline_tech_specs: pd.DataFrame,
     opex_coefficients: pd.DataFrame,
+    model_period: int,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Build generalized fixed- and variable-OPEX rows for pipeline links.
 
@@ -3526,9 +3940,9 @@ def build_generalized_pipeline_opex_rows(
     ):
         fixed_rows.append(pd.DataFrame({
             "region": edge_regions,
-            "period": 1,
+            "period": model_period,
             "tech": tech,
-            "vintage": 1,
+            "vintage": model_period,
             "cost": fixed_coefficient * edge_distances,
             "units": "CAD2020/(t capacity/year)",
             "notes": (
@@ -3547,9 +3961,9 @@ def build_generalized_pipeline_opex_rows(
         }))
         variable_rows.append(pd.DataFrame({
             "region": edge_regions,
-            "period": 1,
+            "period": model_period,
             "tech": tech,
-            "vintage": 1,
+            "vintage": model_period,
             "cost": variable_coefficient * edge_distances,
             "units": "CAD2020/t",
             "notes": (
@@ -3578,6 +3992,7 @@ def rebuild_generalized_pipeline_opex(
     pipeline_links: pd.DataFrame,
     pipeline_tech_specs: pd.DataFrame,
     opex_coefficients: pd.DataFrame,
+    model_period: int,
 ) -> None:
     """Replace pipeline fixed and variable OPEX with generalized H2-derived rows.
 
@@ -3613,6 +4028,7 @@ def rebuild_generalized_pipeline_opex(
             pipeline_links=pipeline_links,
             pipeline_tech_specs=pipeline_tech_specs,
             opex_coefficients=opex_coefficients,
+            model_period=model_period,
         )
     )
     pipeline_techs = set(pipeline_tech_specs["tech"].astype(str))
@@ -3639,6 +4055,7 @@ def rebuild_truck_costinvest(
     db_encoded: dict[str, pd.DataFrame],
     canonical: CanonicalLinks,
     specs: TechSpecs,
+    model_period: int,
 ) -> None:
     """Rebuild zero-investment CostInvest rows for truck transport links.
 
@@ -3681,7 +4098,7 @@ def rebuild_truck_costinvest(
                 {
                     "region": canonical.road_links["canoe_region"],
                     "tech": truck.tech,
-                    "vintage": 1,
+                    "vintage": model_period,
                     "cost": 0.0,
                     "units": "M$/unit",
                     "notes": (
@@ -3758,6 +4175,10 @@ def remove_pipeline_ordinary_costinvest(
 def rebuild_static_supporting_tables(
     db_encoded: dict[str, pd.DataFrame],
     commodities_raw: pd.DataFrame,
+    model_start_year: int,
+    model_end_year: int,
+    global_discount_rate: float,
+    default_loan_rate: float,
 ) -> None:
     """Rebuild small supporting tables independent of graph topology.
 
@@ -3792,9 +4213,30 @@ def rebuild_static_supporting_tables(
     db_encoded["TimePeriod"] = pd.DataFrame(
         {
             "sequence": [1, 2],
-            "period": [1, 2],
+            "period": [model_start_year, model_end_year],
             "flag": ["f", "f"],
         }
+    )
+    model_finance = pd.DataFrame(
+        {
+            "element": ["global_discount_rate", "default_loan_rate"],
+            "value": [global_discount_rate, default_loan_rate],
+            "notes": [
+                "Social discount rate from registry/model.toml",
+                "Default loan rate from registry/model.toml",
+            ],
+        }
+    )
+    db_encoded["MetaDataReal"] = pd.concat(
+        [
+            db_encoded["MetaDataReal"].loc[
+                ~db_encoded["MetaDataReal"]["element"].isin(
+                    model_finance["element"]
+                )
+            ],
+            model_finance,
+        ],
+        ignore_index=True,
     )
     db_encoded["SectorLabel"] = pd.DataFrame(
         {
@@ -4118,6 +4560,7 @@ def verify_exported_sqlite(
     specs: TechSpecs,
     canonical: CanonicalLinks,
     snapped: SnappedInputs,
+    config: ResolvedSchemaConfig,
 ) -> None:
     """Verify key contents of the exported SQLite database.
 
@@ -4157,12 +4600,43 @@ def verify_exported_sqlite(
     """
     db_test = database.sqlite_to_dfs(output_sqlite_path)
 
+    assert db_test["TimePeriod"].to_dict("records") == [
+        {"sequence": 1, "period": config.model_start_year, "flag": "f"},
+        {"sequence": 2, "period": config.model_end_year, "flag": "f"},
+    ]
+    finance = db_test["MetaDataReal"].set_index("element")["value"]
+    assert finance["global_discount_rate"] == config.global_discount_rate
+    assert finance["default_loan_rate"] == config.default_loan_rate
+
+    for table_name in [
+        "Demand",
+        "LimitCapacity",
+        "LimitActivity",
+        "LimitTechInputSplitAnnual",
+        "CostFixed",
+        "CostVariable",
+    ]:
+        table = db_test[table_name]
+        if not table.empty:
+            assert set(table["period"]) == {config.model_start_year}
+
+    for table_name in [
+        "Efficiency",
+        "CostFixed",
+        "CostInvest",
+        "CostVariable",
+    ]:
+        table = db_test[table_name]
+        if not table.empty:
+            assert set(table["vintage"]) == {config.model_start_year}
+
     print("\nExported database table counts:")
     for table_name in [
         "Region",
         "Technology",
         "Demand",
         "LimitCapacity",
+        "LimitActivity",
         "Efficiency",
         "CostVariable",
         "CostFixed",
@@ -4228,6 +4702,7 @@ def summarize_final_database(db_encoded: dict[str, pd.DataFrame]) -> None:
         "Technology",
         "Demand",
         "LimitCapacity",
+        "LimitActivity",
         "Efficiency",
         "CostVariable",
         "CostFixed",
@@ -4322,6 +4797,17 @@ def run_schema_build(
     print(f"Basemap: {config.basemap_stem}")
     print(f"Road layer: {config.road_layer}")
     print(f"Road connection method: {config.connection_method}")
+    print(
+        "Model period: "
+        f"{config.model_start_year}-{config.model_end_year} "
+        f"({config.model_end_year - config.model_start_year} years)"
+    )
+    print(f"Global discount rate: {config.global_discount_rate:.2%}")
+    print(f"Storage requirement: {config.storage_requirement}")
+    print(
+        "Minimum annual storage: "
+        f"{config.storage_minimum_annual_activity:,.2f} t CO2e/year"
+    )
     print(f"Output SQLite: {config.output_sqlite_path.name}")
 
     inputs = load_inputs(config)
@@ -4351,6 +4837,10 @@ def run_schema_build(
     rebuild_static_supporting_tables(
         db_encoded,
         inputs.commodities_raw,
+        config.model_start_year,
+        config.model_end_year,
+        config.global_discount_rate,
+        config.default_loan_rate,
     )
     rebuild_technology_table(
         db_encoded,
@@ -4369,11 +4859,19 @@ def run_schema_build(
     rebuild_demand(
         db_encoded,
         snapped.site_attributes,
+        config.model_start_year,
     )
     rebuild_node_efficiency(
         db_encoded,
         snapped.site_attributes,
         inputs.gen_efficiencies_raw,
+        config.model_start_year,
+    )
+    rebuild_storage_efficiency(
+        db_encoded,
+        inputs.storage_regions,
+        config.model_start_year,
+        config.storage_eligibility,
     )
     rebuild_transport_efficiency(
         db_encoded=db_encoded,
@@ -4381,11 +4879,13 @@ def run_schema_build(
         specs=specs,
         road_layer=config.road_layer,
         connection_method=config.connection_method,
+        model_period=config.model_start_year,
     )
     print("\nRebuilding process costs...")
     rebuild_node_costs(
         db_encoded,
         snapped.site_attributes,
+        config.model_start_year,
     )
     rebuild_etl_segments(
         db_encoded=db_encoded,
@@ -4399,17 +4899,20 @@ def run_schema_build(
         canonical=canonical,
         specs=specs,
         connection_method=config.connection_method,
+        model_period=config.model_start_year,
     )
     rebuild_generalized_pipeline_opex(
         db_encoded=db_encoded,
         pipeline_links=canonical.pipeline_links,
         pipeline_tech_specs=specs.pipeline_tech_specs,
         opex_coefficients=inputs.h2_opex_coefficients,
+        model_period=config.model_start_year,
     )
     rebuild_truck_costinvest(
         db_encoded=db_encoded,
         canonical=canonical,
         specs=specs,
+        model_period=config.model_start_year,
     )
     remove_pipeline_ordinary_costinvest(
         db_encoded,
@@ -4420,10 +4923,18 @@ def run_schema_build(
     rebuild_capacity_limits(
         db_encoded,
         snapped.site_attributes,
+        config.model_start_year,
+    )
+    rebuild_storage_activity_limit(
+        db_encoded,
+        config.storage_requirement,
+        config.storage_minimum_annual_activity,
+        config.model_start_year,
     )
     rebuild_input_splits(
         db_encoded,
         snapped.site_attributes,
+        config.model_start_year,
     )
 
     print("\nValidating encoded database...")
@@ -4453,6 +4964,7 @@ def run_schema_build(
         specs,
         canonical,
         snapped,
+        config,
     )
 
     print("\nStage 6 complete.")

@@ -32,6 +32,8 @@ def test_committed_build_profiles_load(
         config.road_connectivity.methods
     )
     assert config.road_connectivity.road_layer in config.roads.networks
+    assert config.storage.eligibility == "all_mapped"
+    assert config.storage.use_capacity_bound is False
 
 
 def test_profile_rejects_duplicate_provinces(tmp_path: Path) -> None:
@@ -51,4 +53,18 @@ def test_profile_requires_study_area_section(tmp_path: Path) -> None:
     path.write_text(invalid, encoding="utf-8")
 
     with pytest.raises(ValueError, match="study_area"):
+        load_geospatial_build_config(path)
+
+
+def test_profile_rejects_unknown_storage_eligibility(tmp_path: Path) -> None:
+    source = (PROFILE_DIR / "provinces_only.toml").read_text(encoding="utf-8")
+    invalid = source.replace(
+        'eligibility = "all_mapped"',
+        'eligibility = "capacity_guess"',
+        1,
+    )
+    path = tmp_path / "invalid-storage.toml"
+    path.write_text(invalid, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="storage.eligibility"):
         load_geospatial_build_config(path)

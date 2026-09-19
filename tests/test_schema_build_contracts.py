@@ -15,7 +15,22 @@ from geocanoe.schema.build import (
     build_transport_costvariable,
     build_transport_efficiency,
     clear_output_tables,
+    rebuild_static_supporting_tables,
+    rebuild_storage_activity_limit,
+    rebuild_storage_efficiency,
+    select_storage_eligible_regions,
+    validate_storage_capacity_bound_setting,
+    validate_storage_region_coverage,
 )
+
+
+def test_co2_registry_flags_balance_captured_co2_only() -> None:
+    registry = pd.read_csv(
+        Path(__file__).resolve().parents[1] / "registry" / "commodities.csv"
+    ).set_index("name")
+
+    assert registry.loc["co2", "flag"] == "a"
+    assert registry.loc["co2_stored", "flag"] == "wa"
 
 
 def test_etl_curve_is_contiguous_and_monotonic() -> None:
@@ -81,12 +96,15 @@ def test_transport_tables_expand_links_by_technology() -> None:
         }
     )
 
-    efficiency = build_transport_efficiency(links, specs, "test")
-    costs = build_transport_costvariable(links, specs, "test")
+    efficiency = build_transport_efficiency(links, specs, "test", 2025)
+    costs = build_transport_costvariable(links, specs, "test", 2025)
 
     assert len(efficiency) == 4
     assert len(costs) == 4
     assert set(efficiency["region"]) == {"R0-R1", "R1-R2"}
+    assert set(efficiency["vintage"]) == {2025}
+    assert set(costs["period"]) == {2025}
+    assert set(costs["vintage"]) == {2025}
     assert costs.loc[
         (costs["region"] == "R1-R2") & (costs["tech"] == "TRUCK_B"),
         "cost",
@@ -106,7 +124,7 @@ def test_transport_costs_reject_nonpositive_distance() -> None:
     )
 
     with pytest.raises(AssertionError):
-        build_transport_costvariable(links, specs, "test")
+        build_transport_costvariable(links, specs, "test", 2025)
 
 
 def test_canonical_links_separate_all_edges_from_road_edges() -> None:
@@ -145,6 +163,16 @@ def test_canonical_links_separate_all_edges_from_road_edges() -> None:
         road_edge_connections_path=placeholder,
         road_edges_gpkg_path=placeholder,
         road_region_overlay_path=placeholder,
+        co2_storage_path=placeholder,
+        storage_eligibility="all_mapped",
+        storage_use_capacity_bound=False,
+        model_config_path=placeholder,
+        model_start_year=2025,
+        model_end_year=2050,
+        global_discount_rate=0.03,
+        default_loan_rate=0.03,
+        storage_requirement="none",
+        storage_minimum_annual_activity=0.0,
         output_sqlite_path=placeholder,
     )
 
@@ -158,6 +186,214 @@ def test_canonical_links_separate_all_edges_from_road_edges() -> None:
     assert canonical.valid_node_regions == {"R0", "R1", "R2"}
     assert canonical.valid_pipeline_edge_regions == {"R0-R1", "R1-R2"}
     assert canonical.valid_road_edge_regions == {"R0-R1"}
+
+
+def test_storage_region_coverage_must_exactly_match_graph_nodes() -> None:
+    graph_nodes = pd.DataFrame({"region": ["R0", "R1", "R2"]})
+    storage_regions = pd.DataFrame(
+        {
+            "region": ["R0", "R1", "R3"],
+            "storage_accessible": [True, False, True],
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="does not exactly cover selected graph regions",
+    ):
+        validate_storage_region_coverage(storage_regions, graph_nodes)
+
+
+def test_storage_efficiency_exactly_covers_accessible_regions() -> None:
+    columns = [
+        "region",
+        "input_comm",
+        "tech",
+        "vintage",
+        "output_comm",
+        "efficiency",
+        "notes",
+        "data_source",
+        "dq_cred",
+        "dq_geog",
+        "dq_struc",
+        "dq_tech",
+        "dq_time",
+        "data_id",
+    ]
+    stale_storage = pd.DataFrame(
+        [["R9", "co2", "CO2_INJECT", 1, "co2_stored", 1.0] + [None] * 8],
+        columns=columns,
+    )
+    ordinary = pd.DataFrame(
+        [["R0", "elc", "ELC_GEN", 1, "elc", 1.0] + [None] * 8],
+        columns=columns,
+    )
+    db_encoded = {
+        "Efficiency": pd.concat([ordinary, stale_storage], ignore_index=True)
+    }
+    storage_regions = pd.DataFrame(
+        {
+            "region": ["R0", "R1", "R2"],
+            "storage_accessible": [True, False, True],
+        }
+    )
+
+    rebuild_storage_efficiency(db_encoded, storage_regions, 2025)
+
+    encoded = db_encoded["Efficiency"].loc[
+        db_encoded["Efficiency"]["tech"] == "CO2_INJECT"
+    ]
+    assert set(encoded["region"]) == {"R0", "R2"}
+    assert len(encoded) == 2
+    assert encoded["input_comm"].eq("co2").all()
+    assert encoded["output_comm"].eq("co2_stored").all()
+    assert encoded["efficiency"].eq(1.0).all()
+    assert encoded["vintage"].eq(2025).all()
+    assert not db_encoded["Efficiency"].loc[
+        db_encoded["Efficiency"]["tech"] == "ELC_GEN"
+    ].empty
+
+
+@pytest.mark.parametrize(
+    ("eligibility", "expected"),
+    [
+        ("all_mapped", {"R0", "R1", "R2"}),
+        ("quantitative", {"R0"}),
+        ("qualitative", {"R1", "R2"}),
+    ],
+)
+def test_storage_eligibility_modes_select_expected_regions(
+    eligibility: str,
+    expected: set[str],
+) -> None:
+    storage_regions = pd.DataFrame(
+        {
+            "region": ["R0", "R1", "R2", "R3"],
+            "storage_accessible": [True, True, True, False],
+            "has_quantitative_storage_evidence": [True, False, False, False],
+            "has_qualitative_storage_evidence": [False, True, True, False],
+        }
+    )
+
+    selected = select_storage_eligible_regions(storage_regions, eligibility)
+
+    assert set(selected) == expected
+
+
+def test_storage_capacity_bound_is_rejected_without_numeric_silver_data() -> None:
+    with pytest.raises(ValueError, match="no allocated numerical regional"):
+        validate_storage_capacity_bound_setting(True)
+
+    validate_storage_capacity_bound_setting(False)
+
+
+def test_storage_minimum_annual_activity_rebuilds_exact_constraint() -> None:
+    limit_columns = [
+        "region",
+        "period",
+        "tech_or_group",
+        "operator",
+        "activity",
+        "units",
+        "notes",
+        "data_source",
+        "dq_cred",
+        "dq_geog",
+        "dq_struc",
+        "dq_tech",
+        "dq_time",
+        "data_id",
+    ]
+    db_encoded = {
+        "LimitActivity": pd.DataFrame(
+            [
+                ["R0", 1, "ELC_GEN", "le", 10.0] + [None] * 9,
+                ["R9", 1, "CO2_INJECT", "le", 5.0] + [None] * 9,
+            ],
+            columns=limit_columns,
+        ),
+        "Efficiency": pd.DataFrame(
+            {"region": ["R1"], "tech": ["CO2_INJECT"]}
+        ),
+    }
+
+    rebuild_storage_activity_limit(
+        db_encoded,
+        requirement="minimum_annual_activity",
+        minimum_annual_activity=25_000.0,
+        model_period=2025,
+    )
+
+    encoded = db_encoded["LimitActivity"].loc[
+        db_encoded["LimitActivity"]["tech_or_group"] == "CO2_INJECT"
+    ]
+    assert encoded[
+        ["region", "period", "operator", "activity", "units"]
+    ].to_dict("records") == [
+        {
+            "region": "global",
+            "period": 2025,
+            "operator": "ge",
+            "activity": 25_000.0,
+            "units": "t CO2e/year",
+        }
+    ]
+    assert set(db_encoded["LimitActivity"]["tech_or_group"]) == {
+        "ELC_GEN",
+        "CO2_INJECT",
+    }
+
+
+def test_storage_requirement_none_removes_stale_injection_constraint() -> None:
+    db_encoded = {
+        "LimitActivity": pd.DataFrame(
+            {
+                "tech_or_group": ["CO2_INJECT", "ELC_GEN"],
+            }
+        ),
+        "Efficiency": pd.DataFrame(
+            {"region": ["R1"], "tech": ["CO2_INJECT"]}
+        ),
+    }
+
+    rebuild_storage_activity_limit(db_encoded, "none", 0.0, 2025)
+
+    assert db_encoded["LimitActivity"]["tech_or_group"].tolist() == [
+        "ELC_GEN"
+    ]
+
+
+def test_static_tables_encode_one_25_year_period_and_finance() -> None:
+    db_encoded = {
+        "MetaDataReal": pd.DataFrame(
+            {
+                "element": ["global_discount_rate", "default_loan_rate"],
+                "value": [0.05, 0.05],
+                "notes": [None, None],
+            }
+        )
+    }
+    commodities = pd.DataFrame(
+        {"name": ["co2"], "flag": ["a"], "description": ["captured"]}
+    )
+
+    rebuild_static_supporting_tables(
+        db_encoded,
+        commodities,
+        model_start_year=2025,
+        model_end_year=2050,
+        global_discount_rate=0.03,
+        default_loan_rate=0.03,
+    )
+
+    assert db_encoded["TimePeriod"].to_dict("records") == [
+        {"sequence": 1, "period": 2025, "flag": "f"},
+        {"sequence": 2, "period": 2050, "flag": "f"},
+    ]
+    finance = db_encoded["MetaDataReal"].set_index("element")["value"]
+    assert finance["global_discount_rate"] == 0.03
+    assert finance["default_loan_rate"] == 0.03
 
 
 def test_clear_output_tables_preserves_schema() -> None:

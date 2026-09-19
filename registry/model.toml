@@ -1,0 +1,26 @@
+# Canonical non-spatial model semantics shared by every GeoCANOE build.
+
+[time]
+
+# One optimization period spanning [2025, 2050), with 2050 retained only as
+# the terminal boundary required by Temoa to calculate a 25-year period length.
+start_year = 2025
+end_year = 2050
+
+[finance]
+
+# Social discount rate used to calculate the present value of annual costs.
+global_discount_rate = 0.03
+
+# Default financing rate used when annualizing technology investment costs.
+default_loan_rate = 0.03
+
+[storage]
+
+# "none" keeps geological storage optional.
+# "minimum_annual_activity" adds a system-wide annual CO2_INJECT lower bound.
+requirement = "minimum_annual_activity"
+
+# Tonnes CO2e per year, sustained in every year of the single model period.
+# This must be positive for "minimum_annual_activity" and zero for "none".
+minimum_annual_activity = 25_000_000

@@ -51,7 +51,7 @@ provinces = [
 # Valid values: "geographic", "projected".
 grid_types = [
     "geographic",
-    "projected",
+    "projected"
 ]
 
 # Current workflow supports centroid retention.
@@ -65,7 +65,7 @@ coordinate_precision = 6
 
 # EPSG:4326 grid resolutions in decimal degrees.
 resolutions = [
-    0.5,
+    0.5
 ]
 
 
@@ -73,7 +73,6 @@ resolutions = [
 
 # EPSG:3347 grid resolutions in kilometres.
 resolutions_km = [
-    10,
     25,
     50,
 ]
@@ -191,3 +190,19 @@ max_snap_distance_factor = 2.0
 
 # When interactive_basemap_selection is false, uncomment and set this:
 # basemap_stem = "provinces_only_basemap_50km_centroid"
+
+
+# -----------------------------------------------------------------------------
+# Geological CO2 storage representation
+# -----------------------------------------------------------------------------
+
+[storage]
+
+# CO2_INJECT eligibility:
+#   "all_mapped"  -> storage_accessible
+#   "quantitative" -> has_quantitative_storage_evidence
+#   "qualitative"  -> has_qualitative_storage_evidence
+eligibility = "all_mapped"
+
+# Numerical regional capacity bounds are not yet available in the Silver product.
+use_capacity_bound = false

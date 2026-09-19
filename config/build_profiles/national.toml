@@ -191,3 +191,19 @@ max_snap_distance_factor = 2.0
 
 # When interactive_basemap_selection is false, uncomment and set this:
 # basemap_stem = "provinces_only_basemap_50km_centroid"
+
+
+# -----------------------------------------------------------------------------
+# Geological CO2 storage representation
+# -----------------------------------------------------------------------------
+
+[storage]
+
+# CO2_INJECT eligibility:
+#   "all_mapped"  -> storage_accessible
+#   "quantitative" -> has_quantitative_storage_evidence
+#   "qualitative"  -> has_qualitative_storage_evidence
+eligibility = "all_mapped"
+
+# Numerical regional capacity bounds are not yet available in the Silver product.
+use_capacity_bound = false

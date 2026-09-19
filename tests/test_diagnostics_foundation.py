@@ -74,6 +74,13 @@ def test_schema_artifact_paths_include_road_layer() -> None:
         "on_qc_basemap_25km_centroid_freight_access_"
         "road_connectivity_strong_road_edge_connections.csv"
     )
+    assert paths.co2_storage == (
+        Path("C:/example/geocanoe")
+        / "data_files"
+        / "processed"
+        / "co2_storage"
+        / "on_qc_basemap_25km_centroid_co2_storage.gpkg"
+    )
     assert paths.schema.name == (
         "CANOE_geospatial_on_qc_basemap_25km_centroid_"
         "freight_access_strong.sqlite"

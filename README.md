@@ -202,6 +202,8 @@ Geospatial preprocessing stages use a shared TOML build profile loaded through `
 - road classes, processed road networks, and output CRS;
 - weak and/or strong road-connectivity methods;
 - the road layer, road-connectivity method, and basemap used during schema construction;
+- the Silver evidence rule used to enable geological CO2 injection and whether
+  a numerical storage-capacity bound is requested;
 - point-assignment boundary and snapping tolerances.
 
 Example profile path:
@@ -211,6 +213,52 @@ config/build_profiles/provinces_only.toml
 ```
 
 The same profile should be used consistently across the basemap, adjacency, road, road-connectivity, legacy-input, emissions, cost, and schema stages.
+
+Geological storage is configured in each build profile with:
+
+```toml
+[storage]
+eligibility = "all_mapped"  # all_mapped, quantitative, or qualitative
+use_capacity_bound = false
+```
+
+The eligibility setting controls which Silver `regional_storage_evidence`
+regions receive `CO2_INJECT`. Numerical capacity bounds remain disabled because
+the current Silver product does not contain defensibly allocated regional
+storage quantities; setting `use_capacity_bound = true` fails validation rather
+than treating evidence coverage as physical capacity.
+
+Non-spatial model semantics are configured once in `registry/model.toml`, rather
+than repeated across geospatial build profiles:
+
+```toml
+[time]
+start_year = 2025
+end_year = 2050
+
+[finance]
+global_discount_rate = 0.03
+default_loan_rate = 0.03
+
+[storage]
+requirement = "none"  # none or minimum_annual_activity
+minimum_annual_activity = 0.0  # t CO2e/year
+```
+
+The two time boundaries define exactly one optimization period, `[2025, 2050)`,
+with a 25-year duration. `minimum_annual_activity` is therefore an annual rate
+sustained throughout the representative period; its undiscounted horizon total
+is the configured rate multiplied by 25 years. Physical CO2 quantities are not
+discounted. Temoa applies the 3% global rate only when converting annual costs
+to present value.
+
+`requirement = "minimum_annual_activity"` creates a system-wide
+`LimitActivity` row requiring `CO2_INJECT >= minimum_annual_activity` in period
+2025. The value must then be positive. With `requirement = "none"`, it must
+remain zero and geological storage is available but optional. Captured `co2` is
+an annual balanced commodity, so any CO2 that is captured must be consumed by a
+downstream process such as utilization or injection; `co2_stored` remains a
+terminal annual waste commodity.
 
 ### CanCO₂ storage repository layout
 
@@ -487,7 +535,9 @@ or:
 python -m geocanoe.analysis.exports
 ```
 
-The exporter writes each selected table to a separate worksheet in a single Excel workbook and validates worksheet dimensions against Excel limits.
+The exporter writes each selected table to a separate worksheet in a single
+Excel workbook, adds a `CO2StorageSummary` worksheet when solved `CO2_INJECT`
+flows are present, and validates worksheet dimensions against Excel limits.
 
 ### Interactive mapping
 
@@ -503,7 +553,11 @@ or:
 python -m geocanoe.analysis.maps
 ```
 
-The mapping workflow infers the associated geospatial products from the selected solved database, decodes transport pseudo-regions back to graph edges, separates parallel active transport corridors for visualization, and exports an interactive Leaflet/Folium HTML map with layer controls, tooltips, and popups.
+The mapping workflow infers the associated geospatial products from the selected
+solved database, decodes transport pseudo-regions back to graph edges, separates
+parallel active transport corridors for visualization, and exports an interactive
+Leaflet/Folium HTML map with layer controls, tooltips, and popups. Solved
+`CO2_INJECT` output appears as a purple `CO2 storage` node layer.
 
 ## Canonical execution order
 

@@ -59,6 +59,7 @@ DEFAULT_OUTPUT_TABLES = [
 DEFAULT_WORKBOOK_NAME = "output_tables.xlsx"
 EXCEL_MAX_ROWS = 1_048_576
 EXCEL_MAX_COLUMNS = 16_384
+CO2_STORAGE_SUMMARY_SHEET = "CO2StorageSummary"
 
 
 # =============================================================================
@@ -388,6 +389,48 @@ def format_excel_sheet(writer: pd.ExcelWriter, sheet_name: str, df: pd.DataFrame
         worksheet.column_dimensions[column_letter].width = width
 
 
+def build_co2_storage_summary(flow_out: pd.DataFrame) -> pd.DataFrame:
+    """Summarize solved geological CO2 injection output by model region.
+
+    The summary selects ``CO2_INJECT`` rows from ``OutputFlowOut`` and
+    aggregates their physical ``co2_stored`` output while retaining available
+    scenario, period, region, and commodity identifiers.
+    """
+    required_columns = {"region", "tech", "flow"}
+    missing_columns = required_columns - set(flow_out.columns)
+    if missing_columns:
+        raise ValueError(
+            "OutputFlowOut is missing columns required for the CO2 storage "
+            f"summary: {sorted(missing_columns)}"
+        )
+
+    storage = flow_out.loc[flow_out["tech"] == "CO2_INJECT"].copy()
+    storage["flow"] = pd.to_numeric(storage["flow"], errors="coerce")
+    storage = storage.loc[storage["flow"].notna()].copy()
+
+    group_columns = [
+        column
+        for column in [
+            "scenario",
+            "period",
+            "region",
+            "input_comm",
+            "tech",
+            "output_comm",
+        ]
+        if column in storage.columns
+    ]
+    if storage.empty:
+        return pd.DataFrame(columns=[*group_columns, "flow"])
+
+    return (
+        storage.groupby(group_columns, as_index=False, dropna=False)
+        .agg(flow=("flow", "sum"))
+        .sort_values(group_columns, kind="stable")
+        .reset_index(drop=True)
+    )
+
+
 def export_output_tables(
     db_path: Path,
     output_dir: Path,
@@ -456,6 +499,7 @@ def export_output_tables(
     exported_paths: list[Path] = []
     used_sheet_names: set[str] = set()
     written_tables = 0
+    flow_out_for_storage_summary: pd.DataFrame | None = None
 
     with sqlite3.connect(db_path) as connection:
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
@@ -465,6 +509,9 @@ def export_output_tables(
                     continue
 
                 df = pd.read_sql_query(f'SELECT * FROM "{table}"', connection)
+
+                if table == "OutputFlowOut":
+                    flow_out_for_storage_summary = df.copy()
 
                 if df.empty and skip_empty:
                     print(f"[Skip] Empty table: {table}")
@@ -481,6 +528,36 @@ def export_output_tables(
                     f"[Exported] {table}: {len(df):,} row(s) "
                     f"→ {output_path.name} [{sheet_name}]"
                 )
+
+            if flow_out_for_storage_summary is not None:
+                storage_summary = build_co2_storage_summary(
+                    flow_out_for_storage_summary
+                )
+                if not storage_summary.empty or not skip_empty:
+                    validate_excel_sheet_size(
+                        CO2_STORAGE_SUMMARY_SHEET,
+                        storage_summary,
+                    )
+                    sheet_name = make_excel_sheet_name(
+                        CO2_STORAGE_SUMMARY_SHEET,
+                        used_sheet_names,
+                    )
+                    storage_summary.to_excel(
+                        writer,
+                        sheet_name=sheet_name,
+                        index=False,
+                    )
+                    format_excel_sheet(
+                        writer,
+                        sheet_name,
+                        storage_summary,
+                    )
+                    written_tables += 1
+                    print(
+                        f"[Exported] {CO2_STORAGE_SUMMARY_SHEET}: "
+                        f"{len(storage_summary):,} row(s) "
+                        f"→ {output_path.name} [{sheet_name}]"
+                    )
 
     if written_tables == 0:
         raise ValueError("No Output* tables were exported. All selected tables were empty or missing.")

@@ -1138,10 +1138,10 @@ def build_node_layers(tables: ModelTables, geodata: GeospatialData) -> dict[str,
     """Build node-level process and capacity layers for plotting.
 
     Creates coordinate-enriched point layers for electricity generation,
-    hydrogen production, methanol production, and gasoline production from
-    ``OutputFlowOut``. CO2 capture is handled separately using positive
-    ``CO2_CAP`` entries from ``LimitCapacity`` and is treated as a plotted
-    capacity layer.
+    hydrogen production, methanol production, gasoline production, and
+    geological CO2 injection from ``OutputFlowOut``. CO2 capture is handled
+    separately using positive ``CO2_CAP`` entries from ``LimitCapacity`` and is
+    treated as a plotted capacity layer.
 
     Parameters
     ----------
@@ -1161,6 +1161,11 @@ def build_node_layers(tables: ModelTables, geodata: GeospatialData) -> dict[str,
     h2_plant = slice_with_coords(tables.flow_out, geodata.sites, "H2_PLANT")
     metoh_plant = slice_with_coords(tables.flow_out, geodata.sites, "METOH_PLANT")
     gsl_plant = slice_with_coords(tables.flow_out, geodata.sites, "GSL_PLANT")
+    co2_storage = slice_with_coords(
+        tables.flow_out,
+        geodata.sites,
+        "CO2_INJECT",
+    )
 
     co2_cap = tables.limit_capacity.loc[
         tables.limit_capacity["tech_or_group"] == "CO2_CAP"
@@ -1174,6 +1179,7 @@ def build_node_layers(tables: ModelTables, geodata: GeospatialData) -> dict[str,
         "Electricity": (elc_gen, "blue"),
         "H2": (h2_plant, "green"),
         "CO2": (co2_cap, "gray"),
+        "CO2 storage": (co2_storage, "purple"),
         "Methanol": (metoh_plant, "orange"),
         "Gasoline": (gsl_plant, "brown"),
     }

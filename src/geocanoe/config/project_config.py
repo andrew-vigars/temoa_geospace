@@ -69,6 +69,12 @@ SUPPORTED_ROAD_LAYERS = {
     "freight_access",
 }
 
+SUPPORTED_STORAGE_ELIGIBILITY_MODES = {
+    "all_mapped",
+    "quantitative",
+    "qualitative",
+}
+
 DEFAULT_CONFIG_RELATIVE_PATH = (
     Path("config")
     / "build_profiles"
@@ -286,6 +292,26 @@ class SchemaConfig:
 
 
 @dataclass(frozen=True)
+class StorageConfig:
+    """Immutable geological CO2-storage schema settings.
+
+    Attributes
+    ----------
+    eligibility : str
+        Silver evidence rule used to make ``CO2_INJECT`` available. Supported
+        modes are ``"all_mapped"``, ``"quantitative"``, and
+        ``"qualitative"``.
+    use_capacity_bound : bool
+        Whether schema construction should apply a numerical geological-storage
+        capacity bound. Current Silver products do not contain an allocated
+        regional capacity quantity, so committed profiles keep this disabled.
+    """
+
+    eligibility: str
+    use_capacity_bound: bool
+
+
+@dataclass(frozen=True)
 class GeospatialBuildConfig:
     """Immutable shared configuration for the geospatial preprocessing workflow.
 
@@ -305,6 +331,8 @@ class GeospatialBuildConfig:
         Road layer, connectivity methods, and diagnostic plotting preferences.
     schema : SchemaConfig
         Schema-selection, boundary-processing, and point-snapping settings.
+    storage : StorageConfig
+        Geological storage eligibility and capacity-bound settings.
     source_path : Path
         Path to the TOML build profile from which the configuration was loaded.
     """
@@ -315,6 +343,7 @@ class GeospatialBuildConfig:
     roads: RoadConfig
     road_connectivity: RoadConnectivityConfig
     schema: SchemaConfig
+    storage: StorageConfig
     source_path: Path
 
 
@@ -953,6 +982,7 @@ def load_geospatial_build_config(
         "road_connectivity",
     )
     schema_raw = _require_table(raw, "schema")
+    storage_raw = _require_table(raw, "storage")
 
     geographic_raw = _require_table(
         basemaps_raw,
@@ -1176,6 +1206,23 @@ def load_geospatial_build_config(
         ),
     )
 
+    storage = StorageConfig(
+        eligibility=_validate_choice(
+            _require_string(
+                storage_raw,
+                "eligibility",
+                "storage",
+            ),
+            SUPPORTED_STORAGE_ELIGIBILITY_MODES,
+            "storage.eligibility",
+        ),
+        use_capacity_bound=_require_bool(
+            storage_raw,
+            "use_capacity_bound",
+            "storage",
+        ),
+    )
+
     if (
         schema.road_connection_method
         not in road_connectivity.methods
@@ -1210,6 +1257,7 @@ def load_geospatial_build_config(
         roads=roads,
         road_connectivity=road_connectivity,
         schema=schema,
+        storage=storage,
         source_path=config_path,
     )
 
@@ -1269,6 +1317,14 @@ def print_build_config(
         f"{config.schema.road_connection_method}"
     )
     print(
+        "Storage eligibility:    "
+        f"{config.storage.eligibility}"
+    )
+    print(
+        "Storage capacity bound: "
+        f"{config.storage.use_capacity_bound}"
+    )
+    print(
         "Point boundary buffer:  "
         f"{config.schema.boundary_buffer_km:g} km"
     )
@@ -1310,6 +1366,7 @@ __all__ = [
     "RoadConfig",
     "RoadConnectivityConfig",
     "SchemaConfig",
+    "StorageConfig",
     "StudyAreaConfig",
     "default_config_path",
     "load_geospatial_build_config",

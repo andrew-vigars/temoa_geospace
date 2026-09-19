@@ -16,6 +16,7 @@ class SchemaArtifactPaths:
     road_edge_connections: Path
     road_edges: Path
     road_region_overlay: Path
+    co2_storage: Path
     schema: Path
 
 
@@ -56,6 +57,9 @@ def resolve_schema_artifact_paths(
                 f"{basemap_stem}_{road_layer}_"
                 "road_connectivity_road_region_overlay.gpkg"
             )
+        ),
+        co2_storage=(
+            processed / "co2_storage" / f"{basemap_stem}_co2_storage.gpkg"
         ),
         schema=(
             processed
