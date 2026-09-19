@@ -28,6 +28,7 @@ flowchart TD
         A1["basemaps.py<br/>Statistics Canada boundaries"]
         A2["nrn.py<br/>National Road Network GeoPackages"]
         A3["emissions.py<br/>2024 large-facility emissions data"]
+        A4["co2_storage.py<br/>Acquire selected local CanCO₂ release"]
     end
 
     subgraph RAW["Raw and controlled inputs"]
@@ -38,11 +39,13 @@ flowchart TD
         R5["Technology, commodity, efficiency, and transport CSVs"]
         R6["CANOE/TEMOA SQL schema and baseline SQLite"]
         R7["Controlled H2 pipeline cost workbook<br/>data_files/models/cost_models/"]
+        R8["CanCO₂ unified-storage release<br/>data_files/raw/canco2_storage/"]
     end
 
     A1 --> R1
     A2 --> R2
     A3 --> R3
+    A4 --> R8
 
     %% =====================================================================
     %% Silver preprocessing
@@ -54,6 +57,7 @@ flowchart TD
         C1["geocanoe.costs.pipelines.h2.capacity_costs<br/>Normalize H2 pipeline capacity-cost data"]
         C2["geocanoe.costs.pipelines.h2.cost_models<br/>Fit/select H2 pipeline cost models"]
         B1["geocanoe.geospatial.basemaps<br/>Build regular study-area grids"]
+        S0["geocanoe.geospatial.co2_storage<br/>Map storage evidence onto onshore regions"]
         G1["geocanoe.geospatial.adjacency<br/>Build rook-adjacency graph"]
         N1["geocanoe.geospatial.roads<br/>Build processed road networks"]
         M1["geocanoe.geospatial.road_connectivity<br/>Map roads onto graph edges"]
@@ -61,6 +65,7 @@ flowchart TD
 
     CFG --> L1
     CFG --> B1
+    CFG --> S0
     CFG --> G1
     CFG --> N1
     CFG --> M1
@@ -73,6 +78,9 @@ flowchart TD
 
     R1 --> B1
     B1 --> BP["Processed basemaps<br/>data_files/processed/basemaps/"]
+    BP --> S0
+    R8 --> S0
+    S0 --> SP["Storage evidence, crosswalks, and previews<br/>data_files/processed/co2_storage/"]
     BP --> G1
     G1 --> GP["Graph nodes and edges<br/>data_files/processed/graph/"]
 
@@ -190,7 +198,8 @@ scripts/create_map_folium.py
 
 ## Execution dependencies
 
-- `geocanoe.execution.silver` orchestrates the eight current silver preprocessing stages and validates their upstream dependencies.
+- `geocanoe.execution.silver` orchestrates the nine current silver preprocessing stages and validates their upstream dependencies.
+- `geocanoe.geospatial.co2_storage` requires an acquired CanCO₂ release and processed basemaps; it currently maps only onto the onshore model-region domain.
 - `geocanoe.geospatial.adjacency` requires processed basemaps.
 - `geocanoe.geospatial.road_connectivity` requires processed basemaps, graph products, and processed road networks.
 - `geocanoe.schema.build` requires the selected basemap, graph, road-connectivity products, processed legacy inputs, processed emissions, static CANOE tables, and pipeline cost templates.
@@ -200,6 +209,12 @@ scripts/create_map_folium.py
 - `geocanoe.analysis.maps` requires a solved model database plus the corresponding graph and basemap products; road-connectivity geometry is optional map context.
 
 ## Canonical execution paths
+
+### CanCO₂ storage acquisition
+
+```bash
+python -m geocanoe.acquisition.co2_storage
+```
 
 ### Silver preprocessing
 

@@ -15,6 +15,8 @@ The workflow currently supports:
 - weak and strong road-connectivity mapping;
 - province assignment and graph-node snapping for legacy point inputs;
 - preprocessing of 2024 large-facility greenhouse-gas emissions;
+- acquisition of a selected CanCO₂ unified-storage release from a local sibling repository;
+- mapping of unified geological-storage evidence onto each configured onshore basemap;
 - topology-independent hydrogen-pipeline cost preprocessing and curve fitting;
 - graph-based pipeline, truck, and electricity-transmission links;
 - schema encoding into a CANOE/TEMOA SQLite database;
@@ -57,14 +59,16 @@ Geospatial-CANOE/
 │       └── *.toml                 Ordered model-run batches
 │
 ├── data_files/
-│   ├── raw/                       Downloaded source datasets
+│   ├── raw/                       External and downloaded source datasets
 │   │   ├── basemaps/
+│   │   ├── canco2_storage/          Acquired external CanCO₂ Silver release
 │   │   ├── emissions/
 │   │   └── nrn/
 │   ├── models/                    Controlled engineering and cost workbooks
 │   │   └── cost_models/
 │   ├── processed/                 Durable workflow checkpoints
 │   │   ├── basemaps/
+│   │   ├── co2_storage/              GeoCANOE storage crosswalk and regional evidence
 │   │   ├── costs/
 │   │   ├── emissions/
 │   │   ├── graph/
@@ -85,7 +89,8 @@ Geospatial-CANOE/
 │
 ├── src/
 │   └── geocanoe/
-│       ├── acquisition/           Raw basemap, emissions, and NRN acquisition
+│       ├── acquisition/           Raw basemap, emissions, NRN, and CanCO₂ acquisition
+│       │   └── co2_storage.py     Local CanCO₂ release acquisition
 │       ├── analysis/              Folium maps and output-table exports
 │       ├── config/                Build-profile parsing and validation
 │       ├── costs/
@@ -94,6 +99,7 @@ Geospatial-CANOE/
 │       ├── emissions/             Facility-emissions preprocessing
 │       ├── execution/             Silver orchestration, single runs, and batches
 │       ├── geospatial/            Basemaps, adjacency, roads, connectivity
+│       │   └── co2_storage.py     Storage-to-basemap integration and previews
 │       ├── preprocessing/         Legacy input harmonization
 │       ├── registry/              Dataset/stage metadata
 │       ├── schema/                CANOE/TEMOA encoding and database utilities
@@ -206,6 +212,74 @@ config/build_profiles/provinces_only.toml
 
 The same profile should be used consistently across the basemap, adjacency, road, road-connectivity, legacy-input, emissions, cost, and schema stages.
 
+### CanCO₂ storage repository layout
+
+The geological-storage workflow can read the unified CanCO₂
+Silver GeoPackage directly from a local `canco2-storage` checkout. With no
+environment-variable overrides, the repositories must use this layout:
+
+```text
+repos/
+├── canco2-storage/
+│   └── data/
+│       └── processed/
+│           └── unified_storage/
+│               └── <timestamp>_CanadaGeologicalStorageUnified_<version>.gpkg
+└── temoa-upstream/
+    └── temoa_geospace/
+```
+
+For example, the current Windows development layout is:
+
+```text
+C:\Users\aviga\Research\repos\canco2-storage
+C:\Users\aviga\Research\repos\temoa-upstream\temoa_geospace
+```
+
+The acquisition module and exploratory notebook derive the shared `repos/`
+directory from the GeoCANOE project root and search:
+
+```text
+<canco2-storage>/data/processed/unified_storage/
+```
+
+CanCO₂ output filenames begin with a sortable `YYYYMMDD_HH` timestamp. When
+the directory contains multiple matching GeoPackages, acquisition selects the
+lexicographically newest filename and prints the selected path. This is
+convenient for exploration but permits the input to change when CanCO₂ is
+rebuilt.
+
+For a reproducible model run, pin the exact GeoPackage for the current shell:
+
+```powershell
+$env:CANCO2_STORAGE_GPKG = "C:\Users\aviga\Research\repos\canco2-storage\data\processed\unified_storage\20260918_13_CanadaGeologicalStorageUnified_AV_v2.gpkg"
+```
+
+If the repositories do not use the default relative layout, configure the
+CanCO₂ repository root instead:
+
+```powershell
+$env:CANCO2_STORAGE_REPO = "D:\Research\repos\canco2-storage"
+```
+
+`CANCO2_STORAGE_GPKG` takes precedence over `CANCO2_STORAGE_REPO`. The former
+pins one immutable input; the latter retains automatic newest-file discovery.
+These variables are consumed by the acquisition module and exploratory storage
+notebook; they do not yet constitute a packaged inter-project API.
+
+Acquire the selected release and its companion metadata files into the
+GeoCANOE raw layer with:
+
+```bash
+python -m geocanoe.acquisition.co2_storage
+```
+
+The acquisition writes
+`data_files/raw/canco2_storage/selected_release.txt`. The Silver transformation
+uses that selection instead of re-evaluating timestamps, so an exact
+`CANCO2_STORAGE_GPKG` pin remains reproducible even when the raw directory
+contains several releases. Running acquisition again updates the selection.
+
 ## Workflow
 
 The preferred preprocessing entry point is the silver-layer orchestrator:
@@ -230,6 +304,7 @@ Raw acquisition modules may also be run independently when source datasets need 
 python -m geocanoe.acquisition.basemaps
 python -m geocanoe.acquisition.nrn
 python -m geocanoe.acquisition.emissions
+python -m geocanoe.acquisition.co2_storage
 ```
 
 Primary outputs:
@@ -238,6 +313,7 @@ Primary outputs:
 data_files/raw/basemaps/
 data_files/raw/nrn/{PROVINCE}/
 data_files/raw/emissions/co2_large_facilities_2024/
+data_files/raw/canco2_storage/
 ```
 
 ### Silver preprocessing stages
@@ -249,9 +325,10 @@ The current silver workflow includes:
 3. hydrogen-pipeline capacity-cost preprocessing;
 4. hydrogen-pipeline cost-model fitting;
 5. study-area basemap construction;
-6. regional adjacency construction;
-7. processed road-network construction;
-8. road-connectivity mapping.
+6. onshore CO₂ storage-to-basemap integration;
+7. regional adjacency construction;
+8. processed road-network construction;
+9. road-connectivity mapping.
 
 These stages are implemented under `src/geocanoe/` and orchestrated by `geocanoe.execution.silver`.
 
@@ -262,10 +339,30 @@ data_files/processed/legacy_inputs/
 data_files/processed/emissions/
 data_files/processed/costs/
 data_files/processed/basemaps/
+data_files/processed/co2_storage/
 data_files/processed/graph/
 data_files/processed/nrn/
 data_files/processed/road_connectivity/
 ```
+
+The storage stage can also be run independently after basemap construction:
+
+```bash
+python -m geocanoe.geospatial.co2_storage \
+    --config config/build_profiles/provinces_only.toml
+```
+
+For each compatible basemap, the stage writes one GeoPackage containing
+`regional_storage_evidence` and `storage_region_crosswalk` layers, equivalent
+inspection CSVs, and a mapping PNG. A separate PNG previews the normalized
+source features. The crosswalk preserves feature and storage-unit lineage and
+overlap metrics; it does not allocate or sum geological capacity by model
+region.
+
+The current basemaps represent the onshore model domain. Source features outside
+that domain are retained in the source preview but do not create offshore model
+regions. Offshore integration is deferred until an appropriate digital census
+boundary and offshore regionalization are available.
 
 ### Schema encoding
 

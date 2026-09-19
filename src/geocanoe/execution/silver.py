@@ -8,8 +8,8 @@ The silver workflow coordinates the transformations that convert raw and
 controlled project inputs into standardized intermediate products under
 ``data_files/processed/``. The workflow currently includes province assignment
 for legacy inputs, emissions preprocessing, hydrogen-pipeline cost processing,
-basemap construction, regional adjacency, processed road networks, and
-road-to-region connectivity.
+basemap construction, onshore CO2 storage integration, regional adjacency,
+processed road networks, and road-to-region connectivity.
 
 Individual scientific and geospatial transformations remain implemented in
 their stage-specific modules. This module is responsible for orchestration:
@@ -247,6 +247,7 @@ STAGE_MODULE_NAMES = {
     "h2_pipeline_costs": "geocanoe.costs.pipelines.h2.capacity_costs",
     "h2_pipeline_cost_models": "geocanoe.costs.pipelines.h2.cost_models",
     "basemaps": "geocanoe.geospatial.basemaps",
+    "co2_storage": "geocanoe.geospatial.co2_storage",
     "adjacency": "geocanoe.geospatial.adjacency",
     "roads": "geocanoe.geospatial.roads",
     "road_connectivity": "geocanoe.geospatial.road_connectivity",
@@ -258,6 +259,7 @@ SILVER_STAGE_ORDER = (
     "h2_pipeline_costs",
     "h2_pipeline_cost_models",
     "basemaps",
+    "co2_storage",
     "adjacency",
     "roads",
     "road_connectivity",
@@ -269,6 +271,7 @@ SILVER_STAGE_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "h2_pipeline_costs": (),
     "h2_pipeline_cost_models": ("h2_pipeline_costs",),
     "basemaps": (),
+    "co2_storage": ("basemaps",),
     "adjacency": ("basemaps",),
     "roads": (),
     "road_connectivity": ("basemaps", "adjacency", "roads"),
@@ -287,6 +290,7 @@ EXTERNAL_INPUT_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "h2_pipeline_costs": ("H2 pipeline master cost workbook",),
     "h2_pipeline_cost_models": (),
     "basemaps": ("raw provincial boundary shapefile",),
+    "co2_storage": ("acquired CanCO2 unified-storage GeoPackage",),
     "adjacency": (),
     "roads": ("raw provincial and territorial NRN GeoPackages",),
     "road_connectivity": (),
@@ -491,6 +495,13 @@ def build_stage_executors(
                 stage_modules["basemaps"],
                 "run_basemap_build",
                 "basemaps",
+            )
+        ),
+        "co2_storage": FunctionExecutor(
+            require_stage_callable(
+                stage_modules["co2_storage"],
+                "run_co2_storage_build",
+                "co2_storage",
             )
         ),
         "adjacency": FunctionExecutor(
@@ -867,6 +878,37 @@ def validate_external_inputs(
         input_name="H2 pipeline master cost workbook",
         path=Path(workbook_path_resolver(PROJECT_ROOT)),
     )
+
+    storage_module = stage_modules["co2_storage"]
+    raw_storage_resolver = getattr(
+        storage_module,
+        "find_latest_raw_storage_gpkg",
+        None,
+    )
+    raw_storage_dir = Path(getattr(storage_module, "RAW_CO2_STORAGE"))
+    if not callable(raw_storage_resolver):
+        raise AttributeError(
+            "geocanoe.geospatial.co2_storage must expose "
+            "find_latest_raw_storage_gpkg()."
+        )
+    try:
+        raw_storage_gpkg = Path(raw_storage_resolver(raw_storage_dir))
+    except FileNotFoundError as exc:
+        add_external_input_check(
+            checks,
+            stage_name="co2_storage",
+            input_name="acquired CanCO2 unified-storage GeoPackage",
+            path=raw_storage_dir,
+            status="missing",
+            details=str(exc),
+        )
+    else:
+        check_required_file(
+            checks,
+            stage_name="co2_storage",
+            input_name="acquired CanCO2 unified-storage GeoPackage",
+            path=raw_storage_gpkg,
+        )
 
     raw_nrn_dir = DATA_FILES / "raw" / "nrn"
     for province in config.study_area.provinces:
@@ -1325,6 +1367,7 @@ def verify_silver_build(
         "emissions": processed_root / "emissions",
         "costs": processed_root / "costs",
         "basemaps": processed_root / "basemaps",
+        "CO2 storage": processed_root / "co2_storage",
         "graph": processed_root / "graph",
         "road networks": processed_root / "nrn",
         "road connectivity": processed_root / "road_connectivity",
