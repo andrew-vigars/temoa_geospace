@@ -8,7 +8,9 @@
     "legacy_files",
     "legacy_workflow",
     "notebooks",
-    "temoa"
+    "temoa",
+    "_pycache__",
+    "/node_modules",
   ],
   "extraPaths": [
     "src"
