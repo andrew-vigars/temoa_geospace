@@ -1,6 +1,6 @@
 datasets:
   - id: commodities
-    path: data_files/commodities.csv
+    path: registry/commodities.csv
     schema: commodities
     description: "Commodity list CSV (raw)"
 
@@ -15,16 +15,16 @@ datasets:
     description: "Site definitions (raw)"
 
   - id: generation_efficiency
-    path: data_files/generation_efficiency.csv
+    path: registry/generation_efficiency.csv
     schema: generation_efficiency
     description: "Generator efficiency table (raw)"
 
   - id: techs
-    path: data_files/techs.csv
+    path: registry/techs.csv
     schema: techs
     description: "Technology definitions (raw)"
 
   - id: transport_techs
-    path: data_files/transport_techs.csv
+    path: registry/transport_techs.csv
     schema: transport_techs
     description: "Transport technology data (raw)"

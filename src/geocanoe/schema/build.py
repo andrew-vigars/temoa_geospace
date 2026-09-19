@@ -31,10 +31,10 @@ Processed model inputs:
         co2_large_facilities_2024_clean.gpkg
 
 Technology inputs:
-    data_files/transport_techs.csv
-    data_files/generation_efficiency.csv
-    data_files/techs.csv
-    data_files/commodities.csv
+    registry/transport_techs.csv
+    registry/generation_efficiency.csv
+    registry/techs.csv
+    registry/commodities.csv
 
 Processed cost inputs:
     data_files/processed/costs/transport/pipelines/h2_pipeline/
@@ -73,6 +73,7 @@ from geocanoe.schema import database
 
 PROJECT_ROOT = find_project_root()
 DATA_FILES = PROJECT_ROOT / "data_files"
+REGISTRY_DIR = PROJECT_ROOT / "registry"
 
 RAW_BASEMAPS = DATA_FILES / "raw" / "basemaps"
 PROCESSED_BASEMAPS = DATA_FILES / "processed" / "basemaps"
@@ -96,10 +97,10 @@ PROCESSED_EMISSIONS_DIR = (
 )
 
 CO2_SOURCE_PATH = PROCESSED_EMISSIONS_DIR / "co2_large_facilities_2024_clean.gpkg"
-TRANSPORT_TECHS_PATH = DATA_FILES / "transport_techs.csv"
-GEN_EFFICIENCIES_PATH = DATA_FILES / "generation_efficiency.csv"
-TECHNOLOGIES_PATH = DATA_FILES / "techs.csv"
-COMMODITIES_PATH = DATA_FILES / "commodities.csv"
+TRANSPORT_TECHS_PATH = REGISTRY_DIR / "transport_techs.csv"
+GEN_EFFICIENCIES_PATH = REGISTRY_DIR / "generation_efficiency.csv"
+TECHNOLOGIES_PATH = REGISTRY_DIR / "techs.csv"
+COMMODITIES_PATH = REGISTRY_DIR / "commodities.csv"
 
 PROCESSED_COSTS = DATA_FILES / "processed" / "costs"
 H2_PIPELINE_COST_DIR = (

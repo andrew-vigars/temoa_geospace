@@ -10,14 +10,17 @@ import db_mgmt as mgmt
 def write_db(db_path, grid_res=5, etl_res=5):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(script_dir)
+    project_root = os.path.dirname(script_dir)
+    data_files_dir = os.path.join(project_root, 'data_files')
+    registry_dir = os.path.join(project_root, 'registry')
 
-    sites = pd.read_csv('data_files/sites_full.csv')
-    co2 = pd.read_csv('data_files/co2.csv')
-    transport_techs = pd.read_csv('data_files/transport_techs.csv')
-    demand = pd.read_csv('data_files/demand.csv')
-    gen_efficiencies = pd.read_csv('data_files/generation_efficiency.csv')
-    technologies = pd.read_csv('data_files/techs.csv')
-    commodity = pd.read_csv('data_files/commodities.csv')
+    sites = pd.read_csv(os.path.join(data_files_dir, 'sites_full.csv'))
+    co2 = pd.read_csv(os.path.join(data_files_dir, 'co2.csv'))
+    transport_techs = pd.read_csv(os.path.join(registry_dir, 'transport_techs.csv'))
+    demand = pd.read_csv(os.path.join(data_files_dir, 'demand.csv'))
+    gen_efficiencies = pd.read_csv(os.path.join(registry_dir, 'generation_efficiency.csv'))
+    technologies = pd.read_csv(os.path.join(registry_dir, 'techs.csv'))
+    commodity = pd.read_csv(os.path.join(registry_dir, 'commodities.csv'))
 
 
     print("\nData loaded successfully.\n")

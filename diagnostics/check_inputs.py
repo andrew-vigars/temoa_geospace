@@ -66,6 +66,7 @@ import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_FILES = PROJECT_ROOT / "data_files"
+REGISTRY_DIR = PROJECT_ROOT / "registry"
 
 PROCESSED_BASEMAPS = DATA_FILES / "processed" / "basemaps"
 PROCESSED_GRAPH = DATA_FILES / "processed" / "graph"
@@ -75,8 +76,8 @@ PROCESSED_AUDITS = DATA_FILES / "processed" / "audits" / "input_audit"
 
 SITES_PATH = DATA_FILES / "sites_full.csv"
 DEMAND_PATH = DATA_FILES / "demand.csv"
-TRANSPORT_TECHS_PATH = DATA_FILES / "transport_techs.csv"
-TECHNOLOGIES_PATH = DATA_FILES / "techs.csv"
+TRANSPORT_TECHS_PATH = REGISTRY_DIR / "transport_techs.csv"
+TECHNOLOGIES_PATH = REGISTRY_DIR / "techs.csv"
 
 PROCESSED_EMISSIONS_DIR = (
     DATA_FILES

@@ -74,7 +74,14 @@ Geospatial-CANOE/
 │   │   └── schema/
 │   ├── CANOE_geospatial.sqlite    Baseline CANOE/TEMOA database
 │   ├── canoe_dataset_schema.sql   Base relational schema
-│   └── *.csv                      Static model input tables
+│   └── *.csv                      Other model input tables
+│
+├── registry/                      User-managed registered model inputs
+│   ├── bronze_registry.yaml       Dataset IDs, schemas, and source paths
+│   ├── commodities.csv
+│   ├── generation_efficiency.csv
+│   ├── techs.csv
+│   └── transport_techs.csv
 │
 ├── src/
 │   └── geocanoe/
