@@ -60,6 +60,11 @@ import geopandas as gpd
 import pandas as pd
 
 from geocanoe.diagnostics.models import DiagnosticResult
+from geocanoe.diagnostics.input.numeric import (
+    NumericColumnRule,
+    check_numeric_columns,
+)
+from geocanoe.diagnostics.input.readiness import check_technology_readiness
 from geocanoe.diagnostics.renderers import render_console_result
 from geocanoe.schema.artifacts import resolve_schema_artifact_paths
 
@@ -180,15 +185,15 @@ PARAM_TABLES = {
     },
 }
 
-NUMERIC_SCHEMA_CHECKS = [
-    ("Demand", "demand", "non_negative", "ERROR"),
-    ("Efficiency", "efficiency", "positive", "ERROR"),
-    ("CostVariable", "cost", "non_negative", "ERROR"),
-    ("CostInvest", "cost", "non_negative", "ERROR"),
-    ("ETLSegment", "cap_lower", "non_negative", "ERROR"),
-    ("ETLSegment", "cap_upper", "non_negative", "ERROR"),
-    ("ETLSegment", "cost_lower", "non_negative", "ERROR"),
-    ("ETLSegment", "cost_upper", "non_negative", "ERROR"),
+NUMERIC_SCHEMA_CHECKS: list[NumericColumnRule] = [
+    NumericColumnRule("Demand", "demand", "non_negative"),
+    NumericColumnRule("Efficiency", "efficiency", "positive"),
+    NumericColumnRule("CostVariable", "cost", "non_negative"),
+    NumericColumnRule("CostInvest", "cost", "non_negative"),
+    NumericColumnRule("ETLSegment", "cap_lower", "non_negative"),
+    NumericColumnRule("ETLSegment", "cap_upper", "non_negative"),
+    NumericColumnRule("ETLSegment", "cost_lower", "non_negative"),
+    NumericColumnRule("ETLSegment", "cost_upper", "non_negative"),
 ]
 
 
@@ -198,6 +203,8 @@ NUMERIC_SCHEMA_CHECKS = [
 
 @dataclass(frozen=True)
 class AuditConfig:
+    """Resolved files and selections for one pre-solve diagnostic run."""
+
     basemap_stem: str
     road_layer: str
     connection_method: str
@@ -218,6 +225,8 @@ CheckResult = DiagnosticResult
 # =============================================================================
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line options for the pre-solve diagnostic gate."""
+
     parser = argparse.ArgumentParser(
         description="Run a non-interactive pre-solve input and schema gate for Geospatial-CANOE."
     )
@@ -292,16 +301,22 @@ def parse_args() -> argparse.Namespace:
 # =============================================================================
 
 def print_banner(title: str) -> None:
+    """Print a consistently formatted console section heading."""
+
     print("\n" + "=" * 78)
     print(title)
     print("=" * 78)
 
 
 def print_result(result: CheckResult, max_rows: int = 20) -> None:
+    """Print one diagnostic result with bounded row-level evidence."""
+
     print(render_console_result(result, max_rows=max_rows))
 
 
 def safe_csv_name(name: str) -> str:
+    """Normalize a diagnostic name for use as a CSV filename."""
+
     return (
         name.lower()
         .replace(" ", "_")
@@ -322,6 +337,8 @@ def build_audit_config(
     connection_method: str,
     schema_override: Path | None = None,
 ) -> AuditConfig:
+    """Resolve canonical artifacts and the optional schema override."""
+
     artifacts = resolve_schema_artifact_paths(
         project_root=PROJECT_ROOT,
         basemap_stem=basemap_stem,
@@ -355,6 +372,8 @@ def build_audit_config(
 
 
 def check_required_paths(config: AuditConfig) -> CheckResult:
+    """Check that every required preprocessing and schema artifact exists."""
+
     required = {
         "basemap": config.basemap_path,
         "graph_nodes": config.graph_node_path,
@@ -391,10 +410,14 @@ def check_required_paths(config: AuditConfig) -> CheckResult:
 # =============================================================================
 
 def safe_numeric(series: pd.Series) -> pd.Series:
+    """Coerce a series to numeric values, representing invalid values as NaN."""
+
     return pd.to_numeric(series, errors="coerce")
 
 
 def get_first_existing_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
+    """Return the first candidate column present in a table."""
+
     for candidate in candidates:
         if candidate in df.columns:
             return candidate
@@ -402,6 +425,8 @@ def get_first_existing_column(df: pd.DataFrame, candidates: list[str]) -> str | 
 
 
 def summarize_numeric(series: pd.Series) -> dict[str, float | int | None]:
+    """Return count and distribution statistics for numeric values."""
+
     values = pd.to_numeric(series, errors="coerce").dropna()
 
     if values.empty:
@@ -417,10 +442,14 @@ def summarize_numeric(series: pd.Series) -> dict[str, float | int | None]:
 
 
 def is_edge_region(region: object) -> bool:
+    """Return whether a value uses the edge pseudo-region convention."""
+
     return isinstance(region, str) and EDGE_REGION_SEPARATOR in region
 
 
 def split_edge_region(region: str) -> tuple[str, str]:
+    """Split and validate an edge pseudo-region into two endpoint regions."""
+
     left, right = region.split(EDGE_REGION_SEPARATOR, maxsplit=1)
     return left, right
 
@@ -430,6 +459,8 @@ def split_edge_region(region: str) -> tuple[str, str]:
 # =============================================================================
 
 def sqlite_table_names(db_path: Path) -> list[str]:
+    """List SQLite table names in deterministic order."""
+
     with sqlite3.connect(db_path) as conn:
         return pd.read_sql_query(
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;",
@@ -438,11 +469,15 @@ def sqlite_table_names(db_path: Path) -> list[str]:
 
 
 def read_sqlite_table(db_path: Path, table_name: str) -> pd.DataFrame:
+    """Read one complete SQLite table into a DataFrame."""
+
     with sqlite3.connect(db_path) as conn:
         return pd.read_sql_query(f'SELECT * FROM "{table_name}";', conn)
 
 
 def read_schema_tables(db_path: Path) -> dict[str, pd.DataFrame]:
+    """Read every table from an encoded schema database."""
+
     return {
         table_name: read_sqlite_table(db_path, table_name)
         for table_name in sqlite_table_names(db_path)
@@ -454,6 +489,8 @@ def read_schema_tables(db_path: Path) -> dict[str, pd.DataFrame]:
 # =============================================================================
 
 def prepare_sites_points() -> pd.DataFrame:
+    """Load site coordinates into the common point-audit representation."""
+
     sites = pd.read_csv(SITES_PATH)
 
     lon_col = get_first_existing_column(sites, ["lon", "longitude", "Longitude"])
@@ -484,6 +521,8 @@ def prepare_sites_points() -> pd.DataFrame:
 
 
 def prepare_demand_points() -> pd.DataFrame:
+    """Load demand coordinates into the common point-audit representation."""
+
     demand = pd.read_csv(DEMAND_PATH)
 
     lon_col = get_first_existing_column(demand, ["lon", "longitude", "Longitude"])
@@ -513,6 +552,8 @@ def prepare_demand_points() -> pd.DataFrame:
 
 
 def prepare_co2_points() -> pd.DataFrame:
+    """Load positive-emission facilities into the point-audit representation."""
+
     co2 = gpd.read_file(CO2_CLEAN_GPKG_PATH)
 
     lon_col = get_first_existing_column(co2, ["longitude", "lon", "Longitude"])
@@ -560,6 +601,8 @@ def snap_points_to_nodes_for_audit(
     points: pd.DataFrame,
     graph_nodes: gpd.GeoDataFrame,
 ) -> pd.DataFrame:
+    """Assign points to containing or nearest graph regions for audit purposes."""
+
     points = points.reset_index(drop=True).copy()
     points["point_id"] = range(len(points))
 
@@ -574,7 +617,7 @@ def snap_points_to_nodes_for_audit(
     if nodes_gdf.crs is None:
         nodes_gdf = nodes_gdf.set_crs("EPSG:4326")
 
-    nodes_for_within = nodes_gdf.to_crs(points_gdf.crs)
+    nodes_for_within = nodes_gdf.to_crs("EPSG:4326")
 
     within = gpd.sjoin(
         points_gdf,
@@ -629,6 +672,8 @@ def snap_points_to_nodes_for_audit(
 
 
 def summarize_snap_audit(snap_audit: pd.DataFrame) -> pd.DataFrame:
+    """Summarize spatial matching and distance thresholds by point source."""
+
     rows = []
 
     for source_type, group in snap_audit.groupby("source_type"):
@@ -663,6 +708,8 @@ def check_snap_distances(
     snap_audit: pd.DataFrame,
     allow_offshore_co2_critical_snaps: bool = False,
 ) -> list[CheckResult]:
+    """Evaluate warning, audit, and critical point-snap thresholds."""
+
     critical = snap_audit.loc[
         snap_audit["snap_distance_m"] > SNAP_CRITICAL_M
     ].sort_values("snap_distance_m", ascending=False).copy()
@@ -741,6 +788,8 @@ def audit_topology(
     road_connections: pd.DataFrame,
     road_edges: gpd.GeoDataFrame,
 ) -> pd.DataFrame:
+    """Summarize basemap, graph, and road-connectivity topology metrics."""
+
     if "has_road_connection" in road_connections.columns:
         has_road = road_connections.loc[
             road_connections["has_road_connection"].astype(bool)
@@ -784,11 +833,15 @@ def audit_topology(
 
 
 def get_metric(summary: pd.DataFrame, metric: str) -> object | None:
+    """Return one named topology metric, or None when it is absent."""
+
     row = summary.loc[summary["metric"] == metric, "value"]
     return None if row.empty else row.iloc[0]
 
 
 def numeric_metric(summary: pd.DataFrame, metric: str, default: float = 0.0) -> float:
+    """Return one topology metric as a float with a safe default."""
+
     value = get_metric(summary, metric)
     try:
         return float(value)
@@ -797,6 +850,8 @@ def numeric_metric(summary: pd.DataFrame, metric: str, default: float = 0.0) -> 
 
 
 def check_topology_summary(topology_summary: pd.DataFrame) -> list[CheckResult]:
+    """Convert topology metrics into model-input diagnostic results."""
+
     graph_nodes = numeric_metric(topology_summary, "graph_nodes")
     graph_unique_regions = numeric_metric(topology_summary, "graph_node_unique_regions")
     graph_edges = numeric_metric(topology_summary, "graph_edges")
@@ -851,6 +906,8 @@ def check_topology_summary(topology_summary: pd.DataFrame) -> list[CheckResult]:
 def audit_schema(
     config: AuditConfig,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, pd.DataFrame]]:
+    """Inventory schema tables, duplicate keys, and region coverage."""
+
     table_names = sqlite_table_names(config.schema_path)
     tables = read_schema_tables(config.schema_path)
 
@@ -907,6 +964,8 @@ def audit_schema(
 
 
 def check_schema_tables(table_counts: pd.DataFrame) -> list[CheckResult]:
+    """Check that required schema tables exist and contain rows."""
+
     counts = dict(zip(table_counts["table"], table_counts["rows"]))
 
     missing_tables = [table for table in REQUIRED_SCHEMA_TABLES if table not in counts]
@@ -937,6 +996,8 @@ def check_schema_tables(table_counts: pd.DataFrame) -> list[CheckResult]:
 def build_reference_sets(
     tables: dict[str, pd.DataFrame],
 ) -> tuple[dict[str, set[str]], list[CheckResult]]:
+    """Build defining Region, Commodity, and Technology membership sets."""
+
     reference_sets: dict[str, set[str]] = {}
     results: list[CheckResult] = []
 
@@ -985,6 +1046,8 @@ def build_reference_sets(
 
 
 def resolve_region_references(values: pd.Series, valid_regions: set[str]) -> pd.DataFrame:
+    """Return invalid node and edge-region references with failure reasons."""
+
     records = []
 
     for region in values.dropna().astype(str).unique():
@@ -1021,6 +1084,8 @@ def resolve_set_membership(
     valid_values: set[str],
     kind: str,
 ) -> pd.DataFrame:
+    """Return values absent from a defining model set."""
+
     observed = set(values.dropna().astype(str).unique())
     missing = sorted(observed - valid_values)
 
@@ -1036,6 +1101,8 @@ def check_schema_referential_integrity(
     tables: dict[str, pd.DataFrame],
     reference_sets: dict[str, set[str]],
 ) -> list[CheckResult]:
+    """Validate parameter references against defining model sets."""
+
     results: list[CheckResult] = []
 
     valid_regions = reference_sets.get("Region", set())
@@ -1112,6 +1179,8 @@ def check_schema_referential_integrity(
 
 
 def check_schema_primary_keys(tables: dict[str, pd.DataFrame]) -> list[CheckResult]:
+    """Check table-specific composite keys for duplicate parameter rows."""
+
     results: list[CheckResult] = []
 
     for table_name, spec in PARAM_TABLES.items():
@@ -1165,6 +1234,8 @@ def check_graph_node_region_mapping(
     graph_nodes: gpd.GeoDataFrame,
     tables: dict[str, pd.DataFrame],
 ) -> CheckResult:
+    """Check exact agreement between graph nodes and schema node regions."""
+
     if "Region" not in tables or "region" not in tables["Region"].columns:
         return CheckResult(
             name="Graph node regions match schema Region",
@@ -1214,58 +1285,14 @@ def check_graph_node_region_mapping(
 
 
 def check_numeric_schema_values(tables: dict[str, pd.DataFrame]) -> list[CheckResult]:
-    results = []
+    """Validate required numeric schema columns using strict coercion rules."""
 
-    for table_name, column, rule, severity in NUMERIC_SCHEMA_CHECKS:
-        if table_name not in tables:
-            results.append(
-                CheckResult(
-                    name=f"{table_name}.{column} check executed",
-                    passed=False,
-                    severity="ERROR",
-                    detail=f"{table_name} table missing",
-                    ran=False,
-                )
-            )
-            continue
-
-        table = tables[table_name]
-
-        if column not in table.columns:
-            results.append(
-                CheckResult(
-                    name=f"{table_name}.{column} exists",
-                    passed=False,
-                    severity="ERROR",
-                    detail=f"missing column {column}",
-                    ran=False,
-                )
-            )
-            continue
-
-        values = pd.to_numeric(table[column], errors="coerce")
-
-        if rule == "positive":
-            failures = table.loc[values <= 0].copy()
-            label = "positive"
-        else:
-            failures = table.loc[values < 0].copy()
-            label = "non-negative"
-
-        results.append(
-            CheckResult(
-                name=f"{table_name}.{column} is {label}",
-                passed=failures.empty,
-                severity=severity,
-                detail=f"failing_rows={len(failures)}",
-                failures=failures if not failures.empty else None,
-            )
-        )
-
-    return results
+    return check_numeric_columns(tables, NUMERIC_SCHEMA_CHECKS)
 
 
 def check_etl_segment_monotonicity(tables: dict[str, pd.DataFrame]) -> CheckResult:
+    """Check that ETL capacity and cost upper bounds exceed lower bounds."""
+
     if "ETLSegment" not in tables:
         return CheckResult(
             name="ETLSegment capacity and cost bounds are monotonic",
@@ -1307,6 +1334,8 @@ def check_etl_segment_monotonicity(tables: dict[str, pd.DataFrame]) -> CheckResu
 
 
 def check_gate_coverage(results: list[CheckResult]) -> CheckResult:
+    """Fail the gate when any declared diagnostic did not execute."""
+
     unran = [result.name for result in results if not result.ran]
 
     return CheckResult(
@@ -1331,8 +1360,11 @@ def write_csv_outputs(
     table_counts: pd.DataFrame,
     duplicate_summary: pd.DataFrame,
     region_coverage: pd.DataFrame,
+    technology_readiness: pd.DataFrame,
     results: list[CheckResult],
 ) -> None:
+    """Write detailed pre-solve audit tables and row-level evidence."""
+
     config.audit_dir.mkdir(parents=True, exist_ok=True)
 
     topology_summary.to_csv(config.audit_dir / "topology_summary.csv", index=False)
@@ -1343,14 +1375,21 @@ def write_csv_outputs(
     table_counts.to_csv(config.audit_dir / "schema_table_counts.csv", index=False)
     duplicate_summary.to_csv(config.audit_dir / "schema_duplicate_summary.csv", index=False)
     region_coverage.to_csv(config.audit_dir / "schema_region_coverage.csv", index=False)
+    technology_readiness.to_csv(
+        config.audit_dir / "technology_readiness.csv",
+        index=False,
+    )
 
     verdict_rows = [
         {
+            "check_id": result.check_id,
             "name": result.name,
+            "stage": result.stage,
             "passed": result.passed,
             "severity": result.severity,
             "detail": result.detail,
             "ran": result.ran,
+            "remediation": result.remediation,
         }
         for result in results
     ]
@@ -1369,6 +1408,8 @@ def write_csv_outputs(
 # =============================================================================
 
 def main() -> int:
+    """Run the complete pre-solve diagnostic gate and return its exit code."""
+
     args = parse_args()
 
     print_banner("Geospatial-CANOE pre-solve input and schema-construction gate")
@@ -1450,7 +1491,7 @@ def main() -> int:
 
         print("Schema audit complete.")
 
-    except Exception as exc:  # noqa: BLE001
+    except (KeyError, OSError, TypeError, ValueError, sqlite3.Error) as exc:
         print_banner("Input gate error")
         print("Could not complete input and schema gate.")
         print(f"Error: {exc}")
@@ -1478,6 +1519,8 @@ def main() -> int:
 
     results.extend(check_schema_primary_keys(schema_tables))
     results.append(check_graph_node_region_mapping(graph_nodes=graph_nodes, tables=schema_tables))
+    technology_readiness, readiness_results = check_technology_readiness(schema_tables)
+    results.extend(readiness_results)
     results.extend(check_numeric_schema_values(schema_tables))
     results.append(check_etl_segment_monotonicity(schema_tables))
     results.append(check_gate_coverage(results))
@@ -1507,6 +1550,9 @@ def main() -> int:
     key_table_counts = table_counts.loc[table_counts["table"].isin(REQUIRED_SCHEMA_TABLES)].copy()
     print(key_table_counts.to_string(index=False))
 
+    print_banner("Technology readiness")
+    print(technology_readiness.to_string(index=False))
+
     if args.write_csv:
         write_csv_outputs(
             config=config,
@@ -1517,6 +1563,7 @@ def main() -> int:
             table_counts=table_counts,
             duplicate_summary=duplicate_summary,
             region_coverage=region_coverage,
+            technology_readiness=technology_readiness,
             results=results,
         )
 
