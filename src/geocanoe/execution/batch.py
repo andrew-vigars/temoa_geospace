@@ -439,12 +439,16 @@ def normalize_schema_name(value: str) -> list[str]:
     normalized = value.lower().replace("-", "_")
 
     normalized = normalized.removeprefix("canoe_geospatial_")
+    normalized = normalized.removeprefix("gold_")
 
     parts = [
         part
         for part in normalized.split("_")
         if part and part != "basemap"
     ]
+
+    if parts and re.fullmatch(r"[0-9a-f]{8}", parts[-1]):
+        parts = parts[:-1]
 
     normalized_parts: list[str] = []
 

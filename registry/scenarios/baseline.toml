@@ -22,7 +22,7 @@
 # Required artifact identity. Use 1-20 lowercase letters, numbers, or hyphens.
 # It must start and end with a letter or number. The ID appears in the compact
 # Gold filename: gold_<build-id>_<scenario-id>_<fingerprint>.sqlite
-id = "baseline-25km"
+id = "baseline-40km"
 
 # Optional human-readable explanation recorded in the resolved scenario.
 # Changing only this description does not change model behaviour.
@@ -134,6 +134,6 @@ description = "Canonical baseline using all global model defaults"
 # may generate several resolutions; if the requested one was not generated,
 # construction fails with a ValueError listing what is actually available.
 #
-# [basemap]
-# grid_type = "projected"
-# resolution = 25
+ [basemap]
+ grid_type = "projected"
+ resolution = 40

@@ -15,7 +15,7 @@
 # set enabled = true to add a real run to the batch.
 
 [batch]
-name = "national_resolution_sweep"
+name = "provinces_sweep_withStorage"
 continue_on_failure = true
 skip_completed = true
 retry_failed = false
@@ -25,5 +25,18 @@ retry_failed = false
 # =============================================================================
 
 [[runs]]
-config = "temoa/data_files/my_configs/config_sample.toml"
-enabled = false
+config = "temoa/data_files/my_configs/provinces_baseline_40km.toml"
+enabled = true
+
+[[runs]]
+config = "temoa/data_files/my_configs/provinces_net_zero_40km.toml"
+enabled = true
+
+[[runs]]
+config = "temoa/data_files/my_configs/provinces_net_zero_25km.toml"
+enabled = true
+
+[[runs]]
+config = "temoa/data_files/my_configs/provinces_baseline_25km.toml"
+enabled = true
+
