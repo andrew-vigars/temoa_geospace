@@ -1,0 +1,121 @@
+# =============================================================================
+# GeoCANOE Gold-model scenario template
+# =============================================================================
+#
+# Scenario files are overlays on registry/model.toml:
+#
+#   1. registry/model.toml supplies the global defaults;
+#   2. this file replaces only the settings explicitly declared below;
+#   3. the merged configuration is validated and encoded into Gold;
+#   4. Silver evidence layers are never modified or rebuilt by a scenario.
+#
+# The committed baseline intentionally declares no overrides, so it inherits all
+# current global defaults. To create another scenario, copy this file, assign a
+# unique scenario ID, and uncomment only the settings that should differ.
+#
+# Supported override sections are [time], [finance], [emissions], and [storage].
+# Unknown sections, unknown keys, invalid values, and inconsistent combinations
+# fail validation before schema construction.
+
+[scenario]
+
+# Required artifact identity. Use 1-20 lowercase letters, numbers, or hyphens.
+# It must start and end with a letter or number. The ID appears in the compact
+# Gold filename: gold_<build-id>_<scenario-id>_<fingerprint>.sqlite
+id = "baseline"
+
+# Optional human-readable explanation recorded in the resolved scenario.
+# Changing only this description does not change model behaviour.
+description = "Canonical baseline using all global model defaults"
+
+
+# -----------------------------------------------------------------------------
+# Optional time-horizon overrides
+# -----------------------------------------------------------------------------
+#
+# Uncomment both settings to replace the global single-period horizon.
+# Years are integer boundaries defining [start_year, end_year), so 2025 and 2050
+# represent 25 model years. end_year must be greater than start_year.
+#
+# Period length affects:
+#   - cumulative reporting derived from annual representative-year activity; and
+#   - conversion of cumulative storage targets to annual Temoa LimitActivity.
+#
+# [time]
+# start_year = 2025
+# end_year = 2050
+
+
+# -----------------------------------------------------------------------------
+# Optional financial overrides
+# -----------------------------------------------------------------------------
+#
+# Rates are decimal fractions satisfying 0 <= rate < 1.
+#
+# global_discount_rate:
+#   Social discount rate used by Temoa to convert annual costs to present value.
+#   Physical emissions and storage quantities are not discounted.
+#
+# default_loan_rate:
+#   Default financing rate used when annualizing technology investment costs.
+#
+# [finance]
+# global_discount_rate = 0.03
+# default_loan_rate = 0.03
+
+
+# -----------------------------------------------------------------------------
+# Optional emissions-projection override
+# -----------------------------------------------------------------------------
+#
+# projection_method controls how the observed annual Silver facility-emissions
+# baseline is represented as Gold annual availability.
+#
+# Currently supported value:
+#   "constant" - encode annual emissions unchanged as representative-year
+#                LimitCapacity. Temoa assumes that annual value in every model
+#                year; the period length is not applied to LimitCapacity.
+#
+# Example: 1 kt CO2e/year becomes 1,000 t CO2e/year in Gold. Its conceptual
+# 25-year cumulative availability is 25,000 t CO2e, but that cumulative value is
+# for reporting and must not be encoded as annual LimitCapacity.
+# No other projection methods are currently implemented.
+#
+# [emissions]
+# projection_method = "constant"
+
+
+# -----------------------------------------------------------------------------
+# Optional geological-storage policy overrides
+# -----------------------------------------------------------------------------
+#
+# Supported requirement values:
+#
+#   "none"
+#       Geological storage remains available but has no required minimum.
+#       minimum_cumulative_activity must be exactly 0.
+#
+#   "minimum_cumulative_activity"
+#       Require at least the configured quantity of system-wide CO2 injection
+#       over the complete model period. minimum_cumulative_activity must be
+#       greater than 0 and is measured in t CO2e/model period.
+#
+# Temoa LimitActivity is annual. Gold therefore encodes the annual equivalent:
+#
+#   minimum_cumulative_activity / (end_year - start_year)
+#
+# Example: 7.5 billion tonnes over 25 years becomes 300 million tonnes/year.
+# When changing requirement, also set the compatible cumulative value in the
+# same scenario so the merged configuration remains valid.
+#
+# Example A — optional storage:
+#
+# [storage]
+# requirement = "none"
+# minimum_cumulative_activity = 0
+#
+# Example B — cumulative storage target:
+#
+# [storage]
+# requirement = "minimum_cumulative_activity"
+# minimum_cumulative_activity = 6_800_000_000

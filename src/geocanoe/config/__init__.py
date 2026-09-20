@@ -2,7 +2,9 @@
 
 from .model_config import (
     ModelConfig,
+    ModelEmissionsConfig,
     ModelFinanceConfig,
+    ModelScenarioConfig,
     ModelStorageConfig,
     ModelTimeConfig,
     load_model_config,
@@ -18,7 +20,9 @@ from .project_config import (
 __all__ = [
     "GeospatialBuildConfig",
     "ModelConfig",
+    "ModelEmissionsConfig",
     "ModelFinanceConfig",
+    "ModelScenarioConfig",
     "ModelStorageConfig",
     "ModelTimeConfig",
     "StorageConfig",

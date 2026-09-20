@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from geocanoe.config import load_geospatial_build_config, load_model_config
 from geocanoe.schema.build import (
     ResolvedSchemaConfig,
     assign_etl_curve_to_regions,
@@ -14,7 +15,10 @@ from geocanoe.schema.build import (
     build_etl_curve,
     build_transport_costvariable,
     build_transport_efficiency,
+    build_schema_fingerprint,
     clear_output_tables,
+    rebuild_capacity_limits,
+    rebuild_demand,
     rebuild_static_supporting_tables,
     rebuild_storage_activity_limit,
     rebuild_storage_efficiency,
@@ -24,6 +28,9 @@ from geocanoe.schema.build import (
 )
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
 def test_co2_registry_flags_balance_captured_co2_only() -> None:
     registry = pd.read_csv(
         Path(__file__).resolve().parents[1] / "registry" / "commodities.csv"
@@ -31,6 +38,50 @@ def test_co2_registry_flags_balance_captured_co2_only() -> None:
 
     assert registry.loc["co2", "flag"] == "a"
     assert registry.loc["co2_stored", "flag"] == "wa"
+
+
+def test_schema_fingerprint_tracks_effective_model_settings(
+    tmp_path: Path,
+) -> None:
+    build_config = load_geospatial_build_config(
+        PROJECT_ROOT / "config" / "build_profiles" / "on-qc.toml"
+    )
+    baseline = load_model_config(
+        PROJECT_ROOT / "registry" / "model.toml",
+        PROJECT_ROOT / "registry" / "scenarios" / "baseline.toml",
+    )
+    alternate_path = tmp_path / "optional-storage.toml"
+    alternate_path.write_text(
+        """[scenario]
+id = "optional-storage"
+
+[storage]
+requirement = "none"
+minimum_cumulative_activity = 0
+""",
+        encoding="utf-8",
+    )
+    alternate = load_model_config(
+        PROJECT_ROOT / "registry" / "model.toml",
+        alternate_path,
+    )
+
+    baseline_hash = build_schema_fingerprint(
+        build_config,
+        baseline,
+        "on_qc_basemap_25km_centroid",
+    )
+    assert len(baseline_hash) == 8
+    assert baseline_hash == build_schema_fingerprint(
+        build_config,
+        baseline,
+        "on_qc_basemap_25km_centroid",
+    )
+    assert baseline_hash != build_schema_fingerprint(
+        build_config,
+        alternate,
+        "on_qc_basemap_25km_centroid",
+    )
 
 
 def test_etl_curve_is_contiguous_and_monotonic() -> None:
@@ -154,6 +205,10 @@ def test_canonical_links_separate_all_edges_from_road_edges() -> None:
     )
     placeholder = Path("unused")
     config = ResolvedSchemaConfig(
+        build_id="test",
+        scenario_id="baseline",
+        scenario_description="Test baseline",
+        fingerprint="a1b2c3d4",
         basemap_stem="test_basemap",
         road_layer="freight_access",
         connection_method="strong",
@@ -167,12 +222,14 @@ def test_canonical_links_separate_all_edges_from_road_edges() -> None:
         storage_eligibility="all_mapped",
         storage_use_capacity_bound=False,
         model_config_path=placeholder,
+        scenario_config_path=placeholder,
         model_start_year=2025,
         model_end_year=2050,
+        emissions_projection_method="constant",
         global_discount_rate=0.03,
         default_loan_rate=0.03,
         storage_requirement="none",
-        storage_minimum_annual_activity=0.0,
+        storage_minimum_cumulative_activity=0.0,
         output_sqlite_path=placeholder,
     )
 
@@ -281,6 +338,60 @@ def test_storage_eligibility_modes_select_expected_regions(
     assert set(selected) == expected
 
 
+def test_capacity_limits_keep_emissions_as_annual_representative_capacity() -> None:
+    db_encoded: dict[str, pd.DataFrame] = {}
+    site_attributes = pd.DataFrame(
+        {
+            "region": ["R1", "R2"],
+            "co2": [1_000.0, 0.0],
+            "max_elc": [5.0, 10.0],
+        }
+    )
+
+    rebuild_capacity_limits(
+        db_encoded,
+        site_attributes,
+        model_period=2025,
+        period_years=25,
+        emissions_projection_method="constant",
+    )
+
+    co2_limits = db_encoded["LimitCapacity"].loc[
+        db_encoded["LimitCapacity"]["tech_or_group"] == "CO2_CAP"
+    ]
+    assert co2_limits["capacity"].tolist() == [1_000.0, 0.0]
+    assert set(co2_limits["units"]) == {"t CO2e/year"}
+
+
+def test_demand_is_encoded_as_annual_tonnes() -> None:
+    db_encoded: dict[str, pd.DataFrame] = {}
+    site_attributes = pd.DataFrame(
+        {
+            "region": ["R1", "R2"],
+            "demand": [10.0, 0.0],
+        }
+    )
+
+    rebuild_demand(
+        db_encoded,
+        site_attributes,
+        model_period=2025,
+    )
+
+    assert db_encoded["Demand"][
+        ["region", "period", "commodity", "demand", "units"]
+    ].to_dict("records") == [
+        {
+            "region": "R1",
+            "period": 2025,
+            "commodity": "d_gsl",
+            "demand": 10.0,
+            "units": "t/year",
+        }
+    ]
+    assert "0.00074 t/L" in db_encoded["Demand"].iloc[0]["notes"]
+
+
 def test_storage_capacity_bound_is_rejected_without_numeric_silver_data() -> None:
     with pytest.raises(ValueError, match="no allocated numerical regional"):
         validate_storage_capacity_bound_setting(True)
@@ -288,7 +399,7 @@ def test_storage_capacity_bound_is_rejected_without_numeric_silver_data() -> Non
     validate_storage_capacity_bound_setting(False)
 
 
-def test_storage_minimum_annual_activity_rebuilds_exact_constraint() -> None:
+def test_storage_minimum_cumulative_activity_encodes_annual_equivalent() -> None:
     limit_columns = [
         "region",
         "period",
@@ -320,9 +431,10 @@ def test_storage_minimum_annual_activity_rebuilds_exact_constraint() -> None:
 
     rebuild_storage_activity_limit(
         db_encoded,
-        requirement="minimum_annual_activity",
-        minimum_annual_activity=25_000.0,
+        requirement="minimum_cumulative_activity",
+        minimum_cumulative_activity=25_000.0,
         model_period=2025,
+        period_years=25,
     )
 
     encoded = db_encoded["LimitActivity"].loc[
@@ -335,7 +447,7 @@ def test_storage_minimum_annual_activity_rebuilds_exact_constraint() -> None:
             "region": "global",
             "period": 2025,
             "operator": "ge",
-            "activity": 25_000.0,
+            "activity": 1_000.0,
             "units": "t CO2e/year",
         }
     ]
@@ -357,7 +469,7 @@ def test_storage_requirement_none_removes_stale_injection_constraint() -> None:
         ),
     }
 
-    rebuild_storage_activity_limit(db_encoded, "none", 0.0, 2025)
+    rebuild_storage_activity_limit(db_encoded, "none", 0.0, 2025, 25)
 
     assert db_encoded["LimitActivity"]["tech_or_group"].tolist() == [
         "ELC_GEN"

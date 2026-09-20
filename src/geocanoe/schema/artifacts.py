@@ -25,6 +25,10 @@ def resolve_schema_artifact_paths(
     basemap_stem: str,
     road_layer: str,
     connection_method: str,
+    *,
+    build_id: str | None = None,
+    scenario_id: str | None = None,
+    fingerprint: str | None = None,
 ) -> SchemaArtifactPaths:
     """Build the canonical Stage 1-4 and encoded-schema paths.
 
@@ -37,6 +41,21 @@ def resolve_schema_artifact_paths(
         f"{basemap_stem}_{road_layer}_road_connectivity_"
         f"{connection_method}"
     )
+
+    identity_parts = (build_id, scenario_id, fingerprint)
+    if any(identity_parts) and not all(identity_parts):
+        raise ValueError(
+            "build_id, scenario_id, and fingerprint must be provided together."
+        )
+    if all(identity_parts):
+        schema_name = (
+            f"gold_{build_id}_{scenario_id}_{fingerprint}.sqlite"
+        )
+    else:
+        schema_name = (
+            f"CANOE_geospatial_{basemap_stem}_"
+            f"{road_layer}_{connection_method}.sqlite"
+        )
 
     return SchemaArtifactPaths(
         basemap=processed / "basemaps" / f"{basemap_stem}.gpkg",
@@ -61,12 +80,5 @@ def resolve_schema_artifact_paths(
         co2_storage=(
             processed / "co2_storage" / f"{basemap_stem}_co2_storage.gpkg"
         ),
-        schema=(
-            processed
-            / "schema"
-            / (
-                f"CANOE_geospatial_{basemap_stem}_"
-                f"{road_layer}_{connection_method}.sqlite"
-            )
-        ),
+        schema=processed / "schema" / schema_name,
     )

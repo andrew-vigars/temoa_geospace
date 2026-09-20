@@ -14,6 +14,9 @@
 # This is separate from the TEMOA solver configuration used by main_run.py.
 # =============================================================================
 
+[profile]
+id = "national"
+
 
 # -----------------------------------------------------------------------------
 # Shared study area
@@ -48,12 +51,6 @@ provinces = [
 
 [basemaps]
 
-# Valid values: "geographic", "projected".
-grid_types = [
-    "geographic",
-    "projected",
-]
-
 # Current workflow supports centroid retention.
 keep_method = "centroid"
 
@@ -64,6 +61,7 @@ coordinate_precision = 6
 [basemaps.geographic]
 
 # EPSG:4326 grid resolutions in decimal degrees.
+# Leave empty to skip geographic basemap generation.
 resolutions = [
     0.5,
 ]
@@ -72,6 +70,7 @@ resolutions = [
 [basemaps.projected]
 
 # EPSG:3347 grid resolutions in kilometres.
+# Leave empty to skip projected basemap generation.
 resolutions_km = [
     10,
     25,

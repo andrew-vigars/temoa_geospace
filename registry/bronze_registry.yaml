@@ -7,7 +7,7 @@ datasets:
   - id: demand
     path: data_files/demand.csv
     schema: demand
-    description: "Demand input CSV (raw)"
+    description: "Annual gasoline demand in t/year, converted from litres at 0.00074 t/L"
 
   - id: sites
     path: data_files/sites.csv

@@ -39,11 +39,6 @@ ALL_PROVINCE_CODES = (
     "NU",
 )
 
-SUPPORTED_GRID_TYPES = {
-    "geographic",
-    "projected",
-}
-
 SUPPORTED_KEEP_METHODS = {
     "centroid",
 }
@@ -74,6 +69,7 @@ SUPPORTED_STORAGE_ELIGIBILITY_MODES = {
     "quantitative",
     "qualitative",
 }
+ARTIFACT_ID_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,14}[a-z0-9])?$")
 
 DEFAULT_CONFIG_RELATIVE_PATH = (
     Path("config")
@@ -123,9 +119,6 @@ class BasemapConfig:
 
     Attributes
     ----------
-    grid_types : tuple[str, ...]
-        Basemap grid families enabled for generation, such as ``"geographic"``
-        and ``"projected"``.
     keep_method : str
         Spatial retention rule used to determine which candidate grid cells are
         retained within the study area.
@@ -137,11 +130,21 @@ class BasemapConfig:
         Resolution settings for projected grids generated in EPSG:3347.
     """
 
-    grid_types: tuple[str, ...]
     keep_method: str
     coordinate_precision: int
     geographic: BasemapGridFamilyConfig
     projected: BasemapGridFamilyConfig
+
+    @property
+    def grid_types(self) -> tuple[str, ...]:
+        """Return grid families enabled by their non-empty resolution lists."""
+
+        enabled: list[str] = []
+        if self.geographic.resolutions:
+            enabled.append("geographic")
+        if self.projected.resolutions:
+            enabled.append("projected")
+        return tuple(enabled)
 
     @property
     def geographic_resolutions_deg(self) -> tuple[float, ...]:
@@ -317,6 +320,8 @@ class GeospatialBuildConfig:
 
     Attributes
     ----------
+    build_id : str
+        Short filename-safe identity for artifacts produced by this profile.
     study_area : StudyAreaConfig
         Study-area identity and included province or territory codes.
     basemaps : BasemapConfig
@@ -337,6 +342,7 @@ class GeospatialBuildConfig:
         Path to the TOML build profile from which the configuration was loaded.
     """
 
+    build_id: str
     study_area: StudyAreaConfig
     basemaps: BasemapConfig
     adjacency: AdjacencyConfig
@@ -618,12 +624,11 @@ def _require_positive_number_list(
     key: str,
     section: str,
 ) -> tuple[float, ...]:
-    """Return a required list of unique positive numbers from a TOML section.
+    """Return a required list containing unique positive numbers.
 
-    The requested value is validated as a non-empty list containing only integer
-    or floating-point values. Boolean values are rejected explicitly, each entry is
-    normalized to ``float``, positivity is enforced, and duplicate numeric values
-    are not permitted.
+    The list may be empty to disable the associated basemap grid family. Boolean
+    values are rejected explicitly, each numeric entry is normalized to ``float``,
+    positivity is enforced, and duplicate numeric values are not permitted.
 
     Parameters
     ----------
@@ -642,16 +647,16 @@ def _require_positive_number_list(
     Raises
     ------
     ValueError
-        If the setting is missing, is not a non-empty list, contains a boolean or
-        non-numeric value, contains a value less than or equal to zero, or contains
-        duplicate numeric values.
+        If the setting is missing or is not a list, contains a boolean or
+        non-numeric value, contains a value less than or equal to zero, or
+        contains duplicate numeric values.
     """
 
     value = table.get(key)
 
-    if not isinstance(value, list) or not value:
+    if not isinstance(value, list):
         raise ValueError(
-            f"[{section}].{key} must be a non-empty list."
+            f"[{section}].{key} must be a list."
         )
 
     normalized: list[float] = []
@@ -973,6 +978,7 @@ def load_geospatial_build_config(
     with config_path.open("rb") as config_file:
         raw = tomllib.load(config_file)
 
+    profile_raw = _require_table(raw, "profile")
     study_area_raw = _require_table(raw, "study_area")
     basemaps_raw = _require_table(raw, "basemaps")
     adjacency_raw = _require_table(raw, "adjacency")
@@ -997,6 +1003,13 @@ def load_geospatial_build_config(
         "classes",
     )
 
+    build_id = _require_string(profile_raw, "id", "profile")
+    if not ARTIFACT_ID_PATTERN.fullmatch(build_id):
+        raise ValueError(
+            "[profile].id must contain 1-16 lowercase letters, numbers, or "
+            "hyphens, and must start and end with a letter or number."
+        )
+
     study_area = StudyAreaConfig(
         label=_normalize_study_area_label(
             _require_string(
@@ -1014,18 +1027,31 @@ def load_geospatial_build_config(
         ),
     )
 
-    grid_types = _validate_choices(
-        _require_string_list(
-            basemaps_raw,
-            "grid_types",
-            "basemaps",
-        ),
-        SUPPORTED_GRID_TYPES,
-        "basemaps.grid_types",
+    if "grid_types" in basemaps_raw:
+        raise ValueError(
+            "[basemaps].grid_types is derived from the geographic and projected "
+            "resolution lists; remove the grid_types setting."
+        )
+
+    geographic_resolutions = _require_positive_number_list(
+        geographic_raw,
+        "resolutions",
+        "basemaps.geographic",
+    )
+    projected_resolutions = _require_positive_number_list(
+        projected_raw,
+        "resolutions_km",
+        "basemaps.projected",
     )
 
+    if not geographic_resolutions and not projected_resolutions:
+        raise ValueError(
+            "At least one basemap resolution must be configured in "
+            "[basemaps.geographic].resolutions or "
+            "[basemaps.projected].resolutions_km."
+        )
+
     basemaps = BasemapConfig(
-        grid_types=grid_types,
         keep_method=_validate_choice(
             _require_string(
                 basemaps_raw,
@@ -1042,18 +1068,10 @@ def load_geospatial_build_config(
             minimum=0,
         ),
         geographic=BasemapGridFamilyConfig(
-            resolutions=_require_positive_number_list(
-                geographic_raw,
-                "resolutions",
-                "basemaps.geographic",
-            )
+            resolutions=geographic_resolutions
         ),
         projected=BasemapGridFamilyConfig(
-            resolutions=_require_positive_number_list(
-                projected_raw,
-                "resolutions_km",
-                "basemaps.projected",
-            )
+            resolutions=projected_resolutions
         ),
     )
 
@@ -1251,6 +1269,7 @@ def load_geospatial_build_config(
         )
 
     return GeospatialBuildConfig(
+        build_id=build_id,
         study_area=study_area,
         basemaps=basemaps,
         adjacency=adjacency,
@@ -1281,6 +1300,7 @@ def print_build_config(
     print("Geospatial-CANOE build profile")
     print("=" * 78)
     print(f"Source:                  {config.source_path}")
+    print(f"Build ID:                {config.build_id}")
     print(f"Study area:              {config.study_area.label}")
     print(
         "Provinces/territories:  "

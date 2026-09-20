@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
+import re
 import tomllib
 
 
 SUPPORTED_STORAGE_REQUIREMENTS = {
     "none",
-    "minimum_annual_activity",
+    "minimum_cumulative_activity",
 }
+SUPPORTED_EMISSIONS_PROJECTION_METHODS = {"constant"}
+MODEL_SECTIONS = {"time", "finance", "emissions", "storage"}
+SCENARIO_ID_PATTERN = re.compile(
+    r"^[a-z0-9](?:[a-z0-9-]{0,18}[a-z0-9])?$"
+)
 
 
 @dataclass(frozen=True)
@@ -36,11 +43,27 @@ class ModelFinanceConfig:
 
 
 @dataclass(frozen=True)
+class ModelEmissionsConfig:
+    """Projection used to represent annual Silver emissions in Gold."""
+
+    projection_method: str
+
+
+@dataclass(frozen=True)
 class ModelStorageConfig:
-    """Policy requirement for annual geological CO2 injection."""
+    """Policy requirement for cumulative geological CO2 injection."""
 
     requirement: str
-    minimum_annual_activity: float
+    minimum_cumulative_activity: float
+
+
+@dataclass(frozen=True)
+class ModelScenarioConfig:
+    """Identity and source of one scenario applied over global defaults."""
+
+    scenario_id: str
+    description: str
+    source_path: Path | None
 
 
 @dataclass(frozen=True)
@@ -49,7 +72,9 @@ class ModelConfig:
 
     time: ModelTimeConfig
     finance: ModelFinanceConfig
+    emissions: ModelEmissionsConfig
     storage: ModelStorageConfig
+    scenario: ModelScenarioConfig
     source_path: Path
 
 
@@ -87,8 +112,72 @@ def _require_nonnegative_number(table: dict, key: str, section: str) -> float:
     return value
 
 
-def load_model_config(config_path: Path | str) -> ModelConfig:
-    """Load and validate the canonical single-period model registry."""
+def _apply_scenario_overrides(
+    base: dict,
+    scenario_path: Path,
+) -> tuple[dict, ModelScenarioConfig]:
+    """Overlay validated scenario fields onto global model defaults."""
+
+    if not scenario_path.is_file():
+        raise FileNotFoundError(f"Model scenario not found: {scenario_path}")
+
+    with scenario_path.open("rb") as scenario_file:
+        scenario_raw = tomllib.load(scenario_file)
+
+    unknown_sections = set(scenario_raw) - (MODEL_SECTIONS | {"scenario"})
+    if unknown_sections:
+        raise ValueError(
+            "Scenario contains unsupported sections: "
+            f"{sorted(unknown_sections)}."
+        )
+
+    identity = _require_table(scenario_raw, "scenario")
+    unknown_identity_keys = set(identity) - {"id", "description"}
+    if unknown_identity_keys:
+        raise ValueError(
+            "[scenario] contains unsupported settings: "
+            f"{sorted(unknown_identity_keys)}."
+        )
+
+    scenario_id = identity.get("id")
+    if not isinstance(scenario_id, str) or not SCENARIO_ID_PATTERN.fullmatch(
+        scenario_id
+    ):
+        raise ValueError(
+            "[scenario].id must contain 1-20 lowercase letters, numbers, or "
+            "hyphens, and must start and end with a letter or number."
+        )
+    description = identity.get("description", "")
+    if not isinstance(description, str):
+        raise ValueError("[scenario].description must be a string.")
+
+    effective = deepcopy(base)
+    for section in MODEL_SECTIONS:
+        if section not in scenario_raw:
+            continue
+        overrides = scenario_raw[section]
+        if not isinstance(overrides, dict):
+            raise ValueError(f"Scenario section [{section}] must be a table.")
+        unknown_keys = set(overrides) - set(_require_table(base, section))
+        if unknown_keys:
+            raise ValueError(
+                f"Scenario [{section}] contains unsupported settings: "
+                f"{sorted(unknown_keys)}."
+            )
+        effective[section].update(overrides)
+
+    return effective, ModelScenarioConfig(
+        scenario_id=scenario_id,
+        description=description.strip(),
+        source_path=scenario_path,
+    )
+
+
+def load_model_config(
+    config_path: Path | str,
+    scenario_path: Path | str | None = None,
+) -> ModelConfig:
+    """Load global model defaults and apply an optional scenario overlay."""
 
     config_path = Path(config_path).expanduser().resolve()
     if not config_path.is_file():
@@ -97,8 +186,22 @@ def load_model_config(config_path: Path | str) -> ModelConfig:
     with config_path.open("rb") as config_file:
         raw = tomllib.load(config_file)
 
+    if scenario_path is None:
+        scenario = ModelScenarioConfig(
+            scenario_id="defaults",
+            description="Global model defaults without a scenario overlay",
+            source_path=None,
+        )
+    else:
+        resolved_scenario_path = Path(scenario_path).expanduser().resolve()
+        raw, scenario = _apply_scenario_overrides(
+            raw,
+            resolved_scenario_path,
+        )
+
     time_raw = _require_table(raw, "time")
     finance_raw = _require_table(raw, "finance")
+    emissions_raw = _require_table(raw, "emissions")
     storage_raw = _require_table(raw, "storage")
 
     start_year = _require_int(time_raw, "start_year", "time")
@@ -106,26 +209,36 @@ def load_model_config(config_path: Path | str) -> ModelConfig:
     if end_year <= start_year:
         raise ValueError("[time].end_year must be greater than [time].start_year.")
 
+    projection_method = emissions_raw.get("projection_method")
+    if projection_method not in SUPPORTED_EMISSIONS_PROJECTION_METHODS:
+        raise ValueError(
+            "[emissions].projection_method must be one of "
+            f"{sorted(SUPPORTED_EMISSIONS_PROJECTION_METHODS)}."
+        )
+
     requirement = storage_raw.get("requirement")
     if requirement not in SUPPORTED_STORAGE_REQUIREMENTS:
         raise ValueError(
             "[storage].requirement must be one of "
             f"{sorted(SUPPORTED_STORAGE_REQUIREMENTS)}."
         )
-    minimum_annual_activity = _require_nonnegative_number(
+    minimum_cumulative_activity = _require_nonnegative_number(
         storage_raw,
-        "minimum_annual_activity",
+        "minimum_cumulative_activity",
         "storage",
     )
-    if requirement == "none" and minimum_annual_activity != 0:
+    if requirement == "none" and minimum_cumulative_activity != 0:
         raise ValueError(
-            "[storage].minimum_annual_activity must be 0 when the requirement "
+            "[storage].minimum_cumulative_activity must be 0 when the requirement "
             "is 'none'."
         )
-    if requirement == "minimum_annual_activity" and minimum_annual_activity <= 0:
+    if (
+        requirement == "minimum_cumulative_activity"
+        and minimum_cumulative_activity <= 0
+    ):
         raise ValueError(
-            "[storage].minimum_annual_activity must be greater than 0 when the "
-            "requirement is 'minimum_annual_activity'."
+            "[storage].minimum_cumulative_activity must be greater than 0 when "
+            "the requirement is 'minimum_cumulative_activity'."
         )
 
     return ModelConfig(
@@ -142,9 +255,13 @@ def load_model_config(config_path: Path | str) -> ModelConfig:
                 "finance",
             ),
         ),
+        emissions=ModelEmissionsConfig(
+            projection_method=projection_method,
+        ),
         storage=ModelStorageConfig(
             requirement=requirement,
-            minimum_annual_activity=minimum_annual_activity,
+            minimum_cumulative_activity=minimum_cumulative_activity,
         ),
+        scenario=scenario,
         source_path=config_path,
     )

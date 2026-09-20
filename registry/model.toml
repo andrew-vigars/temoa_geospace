@@ -1,4 +1,6 @@
-# Canonical non-spatial model semantics shared by every GeoCANOE build.
+# Global non-spatial model defaults shared by every GeoCANOE Gold build.
+# A selected registry/scenarios/*.toml file may override recognized settings
+# below without changing the Silver evidence layers.
 
 [time]
 
@@ -15,12 +17,29 @@ global_discount_rate = 0.03
 # Default financing rate used when annualizing technology investment costs.
 default_loan_rate = 0.03
 
+[emissions]
+
+# Supported projection methods:
+#   "constant" - hold the observed annual facility-emissions baseline constant
+#                in every model-period year. Because Temoa optimizes one
+#                representative year, Gold encodes the annual baseline unchanged
+#                as LimitCapacity in t CO2e/year. Multiply solved annual activity
+#                by (end_year - start_year) only for cumulative reporting.
+# No other projection methods are currently supported.
+# Silver always remains in kt CO2e/year; Gold converts kt to tonnes but does not
+# multiply the capacity limit by the model-period duration.
+projection_method = "constant"
+
 [storage]
 
-# "none" keeps geological storage optional.
-# "minimum_annual_activity" adds a system-wide annual CO2_INJECT lower bound.
-requirement = "minimum_annual_activity"
+# Supported storage requirements:
+#   "none"                        - geological storage remains optional;
+#   "minimum_cumulative_activity" - require at least the configured total CO2
+#                                   injection over the whole model period.
+requirement = "minimum_cumulative_activity"
 
-# Tonnes CO2e per year, sustained in every year of the single model period.
-# This must be positive for "minimum_annual_activity" and zero for "none".
-minimum_annual_activity = 25_000_000
+# Tonnes CO2e over the complete [start_year, end_year) model period.
+# Gold converts this cumulative target to Temoa's annual LimitActivity value by
+# dividing it by (end_year - start_year). This must be positive for
+# "minimum_cumulative_activity" and exactly zero for "none".
+minimum_cumulative_activity = 6_800_000_000

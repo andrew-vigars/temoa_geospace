@@ -85,3 +85,14 @@ def test_schema_artifact_paths_include_road_layer() -> None:
         "CANOE_geospatial_on_qc_basemap_25km_centroid_"
         "freight_access_strong.sqlite"
     )
+
+    identified = resolve_schema_artifact_paths(
+        project_root=Path("C:/example/geocanoe"),
+        basemap_stem="on_qc_basemap_25km_centroid",
+        road_layer="freight_access",
+        connection_method="strong",
+        build_id="onqc",
+        scenario_id="baseline",
+        fingerprint="a1b2c3d4",
+    )
+    assert identified.schema.name == "gold_onqc_baseline_a1b2c3d4.sqlite"

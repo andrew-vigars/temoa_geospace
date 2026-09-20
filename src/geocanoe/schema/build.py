@@ -45,12 +45,14 @@ Processed cost inputs:
 Outputs
 -------
 data_files/processed/schema/
-    CANOE_geospatial_{BASEMAP_STEM}_{ROAD_LAYER}_{CONNECTION_METHOD}.sqlite
+    gold_{BUILD_ID}_{SCENARIO_ID}_{FINGERPRINT}.sqlite
 """
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date
+import hashlib
+import json
 import math
 from pathlib import Path
 from time import perf_counter
@@ -62,6 +64,7 @@ import pandas as pd
 
 from geocanoe.config import (
     GeospatialBuildConfig,
+    ModelConfig,
     load_geospatial_build_config,
     load_model_config,
     print_build_config,
@@ -105,6 +108,7 @@ GEN_EFFICIENCIES_PATH = REGISTRY_DIR / "generation_efficiency.csv"
 TECHNOLOGIES_PATH = REGISTRY_DIR / "techs.csv"
 COMMODITIES_PATH = REGISTRY_DIR / "commodities.csv"
 MODEL_CONFIG_PATH = REGISTRY_DIR / "model.toml"
+BASELINE_SCENARIO_PATH = REGISTRY_DIR / "scenarios" / "baseline.toml"
 
 PROCESSED_COSTS = DATA_FILES / "processed" / "costs"
 H2_PIPELINE_COST_DIR = (
@@ -166,6 +170,14 @@ class ResolvedSchemaConfig:
 
     Attributes
     ----------
+    build_id : str
+        Short artifact identity from the selected Silver build profile.
+    scenario_id : str
+        Short identity from the selected model scenario.
+    scenario_description : str
+        Human-readable explanation from the selected scenario.
+    fingerprint : str
+        Deterministic eight-character hash of effective Silver and model inputs.
     basemap_stem : str
         Stem of the selected Stage 1 basemap file.
     road_layer : str
@@ -198,23 +210,31 @@ class ResolvedSchemaConfig:
         Whether a numerical geological storage capacity bound was requested.
     model_config_path : Path
         Path to the canonical non-spatial model registry.
+    scenario_config_path : Path
+        Path to the selected scenario overlay.
     model_start_year : int
         Start year and sole optimization-period label.
     model_end_year : int
         Exclusive terminal boundary used to calculate period length.
+    emissions_projection_method : str
+        Rule used to represent annual Silver emissions in the model period.
     global_discount_rate : float
         Social discount rate used for present-value calculations.
     default_loan_rate : float
         Default rate used to annualize investment costs.
     storage_requirement : str
         Registry policy for requiring geological storage.
-    storage_minimum_annual_activity : float
-        System-wide lower bound on annual ``CO2_INJECT`` activity when the
-        storage requirement is ``"minimum_annual_activity"``.
+    storage_minimum_cumulative_activity : float
+        System-wide lower bound on cumulative ``CO2_INJECT`` activity when the
+        storage requirement is ``"minimum_cumulative_activity"``.
     output_sqlite_path : Path
         Path where the encoded CANOE/TEMOA SQLite database will be written.
     """
 
+    build_id: str
+    scenario_id: str
+    scenario_description: str
+    fingerprint: str
     basemap_stem: str
     road_layer: str
     connection_method: str
@@ -228,12 +248,14 @@ class ResolvedSchemaConfig:
     storage_eligibility: str
     storage_use_capacity_bound: bool
     model_config_path: Path
+    scenario_config_path: Path
     model_start_year: int
     model_end_year: int
+    emissions_projection_method: str
     global_discount_rate: float
     default_loan_rate: float
     storage_requirement: str
-    storage_minimum_annual_activity: float
+    storage_minimum_cumulative_activity: float
     output_sqlite_path: Path
 
 
@@ -404,8 +426,8 @@ class SnappedInputs:
     ----------
     site_attributes : pd.DataFrame
         Node-level table of snapped and aggregated site attributes, including
-        demand, electricity potential, CO2 capacity, and mapped CO2 facility
-        counts.
+        demand, electricity potential, the annual CO2 emissions baseline, and
+        mapped CO2 facility counts.
     co2_facilities : gpd.GeoDataFrame
         Spatial CO2 facility records with positive emissions that were used for
         graph-node snapping.
@@ -547,6 +569,7 @@ def discover_basemap_stems(
 
 def resolve_schema_configuration(
     build_config: GeospatialBuildConfig,
+    scenario_path: Path | str = BASELINE_SCENARIO_PATH,
 ) -> ResolvedSchemaConfig:
     """Resolve and validate all Stage 1–4 inputs for one schema build.
 
@@ -582,7 +605,10 @@ def resolve_schema_configuration(
         by the configured workflow.
     """
 
-    model_config = load_model_config(MODEL_CONFIG_PATH)
+    model_config = load_model_config(MODEL_CONFIG_PATH, scenario_path)
+    scenario_config_path = model_config.scenario.source_path
+    if scenario_config_path is None:
+        raise ValueError("Schema builds require an explicit model scenario.")
 
     validate_storage_capacity_bound_setting(
         build_config.storage.use_capacity_bound
@@ -618,14 +644,26 @@ def resolve_schema_configuration(
             "configured road-connectivity stage."
         )
 
+    fingerprint = build_schema_fingerprint(
+        build_config=build_config,
+        model_config=model_config,
+        basemap_stem=basemap_stem,
+    )
     artifacts = resolve_schema_artifact_paths(
         project_root=PROJECT_ROOT,
         basemap_stem=basemap_stem,
         road_layer=road_layer,
         connection_method=connection_method,
+        build_id=build_config.build_id,
+        scenario_id=model_config.scenario.scenario_id,
+        fingerprint=fingerprint,
     )
 
     config = ResolvedSchemaConfig(
+        build_id=build_config.build_id,
+        scenario_id=model_config.scenario.scenario_id,
+        scenario_description=model_config.scenario.description,
+        fingerprint=fingerprint,
         basemap_stem=basemap_stem,
         road_layer=road_layer,
         connection_method=connection_method,
@@ -639,13 +677,17 @@ def resolve_schema_configuration(
         storage_eligibility=build_config.storage.eligibility,
         storage_use_capacity_bound=build_config.storage.use_capacity_bound,
         model_config_path=model_config.source_path,
+        scenario_config_path=scenario_config_path,
         model_start_year=model_config.time.start_year,
         model_end_year=model_config.time.end_year,
+        emissions_projection_method=(
+            model_config.emissions.projection_method
+        ),
         global_discount_rate=model_config.finance.global_discount_rate,
         default_loan_rate=model_config.finance.default_loan_rate,
         storage_requirement=model_config.storage.requirement,
-        storage_minimum_annual_activity=(
-            model_config.storage.minimum_annual_activity
+        storage_minimum_cumulative_activity=(
+            model_config.storage.minimum_cumulative_activity
         ),
         output_sqlite_path=artifacts.schema,
     )
@@ -654,6 +696,33 @@ def resolve_schema_configuration(
     validate_required_paths(config)
 
     return config
+
+
+def build_schema_fingerprint(
+    build_config: GeospatialBuildConfig,
+    model_config: ModelConfig,
+    basemap_stem: str,
+) -> str:
+    """Hash normalized effective Silver and model settings for artifact identity."""
+
+    silver = asdict(build_config)
+    silver.pop("source_path", None)
+    payload = {
+        "silver": silver,
+        "selected_basemap_stem": basemap_stem,
+        "model": {
+            "time": asdict(model_config.time),
+            "finance": asdict(model_config.finance),
+            "emissions": asdict(model_config.emissions),
+            "storage": asdict(model_config.storage),
+        },
+    }
+    canonical = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()[:8]
 
 def ensure_baseline_sqlite_exists() -> None:
     """Ensure the baseline CANOE/TEMOA SQLite database exists.
@@ -723,6 +792,7 @@ def validate_required_paths(config: ResolvedSchemaConfig) -> None:
         "techs": TECHNOLOGIES_PATH,
         "commodities": COMMODITIES_PATH,
         "model_config": config.model_config_path,
+        "model_scenario": config.scenario_config_path,
         "h2_etlsegment_template": H2_ETLSEGMENT_TEMPLATE_PATH,
         "h2_opex_coefficients": H2_OPEX_COEFFICIENT_PATH,
         "processed_basemap": config.basemap_path,
@@ -2089,8 +2159,8 @@ def build_site_attributes(
     graph regions, and aggregated by region.
 
     The resulting site-attribute table contains one row per canonical node
-    region and includes demand, electricity potential, CO2 capacity, mapped CO2
-    facility counts, and a placeholder CO2 capture cost.
+    region and includes demand, electricity potential, the annual CO2 emissions
+    baseline, mapped CO2 facility counts, and a placeholder CO2 capture cost.
 
     Parameters
     ----------
@@ -2253,9 +2323,10 @@ def rebuild_demand(
 
     Rows with positive gasoline demand are selected from the node-level site
     attributes and encoded into the CANOE/TEMOA ``Demand`` table. Each retained
-    graph region receives one demand record for commodity ``d_gsl`` in period 1,
-    with shared provenance metadata identifying the geospatial preprocessing
-    workflow.
+    graph region receives one annual representative-year demand record for
+    commodity ``d_gsl`` in the configured model period. The legacy source values
+    are encoded unchanged. The source values are annual gasoline tonnes derived
+    from annual litres using a density conversion of ``0.00074 t/L``.
 
     The rebuilt table is checked to confirm that each region appears only once and
     that all encoded demand values are strictly positive.
@@ -2291,8 +2362,11 @@ def rebuild_demand(
             "period": model_period,
             "commodity": "d_gsl",
             "demand": demand_sites["demand"],
-            "units": None,
-            "notes": "Demand snapped to selected geospatial graph node",
+            "units": "t/year",
+            "notes": (
+                "Annual gasoline demand in tonnes, converted from litres using "
+                "0.00074 t/L and snapped to selected graph node"
+            ),
             "data_source": None,
             "dq_cred": None,
             "dq_geog": None,
@@ -2315,13 +2389,18 @@ def rebuild_capacity_limits(
     db_encoded: dict[str, pd.DataFrame],
     site_attributes: pd.DataFrame,
     model_period: int,
+    period_years: int,
+    emissions_projection_method: str,
 ) -> None:
     """Rebuild node-level capacity limits for CO2 capture and electricity generation.
 
     For every snapped graph region, this function creates two upper-bound
     ``LimitCapacity`` records for period 1: one for ``CO2_CAP`` using the mapped
-    node-level CO2 capacity and one for ``ELC_GEN`` using the mapped maximum
-    electricity potential. The rebuilt table replaces any existing
+    annual Silver CO2 availability and one for ``ELC_GEN`` using the mapped
+    maximum electricity potential. Temoa optimizes one representative year and
+    repeats it across the model period, so annual availability is not multiplied
+    by the number of period years before it is encoded. The
+    rebuilt table replaces any existing
     ``LimitCapacity`` table in the encoded database and includes shared geospatial
     provenance metadata.
 
@@ -2333,6 +2412,12 @@ def rebuild_capacity_limits(
     site_attributes : pd.DataFrame
         Snapped node-level attribute table containing ``region``, ``co2``, and
         ``max_elc`` columns.
+    period_years : int
+        Number of years represented by the single model period.
+    emissions_projection_method : str
+        Projection rule from the model registry. ``"constant"`` encodes the
+        annual baseline unchanged as representative-year capacity, which Temoa
+        assumes occurs in every year of the period.
 
     Returns
     -------
@@ -2345,6 +2430,14 @@ def rebuild_capacity_limits(
         every site-attribute record.
     """
 
+    if period_years <= 0:
+        raise ValueError("Emission projection period_years must be positive.")
+    if emissions_projection_method != "constant":
+        raise ValueError(
+            "Unsupported emissions projection method: "
+            f"{emissions_projection_method!r}."
+        )
+
     db_encoded["LimitCapacity"] = pd.concat(
         [
             pd.DataFrame(
@@ -2354,9 +2447,11 @@ def rebuild_capacity_limits(
                     "tech_or_group": "CO2_CAP",
                     "operator": "le",
                     "capacity": site_attributes["co2"],
-                    "units": "t",
+                    "units": "t CO2e/year",
                     "notes": (
-                        "CO2 capacity snapped to selected geospatial graph node"
+                        "Annual CO2 facility-emissions baseline held constant "
+                        f"in each representative year of the {period_years}-year "
+                        "model period"
                     ),
                     "data_source": None,
                     "dq_cred": None,
@@ -2400,27 +2495,30 @@ def rebuild_capacity_limits(
 def rebuild_storage_activity_limit(
     db_encoded: dict[str, pd.DataFrame],
     requirement: str,
-    minimum_annual_activity: float,
+    minimum_cumulative_activity: float,
     model_period: int,
+    period_years: int,
 ) -> None:
     """Rebuild the optional system-wide minimum geological-storage constraint.
 
-    ``minimum_annual_activity`` policy rows use Temoa's existing
-    ``LimitActivity`` formulation to require annual ``CO2_INJECT`` output across
-    all model regions.
+    ``minimum_cumulative_activity`` is a whole-period policy target. Temoa's
+    ``LimitActivity`` formulation constrains annual activity, so the target is
+    divided by the model-period duration before encoding.
     Because ``CO2_INJECT`` has unit efficiency to ``co2_stored``, the activity
-    lower bound is also the minimum annual stored-CO2 flow. Existing constraints
+    lower bound is the annual-equivalent stored-CO2 flow. Existing constraints
     for other technologies are preserved.
     """
 
-    if requirement not in {"none", "minimum_annual_activity"}:
+    if requirement not in {"none", "minimum_cumulative_activity"}:
         raise ValueError(
             "Storage requirement must be 'none' or "
-            "'minimum_annual_activity'."
+            "'minimum_cumulative_activity'."
         )
 
-    if minimum_annual_activity < 0:
+    if minimum_cumulative_activity < 0:
         raise ValueError("Storage minimum activity cannot be negative.")
+    if period_years <= 0:
+        raise ValueError("Storage projection period_years must be positive.")
 
     limit_activity = db_encoded["LimitActivity"]
     db_encoded["LimitActivity"] = limit_activity.loc[
@@ -2428,7 +2526,7 @@ def rebuild_storage_activity_limit(
     ].copy()
 
     if requirement == "none":
-        if minimum_annual_activity != 0:
+        if minimum_cumulative_activity != 0:
             raise ValueError(
                 "Storage minimum activity must be zero when the requirement "
                 "is 'none'."
@@ -2436,10 +2534,10 @@ def rebuild_storage_activity_limit(
         print("CO2 storage minimum activity: disabled")
         return
 
-    if minimum_annual_activity <= 0:
+    if minimum_cumulative_activity <= 0:
         raise ValueError(
             "Storage minimum activity must be positive when the requirement "
-            "is 'minimum_annual_activity'."
+            "is 'minimum_cumulative_activity'."
         )
 
     storage_processes = db_encoded["Efficiency"].loc[
@@ -2451,14 +2549,19 @@ def rebuild_storage_activity_limit(
             "processes are available under the selected storage eligibility."
         )
 
+    minimum_annual_equivalent = minimum_cumulative_activity / period_years
+
     row = {
         "region": "global",
         "period": model_period,
         "tech_or_group": "CO2_INJECT",
         "operator": "ge",
-        "activity": float(minimum_annual_activity),
+        "activity": float(minimum_annual_equivalent),
         "units": "t CO2e/year",
-        "notes": "Minimum annual geological CO2 storage required by model registry",
+        "notes": (
+            "Annual equivalent of cumulative geological CO2 storage target "
+            f"over {period_years}-year model period"
+        ),
         "data_source": None,
         "dq_cred": None,
         "dq_geog": None,
@@ -2483,11 +2586,12 @@ def rebuild_storage_activity_limit(
     assert encoded.iloc[0]["region"] == "global"
     assert encoded.iloc[0]["period"] == model_period
     assert encoded.iloc[0]["operator"] == "ge"
-    assert encoded.iloc[0]["activity"] == float(minimum_annual_activity)
+    assert encoded.iloc[0]["activity"] == float(minimum_annual_equivalent)
 
     print(
-        "CO2 storage minimum activity: "
-        f"{minimum_annual_activity:,.2f} t CO2e/year"
+        "CO2 storage minimum cumulative activity: "
+        f"{minimum_cumulative_activity:,.2f} t CO2e/model period "
+        f"({minimum_annual_equivalent:,.2f} t CO2e/year equivalent)"
     )
 
 
@@ -4555,6 +4659,33 @@ def export_sqlite(
     print(f"Created SQLite: {output_sqlite_path}")
 
 
+def write_schema_manifest(
+    config: ResolvedSchemaConfig,
+    build_config: GeospatialBuildConfig,
+) -> Path:
+    """Write the complete resolved artifact identity beside the Gold database."""
+
+    manifest_path = config.output_sqlite_path.with_suffix(".manifest.json")
+    build_values = asdict(build_config)
+    resolved_values = asdict(config)
+    payload = {
+        "artifact": {
+            "database": config.output_sqlite_path.name,
+            "build_id": config.build_id,
+            "scenario_id": config.scenario_id,
+            "fingerprint": config.fingerprint,
+        },
+        "silver_build_profile": build_values,
+        "resolved_gold_configuration": resolved_values,
+    }
+    manifest_path.write_text(
+        json.dumps(payload, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
+    print(f"Created manifest: {manifest_path}")
+    return manifest_path
+
+
 def verify_exported_sqlite(
     output_sqlite_path: Path,
     specs: TechSpecs,
@@ -4664,7 +4795,10 @@ def verify_exported_sqlite(
     print("\nCO2_CAP validation:")
     print(f"CO2_CAP rows: {len(co2_cap_rows):,}")
     print(f"CO2_CAP positive regions: {len(co2_cap_positive):,}")
-    print(f"Total CO2_CAP capacity: {co2_cap_rows['capacity'].sum():,.2f} t CO2e/year")
+    print(
+        "Total CO2_CAP availability: "
+        f"{co2_cap_rows['capacity'].sum():,.2f} t CO2e/year"
+    )
     print(f"Spatially assignable CO2 rows: {len(snapped.co2_raw):,}")
     print(f"Dropped zero/negative CO2 rows: {len(snapped.co2_raw) - len(snapped.co2_facilities):,}")
     print(f"Facilities entering snap: {len(snapped.co2_facilities):,}")
@@ -4743,11 +4877,21 @@ def parse_args() -> argparse.Namespace:
             "Path to a geospatial preprocessing TOML build profile."
         ),
     )
+    parser.add_argument(
+        "--scenario",
+        type=Path,
+        default=BASELINE_SCENARIO_PATH,
+        help=(
+            "Path to a registry scenario TOML overlay. Defaults to "
+            "registry/scenarios/baseline.toml."
+        ),
+    )
     return parser.parse_args()
 
 
 def run_schema_build(
     build_config: GeospatialBuildConfig,
+    scenario_path: Path | str = BASELINE_SCENARIO_PATH,
 ) -> Path:
     """Run the complete single-period schema build for one build profile.
 
@@ -4791,9 +4935,14 @@ def run_schema_build(
 
     PROCESSED_SCHEMA.mkdir(parents=True, exist_ok=True)
 
-    config = resolve_schema_configuration(build_config)
+    config = resolve_schema_configuration(build_config, scenario_path)
 
     print("\nSelected schema configuration:")
+    print(f"Build ID: {config.build_id}")
+    print(f"Scenario ID: {config.scenario_id}")
+    if config.scenario_description:
+        print(f"Scenario: {config.scenario_description}")
+    print(f"Configuration fingerprint: {config.fingerprint}")
     print(f"Basemap: {config.basemap_stem}")
     print(f"Road layer: {config.road_layer}")
     print(f"Road connection method: {config.connection_method}")
@@ -4802,11 +4951,17 @@ def run_schema_build(
         f"{config.model_start_year}-{config.model_end_year} "
         f"({config.model_end_year - config.model_start_year} years)"
     )
+    print(
+        "Emissions projection: "
+        f"{config.emissions_projection_method} "
+        "(annual representative-year LimitCapacity; period length is not applied)"
+    )
     print(f"Global discount rate: {config.global_discount_rate:.2%}")
     print(f"Storage requirement: {config.storage_requirement}")
     print(
-        "Minimum annual storage: "
-        f"{config.storage_minimum_annual_activity:,.2f} t CO2e/year"
+        "Minimum cumulative storage: "
+        f"{config.storage_minimum_cumulative_activity:,.2f} "
+        "t CO2e/model period"
     )
     print(f"Output SQLite: {config.output_sqlite_path.name}")
 
@@ -4924,12 +5079,15 @@ def run_schema_build(
         db_encoded,
         snapped.site_attributes,
         config.model_start_year,
+        config.model_end_year - config.model_start_year,
+        config.emissions_projection_method,
     )
     rebuild_storage_activity_limit(
         db_encoded,
         config.storage_requirement,
-        config.storage_minimum_annual_activity,
+        config.storage_minimum_cumulative_activity,
         config.model_start_year,
+        config.model_end_year - config.model_start_year,
     )
     rebuild_input_splits(
         db_encoded,
@@ -4966,6 +5124,7 @@ def run_schema_build(
         snapped,
         config,
     )
+    write_schema_manifest(config, build_config)
 
     print("\nStage 6 complete.")
     print(f"Output database: {config.output_sqlite_path}")
@@ -4988,7 +5147,7 @@ def main() -> None:
     args = parse_args()
     build_config = load_geospatial_build_config(args.config)
     print_build_config(build_config)
-    run_schema_build(build_config)
+    run_schema_build(build_config, args.scenario)
 
 
 if __name__ == "__main__":

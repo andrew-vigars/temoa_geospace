@@ -82,6 +82,9 @@ Geospatial-CANOE/
 │
 ├── registry/                      User-managed registered model inputs
 │   ├── bronze_registry.yaml       Dataset IDs, schemas, and source paths
+│   ├── model.toml                 Global Gold-model defaults
+│   ├── scenarios/
+│   │   └── baseline.toml          Named scenario overlays
 │   ├── commodities.csv
 │   ├── generation_efficiency.csv
 │   ├── techs.csv
@@ -212,7 +215,27 @@ Example profile path:
 config/build_profiles/provinces_only.toml
 ```
 
-The same profile should be used consistently across the basemap, adjacency, road, road-connectivity, legacy-input, emissions, cost, and schema stages.
+The same profile should be used consistently across the basemap, adjacency,
+road, road-connectivity, legacy-input, emissions, cost, and schema stages. Each
+profile also declares a short artifact identity:
+
+```toml
+[profile]
+id = "onqc"  # 1-16 lowercase letters, numbers, or hyphens
+```
+
+Basemap grid families are enabled directly by their resolution lists; there is
+no separate `grid_types` setting. A non-empty geographic list generates
+EPSG:4326 grids, and a non-empty projected list generates EPSG:3347 grids. Leave
+either list empty when that family is not required, but configure at least one:
+
+```toml
+[basemaps.geographic]
+resolutions = []  # skip latitude/longitude grids
+
+[basemaps.projected]
+resolutions_km = [10, 25, 50]
+```
 
 Geological storage is configured in each build profile with:
 
@@ -228,8 +251,8 @@ the current Silver product does not contain defensibly allocated regional
 storage quantities; setting `use_capacity_bound = true` fails validation rather
 than treating evidence coverage as physical capacity.
 
-Non-spatial model semantics are configured once in `registry/model.toml`, rather
-than repeated across geospatial build profiles:
+Global non-spatial model defaults are configured once in
+`registry/model.toml`, rather than repeated across geospatial build profiles:
 
 ```toml
 [time]
@@ -240,25 +263,70 @@ end_year = 2050
 global_discount_rate = 0.03
 default_loan_rate = 0.03
 
+[emissions]
+projection_method = "constant"
+
 [storage]
-requirement = "none"  # none or minimum_annual_activity
-minimum_annual_activity = 0.0  # t CO2e/year
+requirement = "minimum_cumulative_activity"
+minimum_cumulative_activity = 7_500_000_000
 ```
 
-The two time boundaries define exactly one optimization period, `[2025, 2050)`,
-with a 25-year duration. `minimum_annual_activity` is therefore an annual rate
-sustained throughout the representative period; its undiscounted horizon total
-is the configured rate multiplied by 25 years. Physical CO2 quantities are not
-discounted. Temoa applies the 3% global rate only when converting annual costs
-to present value.
+Every Gold build also selects one file from `registry/scenarios/`. A scenario
+has a short identity and may override only recognized fields from `model.toml`:
 
-`requirement = "minimum_annual_activity"` creates a system-wide
-`LimitActivity` row requiring `CO2_INJECT >= minimum_annual_activity` in period
-2025. The value must then be positive. With `requirement = "none"`, it must
-remain zero and geological storage is available but optional. Captured `co2` is
-an annual balanced commodity, so any CO2 that is captured must be consumed by a
-downstream process such as utilization or injection; `co2_stored` remains a
-terminal annual waste commodity.
+```toml
+[scenario]
+id = "baseline"  # 1-20 lowercase letters, numbers, or hyphens
+description = "Canonical baseline using all global model defaults"
+```
+
+The committed `baseline.toml` has no overrides. A sensitivity case can contain,
+for example:
+
+```toml
+[scenario]
+id = "optional-storage"
+description = "No minimum geological-storage target"
+
+[storage]
+requirement = "none"
+minimum_cumulative_activity = 0
+```
+
+`model.toml` is loaded first and the selected scenario is applied second.
+Unknown scenario sections or settings fail validation, and the complete merged
+configuration—not only the override—is recorded with the Gold artifact.
+
+The two time boundaries define exactly one optimization period, `[2025, 2050)`,
+with a 25-year duration. Temoa optimizes one representative year and assumes its
+capacity and activity repeat in every year of that period. Accordingly, the
+`constant` emissions projection leaves the Silver facility layer as an observed
+annual baseline and encodes it unchanged, apart from converting kilotonnes to
+tonnes. Thus `1 kt CO2e/year` in Silver becomes `1,000 t CO2e/year` of Gold
+`LimitCapacity`. A conceptual 25-year total may be calculated as `1,000 x 25 =
+25,000 t CO2e` for reporting, but that total must not be used as the annual
+capacity limit. Physical CO2 quantities are not discounted. Temoa applies the
+3% global rate only when converting annual costs to present value.
+
+The only currently supported emissions projection is `constant`; any other
+value fails configuration validation. It encodes the observed annual baseline
+as representative-year availability without multiplying it by period length.
+
+`requirement = "minimum_cumulative_activity"` treats
+`minimum_cumulative_activity` as a system-wide storage target over the complete
+model period. Because Temoa's `LimitActivity` is annual, Gold divides that target
+by the period length before encoding the `CO2_INJECT` lower bound. For example,
+7.5 billion tonnes over 25 years is encoded as 300 million tonnes/year. The
+configured target must be positive. With `requirement = "none"`, it must remain
+zero and geological storage is available but optional.
+
+Gasoline demand follows the same representative-year convention. Demand points
+are summed only when they snap to the same model region, then their values are
+written unchanged to Gold `Demand`; they are not multiplied by 25. The
+`demand.csv` values are annual tonnes of gasoline calculated from annual litres
+using `0.00074 t/L`, and Gold records their units as `t/year`. Solved annual
+gasoline flow can be multiplied by 25 for a cumulative single-period report, but
+the cumulative value must not be supplied as `Demand`.
 
 ### CanCO₂ storage repository layout
 
@@ -417,21 +485,53 @@ boundary and offshore regionalization are available.
 Encode a selected geospatial configuration into a CANOE/TEMOA database:
 
 ```bash
-python scripts/build_schema.py     --config config/build_profiles/provinces_only.toml
+python scripts/build_schema.py \
+    --config config/build_profiles/on-qc.toml \
+    --scenario registry/scenarios/baseline.toml
 ```
 
 or:
 
 ```bash
-python -m geocanoe.schema.build     --config config/build_profiles/provinces_only.toml
+python -m geocanoe.schema.build \
+    --config config/build_profiles/on-qc.toml \
+    --scenario registry/scenarios/baseline.toml
 ```
 
-The schema workflow resolves a compatible basemap, graph, road layer, and road-connectivity product; snaps tabular and point inputs to graph nodes; rebuilds topology-dependent CANOE/TEMOA tables; applies topology-independent pipeline cost templates to graph corridors; validates the encoded database; and writes:
+If `--scenario` is omitted, the committed `baseline.toml` is used. The schema
+workflow therefore combines three inputs:
+
+```text
+Silver build profile + registry/model.toml + selected scenario.toml
+                                      ↓
+                         validated effective configuration
+                                      ↓
+                              Gold SQLite + manifest
+```
+
+It resolves a compatible basemap, graph, road layer, and road-connectivity
+product; snaps tabular and point inputs to graph nodes; rebuilds
+topology-dependent CANOE/TEMOA tables; applies the effective model assumptions;
+validates the encoded database; and writes:
 
 ```text
 data_files/processed/schema/
-    CANOE_geospatial_<basemap_stem>_<road_layer>_<connection_method>.sqlite
+    gold_<build-id>_<scenario-id>_<fingerprint>.sqlite
+    gold_<build-id>_<scenario-id>_<fingerprint>.manifest.json
 ```
+
+For example:
+
+```text
+gold_onqc_baseline_a1b2c3d4.sqlite
+gold_onqc_baseline_a1b2c3d4.manifest.json
+```
+
+The eight-character fingerprint is deterministic and incorporates the complete
+normalized build profile, the selected basemap, and the effective merged model
+configuration. It prevents materially different builds from overwriting one
+another without making filenames excessively long. The adjacent manifest stores
+the full resolved paths and values needed to interpret or reproduce the artifact.
 
 The current generalized pipeline assumption applies the processed hydrogen-pipeline capacity and cost representation to all pipeline technologies until commodity-specific pipeline cost layers are available.
 
@@ -495,10 +595,10 @@ Run the central diagnostics command and choose one of two workflows:
 python diagnostics/check.py
 ```
 
-Choose `inputs` to select a silver build profile and its processed basemap. The
-suite derives the road layer, connectivity method, schema, and associated input
-artifacts from that profile, then runs spatial, schema, technology-readiness,
-numeric, and unit checks.
+Choose `inputs` to select a Silver build profile and its processed basemap. The
+baseline model scenario is used by default; pass `--scenario` to audit another
+Gold variant. The suite derives the same compact artifact identity and then runs
+spatial, schema, technology-readiness, numeric, and unit checks.
 
 Choose `outputs` to select a solved SQLite run and check commodity balance, edge
 flow capacity, and objective-cost consistency. Both workflows write CSV evidence
@@ -507,7 +607,7 @@ by default.
 For a scripted run, selections can be provided directly:
 
 ```powershell
-python diagnostics/check.py inputs --config config/build_profiles/on-qc.toml --basemap on_qc_basemap_25km_centroid
+python diagnostics/check.py inputs --config config/build_profiles/on-qc.toml --basemap on_qc_basemap_25km_centroid --scenario registry/scenarios/baseline.toml
 python diagnostics/check.py outputs output_files/<run>
 ```
 
