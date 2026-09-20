@@ -4,6 +4,43 @@ Geospatial-CANOE extends the CANOE/TEMOA energy-system modelling framework with 
 
 The repository is an active research codebase. The current implementation uses the TEMOA v3-compatible CANOE backend and introduces mixed-integer formulations where transport infrastructure requires economies of scale, particularly for pipelines. Migration to TEMOA v4 is planned after the geospatial workflow is stable.
 
+## Release and handoff history
+
+The current branch is the `0.7.0` release candidate. It consolidates the work
+completed since the original April 2026 handoff and is intended to be tagged
+`v0.7.0` after the release checks pass and before the branch is proposed for
+merge into `main`.
+
+| Version | Milestone |
+| --- | --- |
+| `v0.2.0` | Initial GIS-driven framework, regional graphs, schema encoding, diagnostics, and resolution-aware mapping |
+| `v0.3.0` | Automated raw-data acquisition |
+| `v0.3.1` | Reproducible model execution and improved command-line selection |
+| `v0.3.2` | Environment and installation reproducibility |
+| `v0.4.0` | Profile-driven study areas, dual coordinate systems, H2 pipeline costs, and solved-output mapping |
+| `v0.4.1` | Reproducible batch model execution |
+| `v0.5.0` | Migration of the active implementation into the `src/geocanoe` package |
+| `v0.6.0` | Geological CO2 storage workflow, registry migration, diagnostics refactor, typing, and contract tests |
+| `v0.7.0` | Bronze orchestration, scenario-aware Gold identities and manifests, scenario-selected resolutions, sample configurations, legacy gasoline opt-in, and multi-resolution batch scenarios |
+
+This history describes research-code milestones rather than a stable public API.
+The Git tags preserve the detailed commit boundaries, while this summary gives
+new maintainers the architectural progression needed to interpret the current
+workflow.
+
+### `v0.7.0` release sequence
+
+1. Install the locked development environment with
+   `python -m pip install -c requirements-lock.txt -e ".[dev]"`.
+2. Confirm both the package module and installed metadata report `0.7.0`.
+3. Run `python -m pip check`, `python -m ruff check src tests scripts`, and
+   `python -m pytest tests -q`.
+4. Commit the reviewed release-preparation changes.
+5. Create the annotated tag with
+   `git tag -a v0.7.0 -m "GeoCANOE v0.7.0"` and push the branch and tag.
+6. Open the pull request from the tagged `geo-dev` head to `main` and include
+   the release history and validation results in the PR description.
+
 ## Current capabilities
 
 The workflow currently supports:
@@ -139,6 +176,13 @@ The `dev` extra additionally reads `requirements-dev.txt` and
 `temoa/requirements-dev.txt`. Updating the bundled TEMOA checkout therefore
 updates the backend dependency set used by the next installation.
 
+Dependencies imported directly by `geocanoe` are declared in the root runtime
+fragment even when TEMOA currently requires the same package. This keeps the
+GeoCANOE dependency boundary explicit and prevents a future TEMOA dependency
+change from silently removing a package that GeoCANOE still uses. Direct and
+transitive versions for the reproducible development environment are captured
+in `requirements-lock.txt`.
+
 ### Standard runtime installation
 
 Use this option if you only need to run the Geospatial-CANOE workflow and CANOE/TEMOA model.
@@ -155,6 +199,8 @@ A successful installation should make the package importable without modifying `
 ```bash
 python -c "import geocanoe; print(geocanoe.__version__)"
 ```
+
+For this release candidate, the command should print `0.7.0`.
 
 ### Development installation
 
@@ -193,6 +239,12 @@ python -c "import geocanoe; print(geocanoe.__version__)"
 
 In general, use `-e .` for runtime work, `-e ".[dev]"` for development, and
 add `-c requirements-lock.txt` when reproducing the currently pinned environment.
+
+When a direct dependency changes, update the appropriate root or TEMOA
+requirement fragment, regenerate `requirements-lock.txt`, install with the lock
+file as a constraint, and run `python -m pip check`. The release tag should be
+created only after the package version, importable `geocanoe.__version__`, lock
+file, lint checks, and agreed test suite are consistent.
 
 ## Configuration
 

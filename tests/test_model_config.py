@@ -23,23 +23,23 @@ def test_committed_model_registry_is_single_period_2025_to_2050() -> None:
     assert config.emissions.projection_method == "constant"
     assert config.finance.global_discount_rate == 0.03
     assert config.finance.default_loan_rate == 0.03
-    assert config.storage.requirement == "minimum_cumulative_activity"
-    assert config.storage.minimum_cumulative_activity == 7_500_000_000.0
+    assert config.storage.requirement == "none"
+    assert config.storage.minimum_cumulative_activity == 0.0
     assert config.basemap.grid_type == "projected"
     assert config.basemap.resolution == 25.0
     assert config.scenario.scenario_id == "baseline-25km"
 
 
 def test_scenario_overrides_global_model_defaults(tmp_path: Path) -> None:
-    scenario_path = tmp_path / "optional-storage.toml"
+    scenario_path = tmp_path / "required-storage.toml"
     scenario_path.write_text(
         """[scenario]
-id = "optional-storage"
-description = "Disable the baseline storage target"
+id = "required-storage"
+description = "Require cumulative storage activity"
 
 [storage]
-requirement = "none"
-minimum_cumulative_activity = 0
+requirement = "minimum_cumulative_activity"
+minimum_cumulative_activity = 7_500_000_000
 """,
         encoding="utf-8",
     )
@@ -48,9 +48,9 @@ minimum_cumulative_activity = 0
 
     assert config.time.period_years == 25
     assert config.emissions.projection_method == "constant"
-    assert config.storage.requirement == "none"
-    assert config.storage.minimum_cumulative_activity == 0.0
-    assert config.scenario.scenario_id == "optional-storage"
+    assert config.storage.requirement == "minimum_cumulative_activity"
+    assert config.storage.minimum_cumulative_activity == 7_500_000_000.0
+    assert config.scenario.scenario_id == "required-storage"
 
 
 def test_scenario_overrides_basemap_resolution(tmp_path: Path) -> None:
@@ -74,17 +74,17 @@ resolution = 40
     assert config.scenario.scenario_id == "coarse-resolution"
 
 
-def test_model_registry_loads_no_minimum_cumulative_storage_policy(
+def test_model_registry_loads_minimum_cumulative_storage_policy(
     tmp_path: Path,
 ) -> None:
     source = MODEL_CONFIG_PATH.read_text(encoding="utf-8")
     configured = source.replace(
-        'requirement = "minimum_cumulative_activity"',
         'requirement = "none"',
+        'requirement = "minimum_cumulative_activity"',
         1,
     ).replace(
+        "minimum_cumulative_activity = 0",
         "minimum_cumulative_activity = 7_500_000_000",
-        "minimum_cumulative_activity = 0.0",
         1,
     )
     path = tmp_path / "model.toml"
@@ -92,8 +92,8 @@ def test_model_registry_loads_no_minimum_cumulative_storage_policy(
 
     config = load_model_config(path)
 
-    assert config.storage.requirement == "none"
-    assert config.storage.minimum_cumulative_activity == 0.0
+    assert config.storage.requirement == "minimum_cumulative_activity"
+    assert config.storage.minimum_cumulative_activity == 7_500_000_000.0
 
 
 @pytest.mark.parametrize(
@@ -101,7 +101,7 @@ def test_model_registry_loads_no_minimum_cumulative_storage_policy(
     [
         ("end_year = 2050", "end_year = 2025", "end_year"),
         (
-            'requirement = "minimum_cumulative_activity"',
+            'requirement = "none"',
             'requirement = "target"',
             "requirement",
         ),
@@ -111,7 +111,7 @@ def test_model_registry_loads_no_minimum_cumulative_storage_policy(
             "projection_method",
         ),
         (
-            "minimum_cumulative_activity = 7_500_000_000",
+            "minimum_cumulative_activity = 0",
             "minimum_cumulative_activity = -1.0",
             "nonnegative",
         ),

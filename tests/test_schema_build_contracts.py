@@ -51,14 +51,14 @@ def test_schema_fingerprint_tracks_effective_model_settings(
         PROJECT_ROOT / "registry" / "model.toml",
         PROJECT_ROOT / "registry" / "scenarios" / "sample_scenario.toml",
     )
-    alternate_path = tmp_path / "optional-storage.toml"
+    alternate_path = tmp_path / "required-storage.toml"
     alternate_path.write_text(
         """[scenario]
-id = "optional-storage"
+id = "required-storage"
 
 [storage]
-requirement = "none"
-minimum_cumulative_activity = 0
+requirement = "minimum_cumulative_activity"
+minimum_cumulative_activity = 7_500_000_000
 """,
         encoding="utf-8",
     )
