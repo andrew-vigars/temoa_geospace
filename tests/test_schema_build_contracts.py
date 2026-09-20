@@ -271,6 +271,8 @@ def test_canonical_links_separate_all_edges_from_road_edges() -> None:
         default_loan_rate=0.03,
         storage_requirement="none",
         storage_minimum_cumulative_activity=0.0,
+        legacy_gasoline_enabled=False,
+        legacy_gasoline_years_of_demand=0.0,
         output_sqlite_path=placeholder,
     )
 

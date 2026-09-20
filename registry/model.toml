@@ -44,6 +44,23 @@ requirement = "none"
 # "minimum_cumulative_activity" and exactly zero for "none".
 minimum_cumulative_activity = 0
 
+[legacy_gasoline]
+
+# Whether a hypothetical existing ("legacy") gasoline supply is available at
+# each demand node. This represents gasoline already available locally (e.g.
+# already in the tank at the point of sale) and is fully decoupled from the
+# CO2-capture / e-fuel synthesis chain (CO2_CAP -> METOH_PLANT -> GSL_PLANT).
+# Disabled by default pending review; do not enable as the default until
+# confirmed.
+enabled = false
+
+# Equivalent years of a node's annual gasoline demand (from demand.csv) assumed
+# already available as existing legacy supply. Gold encodes this as an
+# annual-equivalent LimitActivity upper bound per demand node, dividing by
+# (end_year - start_year) the same way the geological-storage floor is
+# encoded. Must be positive when enabled and exactly 0 when disabled.
+years_of_demand = 0
+
 [basemap]
 
 # Silver basemap grid family to build Gold from: "geographic" (EPSG:4326,
