@@ -1,6 +1,15 @@
 # =============================================================================
-# GeoCANOE Gold-model scenario template
+# GeoCANOE Gold-model scenario template — COMMITTED SAMPLE
 # =============================================================================
+#
+# This file is the committed, always-resolvable sample scenario. It is a copy
+# of the baseline scenario, kept here under a stable "sample_*" name so it is
+# never overwritten by edits to the real, policy-specific scenarios.
+#
+# registry/scenarios/*.toml (other than this file) are local, policy-specific
+# and are gitignored: they are not committed. To create your own scenario,
+# copy this file, assign a unique scenario ID, and uncomment only the
+# settings that should differ.
 #
 # Scenario files are overlays on registry/model.toml:
 #
@@ -8,10 +17,6 @@
 #   2. this file replaces only the settings explicitly declared below;
 #   3. the merged configuration is validated and encoded into Gold;
 #   4. Silver evidence layers are never modified or rebuilt by a scenario.
-#
-# The committed baseline intentionally declares no overrides, so it inherits all
-# current global defaults. To create another scenario, copy this file, assign a
-# unique scenario ID, and uncomment only the settings that should differ.
 #
 # Supported override sections are [time], [finance], [emissions], [storage],
 # and [basemap]. Unknown sections, unknown keys, invalid values, and

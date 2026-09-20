@@ -10,7 +10,7 @@ from geocanoe.config import load_model_config
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 MODEL_CONFIG_PATH = PROJECT_ROOT / "registry" / "model.toml"
 BASELINE_SCENARIO_PATH = (
-    PROJECT_ROOT / "registry" / "scenarios" / "baseline.toml"
+    PROJECT_ROOT / "registry" / "scenarios" / "sample_scenario.toml"
 )
 
 
@@ -26,8 +26,8 @@ def test_committed_model_registry_is_single_period_2025_to_2050() -> None:
     assert config.storage.requirement == "minimum_cumulative_activity"
     assert config.storage.minimum_cumulative_activity == 7_500_000_000.0
     assert config.basemap.grid_type == "projected"
-    assert config.basemap.resolution == 20.0
-    assert config.scenario.scenario_id == "baseline"
+    assert config.basemap.resolution == 25.0
+    assert config.scenario.scenario_id == "baseline-25km"
 
 
 def test_scenario_overrides_global_model_defaults(tmp_path: Path) -> None:
@@ -126,7 +126,7 @@ def test_model_registry_loads_no_minimum_cumulative_storage_policy(
             "grid_type",
         ),
         (
-            "resolution = 20",
+            "resolution = 25",
             "resolution = 0",
             "resolution",
         ),

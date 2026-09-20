@@ -219,25 +219,25 @@ python -m geocanoe.acquisition.co2_storage
 ### Silver preprocessing
 
 ```bash
-python scripts/build_silver.py --config config/build_profiles/provinces_only.toml
+python scripts/build_silver.py --config config/build_profiles/sample_build_profile.toml
 ```
 
 Package-native equivalent:
 
 ```bash
-python -m geocanoe.execution.silver --config config/build_profiles/provinces_only.toml
+python -m geocanoe.execution.silver --config config/build_profiles/sample_build_profile.toml
 ```
 
 ### Schema encoding
 
 ```bash
-python scripts/build_schema.py --config config/build_profiles/provinces_only.toml
+python scripts/build_schema.py --config config/build_profiles/sample_build_profile.toml
 ```
 
 Package-native equivalent:
 
 ```bash
-python -m geocanoe.schema.build --config config/build_profiles/provinces_only.toml
+python -m geocanoe.schema.build --config config/build_profiles/sample_build_profile.toml
 ```
 
 ### Single model run

@@ -76,7 +76,7 @@ ARTIFACT_ID_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,14}[a-z0-9])?$")
 DEFAULT_CONFIG_RELATIVE_PATH = (
     Path("config")
     / "build_profiles"
-    / "provinces_only.toml"
+    / "sample_build_profile.toml"
 )
 
 

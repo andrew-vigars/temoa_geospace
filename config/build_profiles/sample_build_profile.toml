@@ -1,9 +1,19 @@
 # =============================================================================
-# Geospatial-CANOE preprocessing build profile
+# Geospatial-CANOE preprocessing build profile — COMMITTED SAMPLE
 # =============================================================================
 #
-# This file defines one coordinated geospatial preprocessing configuration.
-# It is intended to be read by project_config.py and shared across:
+# This file is the committed, always-resolvable sample build profile. It is a
+# copy of the provinces_only build profile, kept here under a stable
+# "sample_*" name so it is never overwritten by edits to the real,
+# study-area-specific profiles.
+#
+# config/build_profiles/*.toml (other than this file) are local, study-area
+# and system-boundary specific and are gitignored: they are not committed.
+# To create your own build profile, copy this file, choose a distinct
+# [profile].id, and adjust the study-area, basemap, road, and schema settings
+# to match your study.
+#
+# This file is intended to be read by project_config.py and shared across:
 #
 #   build_basemaps.py
 #   build_region_adjacency.py

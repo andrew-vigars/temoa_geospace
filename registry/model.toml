@@ -36,13 +36,13 @@ projection_method = "constant"
 #   "none"                        - geological storage remains optional;
 #   "minimum_cumulative_activity" - require at least the configured total CO2
 #                                   injection over the whole model period.
-requirement = "minimum_cumulative_activity"
+requirement = "none"
 
 # Tonnes CO2e over the complete [start_year, end_year) model period.
 # Gold converts this cumulative target to Temoa's annual LimitActivity value by
 # dividing it by (end_year - start_year). This must be positive for
 # "minimum_cumulative_activity" and exactly zero for "none".
-minimum_cumulative_activity = 6_800_000_000
+minimum_cumulative_activity = 0
 
 [basemap]
 
@@ -55,4 +55,4 @@ grid_type = "projected"
 # exactly matches this grid_type and resolution. If no such basemap was
 # generated, construction fails with a ValueError listing what is available
 # instead of falling back to an interactive prompt.
-resolution = 20
+resolution = 25

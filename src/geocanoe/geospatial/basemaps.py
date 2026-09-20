@@ -1145,7 +1145,7 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help=(
             "Path to a geospatial preprocessing TOML build profile, "
-            "for example config/build_profiles/provinces_only.toml."
+            "for example config/build_profiles/sample_build_profile.toml."
         ),
     )
     return parser.parse_args()

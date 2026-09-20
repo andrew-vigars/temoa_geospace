@@ -38,7 +38,7 @@ Run the pre-solve gate interactively:
 
 Run it non-interactively:
 
-    python diagnostics/check.py inputs --config config/build_profiles/on-qc.toml --basemap on_qc_basemap_25km_centroid
+    python diagnostics/check.py inputs --config config/build_profiles/sample_build_profile.toml --basemap provinces_only_basemap_25km_centroid
 """
 
 from __future__ import annotations
@@ -89,7 +89,7 @@ PROCESSED_SCHEMA = DATA_FILES / "processed" / "schema"
 PROCESSED_AUDITS = DATA_FILES / "processed" / "audits" / "input_audit"
 BUILD_PROFILES = PROJECT_ROOT / "config" / "build_profiles"
 MODEL_CONFIG_PATH = REGISTRY_DIR / "model.toml"
-BASELINE_SCENARIO_PATH = REGISTRY_DIR / "scenarios" / "baseline.toml"
+BASELINE_SCENARIO_PATH = REGISTRY_DIR / "scenarios" / "sample_scenario.toml"
 
 PROCESSED_LEGACY_INPUTS = DATA_FILES / "processed" / "legacy_inputs"
 SITES_PATH = PROCESSED_LEGACY_INPUTS / "sites_full_with_province.csv"

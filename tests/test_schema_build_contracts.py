@@ -45,11 +45,11 @@ def test_schema_fingerprint_tracks_effective_model_settings(
     tmp_path: Path,
 ) -> None:
     build_config = load_geospatial_build_config(
-        PROJECT_ROOT / "config" / "build_profiles" / "on-qc.toml"
+        PROJECT_ROOT / "config" / "build_profiles" / "sample_build_profile.toml"
     )
     baseline = load_model_config(
         PROJECT_ROOT / "registry" / "model.toml",
-        PROJECT_ROOT / "registry" / "scenarios" / "baseline.toml",
+        PROJECT_ROOT / "registry" / "scenarios" / "sample_scenario.toml",
     )
     alternate_path = tmp_path / "optional-storage.toml"
     alternate_path.write_text(
@@ -70,40 +70,40 @@ minimum_cumulative_activity = 0
     baseline_hash = build_schema_fingerprint(
         build_config,
         baseline,
-        "on_qc_basemap_25km_centroid",
+        "sample_basemap_25km_centroid",
     )
     assert len(baseline_hash) == 8
     assert baseline_hash == build_schema_fingerprint(
         build_config,
         baseline,
-        "on_qc_basemap_25km_centroid",
+        "sample_basemap_25km_centroid",
     )
     assert baseline_hash != build_schema_fingerprint(
         build_config,
         alternate,
-        "on_qc_basemap_25km_centroid",
+        "sample_basemap_25km_centroid",
     )
 
 
 def test_basemap_selection_matches_configured_resolution() -> None:
     build_config = load_geospatial_build_config(
-        PROJECT_ROOT / "config" / "build_profiles" / "provinces_only.toml"
+        PROJECT_ROOT / "config" / "build_profiles" / "sample_build_profile.toml"
     )
     model_config = load_model_config(
         PROJECT_ROOT / "registry" / "model.toml",
-        PROJECT_ROOT / "registry" / "scenarios" / "baseline.toml",
+        PROJECT_ROOT / "registry" / "scenarios" / "sample_scenario.toml",
     )
 
     basemap_stem = select_basemap_stem_for_resolution(build_config, model_config)
 
-    assert basemap_stem == "provinces_only_basemap_20km_centroid"
+    assert basemap_stem == "provinces_only_basemap_25km_centroid"
 
 
 def test_basemap_selection_rejects_ungenerated_resolution(
     tmp_path: Path,
 ) -> None:
     build_config = load_geospatial_build_config(
-        PROJECT_ROOT / "config" / "build_profiles" / "provinces_only.toml"
+        PROJECT_ROOT / "config" / "build_profiles" / "sample_build_profile.toml"
     )
     scenario_path = tmp_path / "unavailable-resolution.toml"
     scenario_path.write_text(
