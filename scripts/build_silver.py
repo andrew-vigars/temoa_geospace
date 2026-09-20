@@ -74,10 +74,11 @@ CONFIG_DIR = PROJECT_ROOT / "config"
 def default_config_path() -> Path:
     """Return the preferred project-level silver build-profile path.
 
-    The current repository layout is checked first for
-    ``config/provinces_only.toml``. The newer
-    ``config/build_profiles/provinces_only.toml`` location is used as a fallback
-    so the command-line behavior remains consistent with the pre-refactor script.
+    The committed sample build profile is preferred. The pre-refactor
+    ``config/provinces_only.toml`` location and the real, gitignored
+    ``config/build_profiles/provinces_only.toml`` are checked as fallbacks so
+    the command-line behavior remains consistent with older layouts and local
+    checkouts that still have that file.
 
     Returns
     -------
@@ -86,6 +87,7 @@ def default_config_path() -> Path:
     """
 
     candidates = (
+        CONFIG_DIR / "build_profiles" / "sample_build_profile.toml",
         CONFIG_DIR / "provinces_only.toml",
         CONFIG_DIR / "build_profiles" / "provinces_only.toml",
     )
