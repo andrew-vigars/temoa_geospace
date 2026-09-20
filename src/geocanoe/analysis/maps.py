@@ -15,7 +15,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import json
 import re
+import sqlite3
 import sys
 import tomllib
 from collections.abc import Sequence
@@ -124,6 +126,21 @@ class GeospatialPaths:
         Directory where generated figures are saved.
     fig_stem : str
         Filename stem used for generated figure outputs.
+    build_id : str | None
+        Build-profile identity recorded in the schema manifest, if resolved
+        from one.
+    scenario_id : str | None
+        Scenario identity recorded in the schema manifest, if resolved from
+        one.
+    fingerprint : str | None
+        Schema fingerprint recorded in the schema manifest, if resolved from
+        one.
+    road_layer : str | None
+        Road-network layer recorded in the schema manifest, if resolved from
+        one.
+    connection_method : str | None
+        Road-connection method recorded in the schema manifest, if resolved
+        from one.
     """
 
     basemap_stem: str
@@ -133,6 +150,11 @@ class GeospatialPaths:
     road_edge_gpkg_path: Path | None
     figure_dir: Path
     fig_stem: str
+    build_id: str | None = None
+    scenario_id: str | None = None
+    fingerprint: str | None = None
+    road_layer: str | None = None
+    connection_method: str | None = None
 
 
 @dataclass(frozen=True)
@@ -501,39 +523,113 @@ def build_figure_stem(selected_run: SelectedRun) -> str:
     return infer_short_run_label_from_database(selected_run.db_path)
 
 
-def infer_geospatial_paths(
+def find_schema_manifest(db_path: Path, data_files: Path) -> Path | None:
+    """Locate the schema-build manifest for a selected database, if any.
+
+    Gold schemas are built with a sidecar ``<schema>.manifest.json`` recording
+    the exact basemap, road layer, and connection method used to build them
+    (``write_schema_manifest`` in ``geocanoe.schema.build``). Model-run
+    archiving copies only the ``.sqlite`` file into the timestamped output run
+    directory, so the manifest is also looked up back in
+    ``data_files/processed/schema`` when it isn't found beside the selected
+    database.
+    """
+
+    candidate = db_path.with_suffix(".manifest.json")
+    if candidate.exists():
+        return candidate
+
+    stripped = re.sub(r"^(input_|working_|solved_)", "", db_path.stem)
+    candidate = data_files / "processed" / "schema" / f"{stripped}.manifest.json"
+    return candidate if candidate.exists() else None
+
+
+def is_gold_schema_stem(stem: str) -> bool:
+    """Return whether a database stem uses the ``gold_*`` naming convention."""
+
+    return re.match(r"^(?:input_|working_|solved_)?gold_", stem) is not None
+
+
+def read_region_basemap_stem(db_path: Path) -> str | None:
+    """Recover a basemap stem from a Gold database's ``Region.notes`` column.
+
+    ``build_canonical_links`` in ``geocanoe.schema.build`` writes every
+    ``Region.notes`` value as ``"{basemap_stem} CANOE geospatial graph
+    node"``. This is a degraded fallback used only when a schema's manifest is
+    missing, since the road layer and connection method cannot be recovered
+    this way.
+    """
+
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute("SELECT notes FROM Region LIMIT 1;").fetchone()
+
+    if not row or not row[0]:
+        return None
+
+    match = re.match(r"^(.+) CANOE geospatial graph node$", row[0])
+    return match.group(1) if match else None
+
+
+def build_geospatial_paths_from_manifest(
+    manifest_path: Path,
+    selected_run: SelectedRun,
+) -> GeospatialPaths:
+    """Construct and validate geospatial paths from a schema-build manifest."""
+
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    resolved = payload["resolved_gold_configuration"]
+    artifact = payload.get("artifact", {})
+
+    basemap_stem = resolved["basemap_stem"]
+    node_path = Path(resolved["graph_node_path"])
+    edge_path = Path(resolved["graph_edge_path"])
+    basemap_path = Path(resolved["basemap_path"])
+    road_edge_gpkg_path = Path(resolved["road_edges_gpkg_path"])
+
+    required_paths = {
+        "Graph nodes": node_path,
+        "Graph edges": edge_path,
+        "Processed basemap": basemap_path,
+    }
+    missing_paths = {
+        name: path for name, path in required_paths.items() if not path.exists()
+    }
+    if missing_paths:
+        print(f"Missing required geospatial files recorded in manifest '{manifest_path}':")
+        for name, path in missing_paths.items():
+            print(f"  {name}: {path} (exists: {path.exists()})")
+        sys.exit(1)
+
+    if not road_edge_gpkg_path.exists():
+        road_edge_gpkg_path = None
+
+    figure_dir = selected_run.db_path.parent
+    figure_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"Resolved basemap from schema manifest: {manifest_path}")
+
+    return GeospatialPaths(
+        basemap_stem=basemap_stem,
+        node_path=node_path,
+        edge_path=edge_path,
+        basemap_path=basemap_path,
+        road_edge_gpkg_path=road_edge_gpkg_path,
+        figure_dir=figure_dir,
+        fig_stem=build_figure_stem(selected_run),
+        build_id=artifact.get("build_id"),
+        scenario_id=artifact.get("scenario_id"),
+        fingerprint=artifact.get("fingerprint"),
+        road_layer=resolved.get("road_layer"),
+        connection_method=resolved.get("connection_method"),
+    )
+
+
+def build_geospatial_paths_from_basemap_stem(
+    basemap_stem: str,
     data_files: Path,
     selected_run: SelectedRun,
 ) -> GeospatialPaths:
-    """Infer and validate geospatial paths for a selected model run.
-
-    Infers the basemap stem from the selected SQLite database or run-folder
-    name, then constructs the required paths to graph nodes, graph edges, and
-    processed basemap polygons. Optional road-overlay and road-enabled edge
-    layers are discovered when matching files are available. Figure outputs are
-    saved beside the selected database.
-
-    Parameters
-    ----------
-    data_files : Path
-        Project ``data_files`` directory containing processed geospatial inputs.
-    selected_run : SelectedRun
-        Selected model-run directory and SQLite database path.
-
-    Returns
-    -------
-    GeospatialPaths
-        Resolved required geospatial input paths, optional road-context paths,
-        and figure-output naming metadata.
-
-    Raises
-    ------
-    SystemExit
-        If the basemap stem cannot be inferred or if any required geospatial
-        input file is missing.
-    """
-
-    basemap_stem = infer_basemap_stem(selected_run.db_path)
+    """Construct and validate geospatial paths for a known basemap stem."""
 
     graph_dir = data_files / "processed" / "graph"
     basemap_dir = data_files / "processed" / "basemaps"
@@ -569,7 +665,7 @@ def infer_geospatial_paths(
     figure_dir = selected_run.db_path.parent
     figure_dir.mkdir(parents=True, exist_ok=True)
 
-    paths = GeospatialPaths(
+    return GeospatialPaths(
         basemap_stem=basemap_stem,
         node_path=node_path,
         edge_path=edge_path,
@@ -578,6 +674,69 @@ def infer_geospatial_paths(
         figure_dir=figure_dir,
         fig_stem=build_figure_stem(selected_run),
     )
+
+
+def infer_geospatial_paths(
+    data_files: Path,
+    selected_run: SelectedRun,
+) -> GeospatialPaths:
+    """Infer and validate geospatial paths for a selected model run.
+
+    Resolution is tried in order of decreasing fidelity:
+
+    1. A schema-build manifest (``find_schema_manifest``), which records the
+       exact basemap, road layer, and connection method used to build a
+       ``gold_*`` schema. This is the only tier that can distinguish between
+       multiple basemap variants compatible with the same build profile.
+    2. For a ``gold_*`` database with no manifest, the basemap stem recorded
+       in its ``Region.notes`` column (``read_region_basemap_stem``) is used
+       to reconstruct paths by convention.
+    3. The legacy ``CANOE_geospatial_*`` filename convention
+       (``infer_basemap_stem``), for schemas built before the manifest
+       existed.
+
+    Optional road-overlay and road-enabled edge layers are discovered when
+    matching files are available. Figure outputs are saved beside the
+    selected database.
+
+    Parameters
+    ----------
+    data_files : Path
+        Project ``data_files`` directory containing processed geospatial inputs.
+    selected_run : SelectedRun
+        Selected model-run directory and SQLite database path.
+
+    Returns
+    -------
+    GeospatialPaths
+        Resolved required geospatial input paths, optional road-context paths,
+        and figure-output naming metadata.
+
+    Raises
+    ------
+    SystemExit
+        If the basemap stem cannot be inferred or if any required geospatial
+        input file is missing.
+    """
+
+    manifest_path = find_schema_manifest(selected_run.db_path, data_files)
+    if manifest_path is not None:
+        paths = build_geospatial_paths_from_manifest(manifest_path, selected_run)
+    else:
+        basemap_stem = None
+        if is_gold_schema_stem(selected_run.db_path.stem):
+            print(
+                f"No schema manifest found for '{selected_run.db_path.name}'; "
+                "recovering basemap identity from the database's Region table."
+            )
+            basemap_stem = read_region_basemap_stem(selected_run.db_path)
+
+        if basemap_stem is None:
+            basemap_stem = infer_basemap_stem(selected_run.db_path)
+
+        paths = build_geospatial_paths_from_basemap_stem(
+            basemap_stem, data_files, selected_run
+        )
 
     print(f"\nInferred basemap stem: {paths.basemap_stem}")
     print(f"  Graph nodes:       {paths.node_path.name}")

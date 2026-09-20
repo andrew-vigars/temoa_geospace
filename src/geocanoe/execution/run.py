@@ -511,6 +511,24 @@ def write_manifest(path: Path, manifest: dict) -> None:
     )
 
 
+def copy_schema_manifest(source_db: Path, dest_db: Path) -> None:
+    """Copy a Gold schema-build manifest alongside an archived database copy.
+
+    Gold schemas are built with a sidecar ``<schema>.manifest.json``
+    (``write_schema_manifest`` in ``geocanoe.schema.build``) recording the
+    exact basemap, road layer, and connection method used to build them.
+    Copying it alongside each archived database keeps that provenance
+    available in the run directory for downstream tools such as
+    ``geocanoe.analysis.maps``, without requiring them to look it up back in
+    ``data_files/processed/schema``. A silent no-op for schemas without a
+    manifest, such as legacy ``CANOE_geospatial_*`` databases.
+    """
+
+    source_manifest = source_db.with_suffix(".manifest.json")
+    if source_manifest.exists():
+        shutil.copy2(source_manifest, dest_db.with_suffix(".manifest.json"))
+
+
 def extract_objective_from_db(db_path: Path) -> list[dict]:
     """Extract solved objective values from a SQLite database.
 
@@ -636,6 +654,7 @@ def main() -> None:
 
     print("Archiving immutable input database...")
     shutil.copy2(db_path, input_db_archive)
+    copy_schema_manifest(db_path, input_db_archive)
     print(f"Saved: {input_db_archive.name}")
 
     print("Creating isolated working database...")
@@ -817,6 +836,7 @@ def main() -> None:
 
     print_header("Archiving solved database")
     shutil.copy2(working_db_path, solved_db_archive)
+    copy_schema_manifest(db_path, solved_db_archive)
     print(f"Saved: {solved_db_archive.name}")
 
     if args.diagnostics != "off":
