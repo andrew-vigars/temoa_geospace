@@ -8,6 +8,8 @@ from pathlib import Path
 import re
 import tomllib
 
+from ._toml import require_int, require_number, require_table
+
 
 SUPPORTED_STORAGE_REQUIREMENTS = {
     "none",
@@ -78,35 +80,15 @@ class ModelConfig:
     source_path: Path
 
 
-def _require_table(raw: dict, name: str) -> dict:
-    value = raw.get(name)
-    if not isinstance(value, dict):
-        raise ValueError(f"Configuration section [{name}] is missing or invalid.")
-    return value
-
-
-def _require_int(table: dict, key: str, section: str) -> int:
-    value = table.get(key)
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"[{section}].{key} must be an integer.")
-    return value
-
-
 def _require_rate(table: dict, key: str, section: str) -> float:
-    value = table.get(key)
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"[{section}].{key} must be a number.")
-    value = float(value)
+    value = require_number(table, key, section)
     if not 0 <= value < 1:
         raise ValueError(f"[{section}].{key} must satisfy 0 <= rate < 1.")
     return value
 
 
 def _require_nonnegative_number(table: dict, key: str, section: str) -> float:
-    value = table.get(key)
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"[{section}].{key} must be a number.")
-    value = float(value)
+    value = require_number(table, key, section)
     if value < 0:
         raise ValueError(f"[{section}].{key} must be nonnegative.")
     return value
@@ -131,7 +113,7 @@ def _apply_scenario_overrides(
             f"{sorted(unknown_sections)}."
         )
 
-    identity = _require_table(scenario_raw, "scenario")
+    identity = require_table(scenario_raw, "scenario")
     unknown_identity_keys = set(identity) - {"id", "description"}
     if unknown_identity_keys:
         raise ValueError(
@@ -158,7 +140,7 @@ def _apply_scenario_overrides(
         overrides = scenario_raw[section]
         if not isinstance(overrides, dict):
             raise ValueError(f"Scenario section [{section}] must be a table.")
-        unknown_keys = set(overrides) - set(_require_table(base, section))
+        unknown_keys = set(overrides) - set(require_table(base, section))
         if unknown_keys:
             raise ValueError(
                 f"Scenario [{section}] contains unsupported settings: "
@@ -199,13 +181,13 @@ def load_model_config(
             resolved_scenario_path,
         )
 
-    time_raw = _require_table(raw, "time")
-    finance_raw = _require_table(raw, "finance")
-    emissions_raw = _require_table(raw, "emissions")
-    storage_raw = _require_table(raw, "storage")
+    time_raw = require_table(raw, "time")
+    finance_raw = require_table(raw, "finance")
+    emissions_raw = require_table(raw, "emissions")
+    storage_raw = require_table(raw, "storage")
 
-    start_year = _require_int(time_raw, "start_year", "time")
-    end_year = _require_int(time_raw, "end_year", "time")
+    start_year = require_int(time_raw, "start_year", "time")
+    end_year = require_int(time_raw, "end_year", "time")
     if end_year <= start_year:
         raise ValueError("[time].end_year must be greater than [time].start_year.")
 

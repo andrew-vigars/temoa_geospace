@@ -45,6 +45,7 @@ from time import perf_counter
 import tomllib
 from typing import TextIO
 
+from geocanoe.config._toml import require_bool, require_string
 from geocanoe.paths import find_project_root
 
 
@@ -258,41 +259,6 @@ def load_toml(path: Path) -> dict:
     return raw
 
 
-def require_non_empty_string(
-    table: dict,
-    key: str,
-    context: str,
-) -> str:
-    """Return a required non-empty string from a mapping."""
-
-    value = table.get(key)
-
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(
-            f"{context} requires a non-empty string value for {key!r}."
-        )
-
-    return value.strip()
-
-
-def require_bool(
-    table: dict,
-    key: str,
-    context: str,
-    default: bool,
-) -> bool:
-    """Return an optional boolean setting with a default value."""
-
-    value = table.get(key, default)
-
-    if not isinstance(value, bool):
-        raise ValueError(
-            f"{context}.{key} must be true or false."
-        )
-
-    return value
-
-
 # =============================================================================
 # Batch configuration loading
 # =============================================================================
@@ -322,12 +288,12 @@ def load_solver_config(
 
     raw = load_toml(config_path)
 
-    scenario = require_non_empty_string(
+    scenario = require_string(
         raw,
         "scenario",
         str(config_path),
     )
-    input_database = require_non_empty_string(
+    input_database = require_string(
         raw,
         "input_database",
         str(config_path),
@@ -375,7 +341,7 @@ def load_batch_config(
         )
 
     settings = BatchSettings(
-        name=require_non_empty_string(
+        name=require_string(
             batch_table,
             "name",
             "[batch]",
@@ -424,7 +390,7 @@ def load_batch_config(
             default=True,
         )
 
-        config_value = require_non_empty_string(
+        config_value = require_string(
             raw_run,
             "config",
             context,

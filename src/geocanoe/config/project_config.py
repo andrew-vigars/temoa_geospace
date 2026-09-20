@@ -18,6 +18,8 @@ from pathlib import Path
 import re
 import tomllib
 
+from ._toml import require_bool, require_int, require_number, require_string, require_table
+
 
 # =============================================================================
 # Canonical project constants
@@ -357,216 +359,19 @@ class GeospatialBuildConfig:
 # Validation helpers
 # =============================================================================
 
-def _require_table(
-    raw: dict,
-    key: str,
-) -> dict:
-    """Return a required TOML table from the parsed configuration.
-
-    Parameters
-    ----------
-    raw : dict
-        Parsed TOML configuration mapping.
-    key : str
-        Name of the required top-level TOML table.
-
-    Returns
-    -------
-    dict
-        Mapping stored under ``key``.
-
-    Raises
-    ------
-    ValueError
-        If the requested configuration section is missing or is not represented
-        as a dictionary.
-    """
-
-    value = raw.get(key)
-
-    if not isinstance(value, dict):
-        raise ValueError(
-            f"Configuration section [{key}] is missing or invalid."
-        )
-
-    return value
-
-
-def _require_string(
-    table: dict,
-    key: str,
-    section: str,
-) -> str:
-    """Return a required non-empty string from a TOML section.
-
-    The requested value is validated as a string, stripped of leading and trailing
-    whitespace, and returned in normalized form.
-
-    Parameters
-    ----------
-    table : dict
-        Parsed TOML section containing the requested setting.
-    key : str
-        Name of the required string setting.
-    section : str
-        TOML section name used to construct validation error messages.
-
-    Returns
-    -------
-    str
-        Stripped non-empty string stored under ``key``.
-
-    Raises
-    ------
-    ValueError
-        If the setting is missing, is not a string, or contains only whitespace.
-    """
-
-    value = table.get(key)
-
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(
-            f"[{section}].{key} must be a non-empty string."
-        )
-
-    return value.strip()
-
-
-def _require_bool(
-    table: dict,
-    key: str,
-    section: str,
-) -> bool:
-    """Return a required boolean from a TOML section.
-
-    Parameters
-    ----------
-    table : dict
-        Parsed TOML section containing the requested setting.
-    key : str
-        Name of the required boolean setting.
-    section : str
-        TOML section name used to construct validation error messages.
-
-    Returns
-    -------
-    bool
-        Boolean value stored under ``key``.
-
-    Raises
-    ------
-    ValueError
-        If the setting is missing or is not a boolean.
-    """
-
-    value = table.get(key)
-
-    if not isinstance(value, bool):
-        raise ValueError(
-            f"[{section}].{key} must be true or false."
-        )
-
-    return value
-
-
-def _require_int(
-    table: dict,
-    key: str,
-    section: str,
-    minimum: int | None = None,
-) -> int:
-    """Return a required integer from a TOML section.
-
-    Boolean values are rejected explicitly because ``bool`` is a subclass of
-    ``int`` in Python. An optional inclusive lower bound can also be enforced.
-
-    Parameters
-    ----------
-    table : dict
-        Parsed TOML section containing the requested setting.
-    key : str
-        Name of the required integer setting.
-    section : str
-        TOML section name used to construct validation error messages.
-    minimum : int | None, optional
-        Inclusive lower bound for the setting, or ``None`` when no lower bound is
-        required.
-
-    Returns
-    -------
-    int
-        Validated integer value stored under ``key``.
-
-    Raises
-    ------
-    ValueError
-        If the setting is missing, is a boolean, is not an integer, or is smaller
-        than ``minimum`` when a lower bound is provided.
-    """
-
-    value = table.get(key)
-
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(
-            f"[{section}].{key} must be an integer."
-        )
-
-    if minimum is not None and value < minimum:
-        raise ValueError(
-            f"[{section}].{key} must be at least {minimum}."
-        )
-
-    return value
-
-
-
 def _require_positive_number(
     table: dict,
     key: str,
     section: str,
 ) -> float:
-    """Return a required positive numeric value from a TOML section.
+    """Return a required numeric setting, enforcing a strictly positive value."""
 
-    Boolean values are rejected explicitly because ``bool`` is a subclass of
-    ``int`` in Python. Valid integer and floating-point values are normalized to
-    ``float`` before the positivity constraint is applied.
+    value = require_number(table, key, section)
 
-    Parameters
-    ----------
-    table : dict
-        Parsed TOML section containing the requested setting.
-    key : str
-        Name of the required numeric setting.
-    section : str
-        TOML section name used to construct validation error messages.
+    if value <= 0:
+        raise ValueError(f"[{section}].{key} must be greater than zero.")
 
-    Returns
-    -------
-    float
-        Validated positive numeric value stored under ``key``.
-
-    Raises
-    ------
-    ValueError
-        If the setting is missing, is a boolean, is not numeric, or is less than
-        or equal to zero.
-    """
-
-    value = table.get(key)
-
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(
-            f"[{section}].{key} must be a number."
-        )
-
-    numeric_value = float(value)
-
-    if numeric_value <= 0:
-        raise ValueError(
-            f"[{section}].{key} must be greater than zero."
-        )
-
-    return numeric_value
+    return value
 
 
 def _require_string_list(
@@ -978,32 +783,32 @@ def load_geospatial_build_config(
     with config_path.open("rb") as config_file:
         raw = tomllib.load(config_file)
 
-    profile_raw = _require_table(raw, "profile")
-    study_area_raw = _require_table(raw, "study_area")
-    basemaps_raw = _require_table(raw, "basemaps")
-    adjacency_raw = _require_table(raw, "adjacency")
-    roads_raw = _require_table(raw, "roads")
-    road_connectivity_raw = _require_table(
+    profile_raw = require_table(raw, "profile")
+    study_area_raw = require_table(raw, "study_area")
+    basemaps_raw = require_table(raw, "basemaps")
+    adjacency_raw = require_table(raw, "adjacency")
+    roads_raw = require_table(raw, "roads")
+    road_connectivity_raw = require_table(
         raw,
         "road_connectivity",
     )
-    schema_raw = _require_table(raw, "schema")
-    storage_raw = _require_table(raw, "storage")
+    schema_raw = require_table(raw, "schema")
+    storage_raw = require_table(raw, "storage")
 
-    geographic_raw = _require_table(
+    geographic_raw = require_table(
         basemaps_raw,
         "geographic",
     )
-    projected_raw = _require_table(
+    projected_raw = require_table(
         basemaps_raw,
         "projected",
     )
-    road_classes_raw = _require_table(
+    road_classes_raw = require_table(
         roads_raw,
         "classes",
     )
 
-    build_id = _require_string(profile_raw, "id", "profile")
+    build_id = require_string(profile_raw, "id", "profile")
     if not ARTIFACT_ID_PATTERN.fullmatch(build_id):
         raise ValueError(
             "[profile].id must contain 1-16 lowercase letters, numbers, or "
@@ -1012,7 +817,7 @@ def load_geospatial_build_config(
 
     study_area = StudyAreaConfig(
         label=_normalize_study_area_label(
-            _require_string(
+            require_string(
                 study_area_raw,
                 "label",
                 "study_area",
@@ -1053,7 +858,7 @@ def load_geospatial_build_config(
 
     basemaps = BasemapConfig(
         keep_method=_validate_choice(
-            _require_string(
+            require_string(
                 basemaps_raw,
                 "keep_method",
                 "basemaps",
@@ -1061,7 +866,7 @@ def load_geospatial_build_config(
             SUPPORTED_KEEP_METHODS,
             "basemaps.keep_method",
         ),
-        coordinate_precision=_require_int(
+        coordinate_precision=require_int(
             basemaps_raw,
             "coordinate_precision",
             "basemaps",
@@ -1077,7 +882,7 @@ def load_geospatial_build_config(
 
     adjacency = AdjacencyConfig(
         method=_validate_choice(
-            _require_string(
+            require_string(
                 adjacency_raw,
                 "method",
                 "adjacency",
@@ -1085,13 +890,13 @@ def load_geospatial_build_config(
             SUPPORTED_ADJACENCY_METHODS,
             "adjacency.method",
         ),
-        coordinate_precision=_require_int(
+        coordinate_precision=require_int(
             adjacency_raw,
             "coordinate_precision",
             "adjacency",
             minimum=0,
         ),
-        no_neighbor_id=_require_string(
+        no_neighbor_id=require_string(
             adjacency_raw,
             "no_neighbor_id",
             "adjacency",
@@ -1132,12 +937,12 @@ def load_geospatial_build_config(
             SUPPORTED_ROAD_NETWORKS,
             "roads.networks",
         ),
-        export_individual_provinces=_require_bool(
+        export_individual_provinces=require_bool(
             roads_raw,
             "export_individual_provinces",
             "roads",
         ),
-        output_crs=_require_string(
+        output_crs=require_string(
             roads_raw,
             "output_crs",
             "roads",
@@ -1151,7 +956,7 @@ def load_geospatial_build_config(
 
     road_connectivity = RoadConnectivityConfig(
         road_layer=_validate_choice(
-            _require_string(
+            require_string(
                 road_connectivity_raw,
                 "road_layer",
                 "road_connectivity",
@@ -1168,7 +973,7 @@ def load_geospatial_build_config(
             SUPPORTED_ROAD_CONNECTIVITY_METHODS,
             "road_connectivity.methods",
         ),
-        plot_outputs=_require_bool(
+        plot_outputs=require_bool(
             road_connectivity_raw,
             "plot_outputs",
             "road_connectivity",
@@ -1193,7 +998,7 @@ def load_geospatial_build_config(
 
     schema = SchemaConfig(
         road_connection_method=_validate_choice(
-            _require_string(
+            require_string(
                 schema_raw,
                 "road_connection_method",
                 "schema",
@@ -1201,7 +1006,7 @@ def load_geospatial_build_config(
             SUPPORTED_ROAD_CONNECTIVITY_METHODS,
             "schema.road_connection_method",
         ),
-        interactive_basemap_selection=_require_bool(
+        interactive_basemap_selection=require_bool(
             schema_raw,
             "interactive_basemap_selection",
             "schema",
@@ -1226,7 +1031,7 @@ def load_geospatial_build_config(
 
     storage = StorageConfig(
         eligibility=_validate_choice(
-            _require_string(
+            require_string(
                 storage_raw,
                 "eligibility",
                 "storage",
@@ -1234,7 +1039,7 @@ def load_geospatial_build_config(
             SUPPORTED_STORAGE_ELIGIBILITY_MODES,
             "storage.eligibility",
         ),
-        use_capacity_bound=_require_bool(
+        use_capacity_bound=require_bool(
             storage_raw,
             "use_capacity_bound",
             "storage",
