@@ -91,7 +91,7 @@ DEFAULT_ABS_TOL = 1e-6
 DEFAULT_REL_TOL = 1e-6
 
 TRANSPORT_EDGE_SEPARATOR = "-"
-DEFAULT_EXCLUDED_BALANCE_FLAGS = {"s", "e"}
+DEFAULT_EXCLUDED_BALANCE_FLAGS = {"s", "e", "wa"}
 OUTPUT_ROOT = find_project_root() / "output_files"
 
 
@@ -397,7 +397,10 @@ def filter_balance_commodities(
     Remove commodities that should not be treated as conserved node balances.
 
     Source commodities are exogenous supplies. Emission commodities are usually
-    handled through emission/output tables rather than normal commodity balance.
+    handled through emission/output tables rather than normal commodity
+    balance. Waste/accumulation ("wa") commodities, such as ``co2_stored``, are
+    sinks that are produced but intentionally never consumed, exported, or
+    demanded elsewhere, so they are not conserved balances either.
     """
 
     if commodity.empty:
@@ -1116,7 +1119,7 @@ def main(argv: list[str] | None = None) -> int:
             balance_passed,
             detail=(
                 f"checked {len(balance):,} conserved scenario-period-region-commodity balances; "
-                f"excluded {len(balance_excluded):,} source/emission balance rows; "
+                f"excluded {len(balance_excluded):,} source/emission/waste-sink balance rows; "
                 f"failures: {len(balance_failures):,}"
             ),
         )

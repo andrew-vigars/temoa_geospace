@@ -54,7 +54,11 @@ from typing import Any, cast
 import geopandas as gpd
 import pandas as pd
 
-from geocanoe.config import load_geospatial_build_config
+from geocanoe.config import (
+    GeospatialBuildConfig,
+    load_geospatial_build_config,
+    load_model_config,
+)
 from geocanoe.diagnostics.models import DiagnosticResult
 from geocanoe.diagnostics.input.numeric import (
     DEFAULT_NUMERIC_RULES,
@@ -67,6 +71,7 @@ from geocanoe.diagnostics.selection import select_numbered
 from geocanoe.paths import find_project_root
 from geocanoe.preprocessing.legacy_inputs import PROVINCE_NAME_TO_CODE
 from geocanoe.schema.artifacts import resolve_schema_artifact_paths
+from geocanoe.schema.build import build_schema_fingerprint
 
 
 # =============================================================================
@@ -83,6 +88,8 @@ PROCESSED_ROAD_CONNECTIVITY = DATA_FILES / "processed" / "road_connectivity"
 PROCESSED_SCHEMA = DATA_FILES / "processed" / "schema"
 PROCESSED_AUDITS = DATA_FILES / "processed" / "audits" / "input_audit"
 BUILD_PROFILES = PROJECT_ROOT / "config" / "build_profiles"
+MODEL_CONFIG_PATH = REGISTRY_DIR / "model.toml"
+BASELINE_SCENARIO_PATH = REGISTRY_DIR / "scenarios" / "baseline.toml"
 
 PROCESSED_LEGACY_INPUTS = DATA_FILES / "processed" / "legacy_inputs"
 SITES_PATH = PROCESSED_LEGACY_INPUTS / "sites_full_with_province.csv"
@@ -232,13 +239,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--basemap",
         help="Processed basemap stem. If omitted, choose one for the profile.",
     )
+    parser.add_argument(
+        "--scenario",
+        type=Path,
+        default=BASELINE_SCENARIO_PATH,
+        help="Model scenario overlay used to identify the Gold database.",
+    )
+    parser.add_argument(
+        "--schema",
+        type=Path,
+        help="Explicit Gold SQLite path, overriding derived artifact identity.",
+    )
 
     return parser.parse_args(argv)
 
 
 def resolve_profile_selection(
     args: argparse.Namespace,
-) -> tuple[Path, str, str, str, tuple[str, ...]]:
+) -> tuple[Path, GeospatialBuildConfig, str]:
     """Resolve a build profile and its schema-producing artifact selections."""
 
     if args.config is None:
@@ -272,13 +290,7 @@ def resolve_profile_selection(
         )
         basemap_stem = select_numbered(basemap_stems, "processed basemap")
 
-    return (
-        config_path.resolve(),
-        basemap_stem,
-        build_config.road_connectivity.road_layer,
-        build_config.schema.road_connection_method,
-        build_config.study_area.provinces,
-    )
+    return config_path.resolve(), build_config, basemap_stem
 
 
 # =============================================================================
@@ -320,6 +332,9 @@ def build_audit_config(
     basemap_stem: str,
     road_layer: str,
     connection_method: str,
+    build_id: str | None = None,
+    scenario_id: str | None = None,
+    fingerprint: str | None = None,
     schema_override: Path | None = None,
 ) -> AuditConfig:
     """Resolve canonical artifacts and the optional schema override."""
@@ -329,6 +344,9 @@ def build_audit_config(
         basemap_stem=basemap_stem,
         road_layer=road_layer,
         connection_method=connection_method,
+        build_id=build_id,
+        scenario_id=scenario_id,
+        fingerprint=fingerprint,
     )
 
     default_schema_path = artifacts.schema
@@ -1442,13 +1460,26 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
     try:
-        profile_path, basemap_stem, road_layer, connection_method, provinces = (
-            resolve_profile_selection(args)
+        profile_path, build_config, basemap_stem = resolve_profile_selection(
+            args
         )
+        model_config = load_model_config(MODEL_CONFIG_PATH, args.scenario)
+        fingerprint = build_schema_fingerprint(
+            build_config,
+            model_config,
+            basemap_stem,
+        )
+        road_layer = build_config.road_connectivity.road_layer
+        connection_method = build_config.schema.road_connection_method
+        provinces = build_config.study_area.provinces
         config = build_audit_config(
             basemap_stem=basemap_stem,
             road_layer=road_layer,
             connection_method=connection_method,
+            build_id=build_config.build_id,
+            scenario_id=model_config.scenario.scenario_id,
+            fingerprint=fingerprint,
+            schema_override=args.schema,
         )
     except (FileNotFoundError, OSError, ValueError) as exc:
         print_banner("Input diagnostic selection error")
