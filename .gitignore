@@ -35,6 +35,13 @@
 data_files/raw/
 data_files/processed/
 
+# Keep the Silver pipeline-impedance contract while ignoring generated data.
+!data_files/processed/
+data_files/processed/*
+!data_files/processed/pipeline_impedance/
+data_files/processed/pipeline_impedance/*
+!data_files/processed/pipeline_impedance/README.md
+
 # -----------------------
 
 # Model outputs

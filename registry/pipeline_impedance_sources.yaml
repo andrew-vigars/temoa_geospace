@@ -1,0 +1,82 @@
+schema_version: 1
+purpose: >-
+  Candidate upstream sources for reconstructing the terrain and siting layers
+  found in the Hydrogen_Project_Final reference model. This registry records
+  source identity and lineage evidence only; it intentionally contains no scalar
+  penalty weights.
+
+sources:
+  - id: ontario_ohn_waterbody
+    reference_file: lakes.shp
+    lineage_status: confirmed_schema_match
+    publisher: Ontario Ministry of Natural Resources
+    title: Ontario Hydro Network (OHN) - Waterbody
+    catalogue_url: https://data.ontario.ca/dataset/423655e0-2bb8-4dc2-a1ec-6d7b25915d18
+    service_url: https://ws.lioservices.lrc.gov.on.ca/arcgis2/rest/services/LIO_OPEN_DATA/LIO_Open01/MapServer/25
+    download_url: https://ws.gisetl.lrc.gov.on.ca/fmedatadownload/Packages/OHNWBDY.zip
+    licence: Open Government Licence - Ontario
+    geometry_type: polygon
+    source_crs: EPSG:4269
+    lineage_evidence:
+      - >-
+        Reference fields OGF_ID, WATERBODY_, OFFICIAL_N, GEL_NAME_I,
+        PERMANENCY, and LOCATION_A are shapefile-truncated forms of the official
+        OHN Waterbody service fields.
+      - The official layer is an Ontario-wide polygon waterbody dataset.
+    reference_fingerprints:
+      shp_sha256: aff95db88840ff554102ea79b3b4432d8da388b5e27c35e51b808c2bc21bfa0c
+      dbf_sha256: 34c8633952e0e7483a40ac8cb79670a5662e837f68e0b3dbd5cd670e11ebd681
+
+  - id: ontario_first_nation_reserve
+    reference_file: indigenous_peoples_reserves.shp
+    lineage_status: confirmed_schema_match
+    publisher: Ontario Ministry of Natural Resources
+    title: First Nation Reserve
+    catalogue_url: https://data.ontario.ca/dataset/80e642cc-c153-4b6d-9b10-92f4d4aaff4e
+    service_url: https://ws.lioservices.lrc.gov.on.ca/arcgis2/rest/services/LIO_OPEN_DATA/LIO_Open03/MapServer/12
+    download_url: null
+    licence: Open Government Licence - Ontario
+    geometry_type: polygon
+    source_crs: EPSG:4269
+    lineage_evidence:
+      - >-
+        Reference fields OGF_ID, NAME, OTH_NAME, LAND_TYPE, ACCURACY, and LOC_DES
+        match the official First Nation Reserve data description and REST schema
+        after shapefile field-name truncation.
+      - >-
+        The official catalogue describes reserve boundaries defined by the Legal
+        Surveys Division of Natural Resources Canada.
+    reference_fingerprints:
+      shp_sha256: 31ff1b6bc7786e02fb36c3d7da186287cfb156a5542cafd74f25590ee5afc018
+      dbf_sha256: 90b9ce2e9cc1523e02cc687ac0afa925dc1d6652b6735639de1d8b59cc4494a1
+
+  - id: statcan_2021_ontario_da_population_density
+    reference_file: residential_new.shp
+    lineage_status: derived_layer_sources_identified_transformation_unknown
+    publisher: Statistics Canada
+    title: 2021 Ontario dissemination areas with population density
+    boundary_reference_url: https://www150.statcan.gc.ca/n1/pub/92-160-g/2021001/tbl/tbl_4.12-eng.htm
+    population_table_url: https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=9810001501
+    population_table_id: 98-10-0015-01
+    licence: Statistics Canada Open Licence
+    geometry_type: polygon
+    source_crs: EPSG:3347
+    lineage_evidence:
+      - >-
+        DAUID, DGUID, LANDAREA, and PRUID exactly match the official 2021
+        dissemination-area boundary record layout.
+      - Every reference DGUID begins with 2021 and every PRUID is 35 (Ontario).
+      - >-
+        The official population table contains 2021 population density per square
+        kilometre at dissemination-area geography.
+      - >-
+        filtered16 behaves like population density and is used as such by the
+        reference model, but its creation and the other filtered fields are not
+        documented in the copied metadata.
+    unresolved_lineage:
+      - Exact 2021 dissemination-area boundary download resource.
+      - Exact population-table extract and join procedure.
+      - Meaning and derivation of every filtered field other than the model's use of filtered16.
+    reference_fingerprints:
+      shp_sha256: 8224aff5fd4c64921f1383f9f0714720eae3338548d474d4f763c80d0f32b06a
+      dbf_sha256: 2c0c430b2d478c43ae646dbb60eeb772ac87f9097b5618349d2246d7e422f54b
