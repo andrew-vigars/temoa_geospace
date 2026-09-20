@@ -12,25 +12,28 @@ PROFILE_DIR = PROJECT_ROOT / "config" / "build_profiles"
 
 
 @pytest.mark.parametrize(
-    ("filename", "expected_label", "expected_id"),
+    ("filename", "expected_label", "expected_id", "expected_grid_types"),
     [
-        ("atlantic.toml", "atlantic", "atlantic"),
-        ("national.toml", "national", "national"),
-        ("on-qc.toml", "on_qc", "onqc"),
-        ("provinces_only.toml", "provinces_only", "provinces"),
+        ("atlantic.toml", "atlantic", "atlantic", ("geographic", "projected")),
+        ("national.toml", "national", "national", ("geographic", "projected")),
+        ("on-qc.toml", "on_qc", "onqc", ("geographic", "projected")),
+        # provinces_only is the lightweight sample profile: it only generates
+        # projected (km) basemaps, not the 0.5deg geographic grid.
+        ("provinces_only.toml", "provinces_only", "provinces", ("projected",)),
     ],
 )
 def test_committed_build_profiles_load(
     filename: str,
     expected_label: str,
     expected_id: str,
+    expected_grid_types: tuple[str, ...],
 ) -> None:
     config = load_geospatial_build_config(PROFILE_DIR / filename)
 
     assert config.study_area.label == expected_label
     assert config.build_id == expected_id
     assert config.study_area.provinces
-    assert config.basemaps.grid_types == ("geographic", "projected")
+    assert config.basemaps.grid_types == expected_grid_types
     assert config.schema.road_connection_method in (
         config.road_connectivity.methods
     )

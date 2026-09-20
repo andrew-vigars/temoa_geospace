@@ -445,46 +445,6 @@ class SnappedInputs:
 # Selection and validation helpers
 # =============================================================================
 
-def select_from_options(options: list[str], label: str) -> str:
-    """Prompt the user to select one string from an indexed option list.
-
-    This helper prints the available options for a CLI workflow, reads a numeric
-    index from standard input, and returns the selected option. The ``label`` is
-    used only to make prompts and error messages specific to the type of option
-    being selected.
-
-    Parameters
-    ----------
-    options : list[str]
-        Available option values to display and select from.
-    label : str
-        Human-readable option category used in printed prompts and errors.
-
-    Returns
-    -------
-    str
-        Selected option value.
-
-    Raises
-    ------
-    ValueError
-        If no options are available or if the entered index is invalid.
-    """
-    if not options:
-        raise ValueError(f"No options available for {label}.")
-
-    print(f"\nAvailable {label} options:")
-    for i, option in enumerate(options):
-        print(f"  [{i}] {option}")
-
-    choice = input(f"\nSelect {label} index: ").strip()
-
-    try:
-        return options[int(choice)]
-    except (ValueError, IndexError) as exc:
-        raise ValueError(f"Invalid {label} selection: {choice}") from exc
-
-
 def discover_basemap_stems(
     build_config: GeospatialBuildConfig,
 ) -> list[str]:
@@ -514,6 +474,38 @@ def discover_basemap_stems(
         If no processed basemaps match the configured build profile.
     """
 
+    stems, _available_resolutions = _discover_basemap_candidates(build_config)
+
+    if not stems:
+        pattern = (
+            f"{build_config.study_area.label}_basemap_*_"
+            f"{build_config.basemaps.keep_method}.gpkg"
+        )
+        raise FileNotFoundError(
+            "No processed basemaps matched build profile "
+            f"{build_config.study_area.label!r}. Expected pattern: {pattern}"
+        )
+
+    return stems
+
+
+def _discover_basemap_candidates(
+    build_config: GeospatialBuildConfig,
+    *,
+    grid_type: str | None = None,
+    resolution: float | None = None,
+) -> tuple[list[str], list[tuple[str, float, str]]]:
+    """Discover basemap stems compatible with a build profile.
+
+    When ``grid_type`` and ``resolution`` are given, candidates are further
+    restricted to the Silver basemap generated for that exact grid family and
+    resolution. The full set of ``(grid_type, resolution, resolution_unit)``
+    combinations available for the build profile's study area and retention
+    method is always returned alongside the matching stems, so callers can
+    report what is actually available when the requested resolution was not
+    generated.
+    """
+
     pattern = (
         f"{build_config.study_area.label}_basemap_*_"
         f"{build_config.basemaps.keep_method}.gpkg"
@@ -526,6 +518,7 @@ def discover_basemap_stems(
     )
 
     stems: list[str] = []
+    available_resolutions: list[tuple[str, float, str]] = []
 
     for path in basemap_paths:
         metadata = gpd.read_file(path, rows=1)
@@ -546,25 +539,95 @@ def discover_basemap_stems(
             )
 
         study_area = str(metadata["study_area"].iloc[0])
-        grid_type = str(metadata["grid_type"].iloc[0])
+        path_grid_type = str(metadata["grid_type"].iloc[0])
         keep_method = str(metadata["keep_method"].iloc[0])
+        path_resolution = float(metadata["resolution"].iloc[0])
+        path_resolution_unit = str(metadata["resolution_unit"].iloc[0])
 
         if study_area != build_config.study_area.label:
             continue
-        if grid_type not in build_config.basemaps.grid_types:
+        if path_grid_type not in build_config.basemaps.grid_types:
             continue
         if keep_method != build_config.basemaps.keep_method:
             continue
 
-        stems.append(path.stem)
-
-    if not stems:
-        raise FileNotFoundError(
-            "No processed basemaps matched build profile "
-            f"{build_config.study_area.label!r}. Expected pattern: {pattern}"
+        available_resolutions.append(
+            (path_grid_type, path_resolution, path_resolution_unit)
         )
 
-    return stems
+        if grid_type is not None and path_grid_type != grid_type:
+            continue
+        if resolution is not None and not math.isclose(
+            path_resolution, resolution, rel_tol=1e-9, abs_tol=1e-9
+        ):
+            continue
+
+        stems.append(path.stem)
+
+    return stems, available_resolutions
+
+
+def select_basemap_stem_for_resolution(
+    build_config: GeospatialBuildConfig,
+    model_config: ModelConfig,
+) -> str:
+    """Select the Silver basemap matching the scenario's configured resolution.
+
+    Build profiles may generate several basemap resolutions per grid family.
+    Rather than prompting interactively, the resolution to build Gold from is
+    read from ``model_config.basemap`` (``registry/model.toml``, optionally
+    overridden by a scenario overlay) and matched against the Silver basemaps
+    that were actually generated for this build profile.
+
+    Parameters
+    ----------
+    build_config : GeospatialBuildConfig
+        Validated build profile defining the study area, permitted grid types,
+        and basemap-retention method.
+    model_config : ModelConfig
+        Validated model configuration whose ``basemap.grid_type`` and
+        ``basemap.resolution`` identify the requested Silver basemap.
+
+    Returns
+    -------
+    str
+        Filename stem of the uniquely matching processed basemap.
+
+    Raises
+    ------
+    ValueError
+        If no processed basemap matches the configured grid type and
+        resolution, or if more than one processed basemap matches it.
+    """
+
+    grid_type = model_config.basemap.grid_type
+    resolution = model_config.basemap.resolution
+
+    stems, available_resolutions = _discover_basemap_candidates(
+        build_config,
+        grid_type=grid_type,
+        resolution=resolution,
+    )
+
+    if not stems:
+        available = sorted(set(available_resolutions))
+        raise ValueError(
+            "No processed basemap matches the configured schema resolution "
+            f"(grid_type={grid_type!r}, resolution={resolution!r}) for build "
+            f"profile {build_config.study_area.label!r}. Available "
+            f"(grid_type, resolution, resolution_unit) combinations: "
+            f"{available}."
+        )
+
+    if len(stems) > 1:
+        raise ValueError(
+            "Configured schema resolution "
+            f"(grid_type={grid_type!r}, resolution={resolution!r}) matched "
+            f"more than one processed basemap for build profile "
+            f"{build_config.study_area.label!r}: {sorted(stems)}."
+        )
+
+    return stems[0]
 
 
 def resolve_schema_configuration(
@@ -573,10 +636,11 @@ def resolve_schema_configuration(
 ) -> ResolvedSchemaConfig:
     """Resolve and validate all Stage 1–4 inputs for one schema build.
 
-    Available basemaps are discovered from the shared build profile. The basemap is
-    then selected interactively or taken from the configured stem, and the requested
-    road-connectivity method is checked against the methods produced by the
-    connectivity stage.
+    The basemap is selected by matching ``model_config.basemap`` (the resolution
+    configured in ``registry/model.toml``, optionally overridden by the active
+    scenario overlay) against the Silver basemaps actually generated for the
+    build profile. The requested road-connectivity method is checked against the
+    methods produced by the connectivity stage.
 
     The selected basemap stem and connection method are used to construct paths for
     the basemap, graph topology, road-connectivity products, and destination SQLite
@@ -600,9 +664,9 @@ def resolve_schema_configuration(
         If no compatible basemaps are available, the baseline SQLite database is
         missing, or a required Stage 1–4 input path does not exist.
     ValueError
-        If interactive selection is invalid, a configured basemap stem is missing
-        or unavailable, or the requested road-connectivity method was not generated
-        by the configured workflow.
+        If the configured schema resolution matches zero or more than one
+        processed basemap, or if the requested road-connectivity method was not
+        generated by the configured workflow.
     """
 
     model_config = load_model_config(MODEL_CONFIG_PATH, scenario_path)
@@ -613,27 +677,7 @@ def resolve_schema_configuration(
     validate_storage_capacity_bound_setting(
         build_config.storage.use_capacity_bound
     )
-    available_stems = discover_basemap_stems(build_config)
-
-    if build_config.schema.interactive_basemap_selection:
-        basemap_stem = select_from_options(
-            available_stems,
-            "basemap",
-        )
-    else:
-        basemap_stem = build_config.schema.basemap_stem
-
-        if basemap_stem is None:
-            raise ValueError(
-                "schema.basemap_stem is required when interactive "
-                "selection is disabled."
-            )
-
-        if basemap_stem not in available_stems:
-            raise ValueError(
-                f"Configured basemap_stem {basemap_stem!r} was not found "
-                f"among profile basemaps: {available_stems}"
-            )
+    basemap_stem = select_basemap_stem_for_resolution(build_config, model_config)
 
     road_layer = build_config.road_connectivity.road_layer
     connection_method = build_config.schema.road_connection_method

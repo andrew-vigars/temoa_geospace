@@ -1,6 +1,7 @@
 """Configuration interface for Geospatial-CANOE."""
 
 from .model_config import (
+    ModelBasemapConfig,
     ModelConfig,
     ModelEmissionsConfig,
     ModelFinanceConfig,
@@ -19,6 +20,7 @@ from .project_config import (
 
 __all__ = [
     "GeospatialBuildConfig",
+    "ModelBasemapConfig",
     "ModelConfig",
     "ModelEmissionsConfig",
     "ModelFinanceConfig",

@@ -22,6 +22,7 @@ from geocanoe.schema.build import (
     rebuild_static_supporting_tables,
     rebuild_storage_activity_limit,
     rebuild_storage_efficiency,
+    select_basemap_stem_for_resolution,
     select_storage_eligible_regions,
     validate_storage_capacity_bound_setting,
     validate_storage_region_coverage,
@@ -82,6 +83,46 @@ minimum_cumulative_activity = 0
         alternate,
         "on_qc_basemap_25km_centroid",
     )
+
+
+def test_basemap_selection_matches_configured_resolution() -> None:
+    build_config = load_geospatial_build_config(
+        PROJECT_ROOT / "config" / "build_profiles" / "provinces_only.toml"
+    )
+    model_config = load_model_config(
+        PROJECT_ROOT / "registry" / "model.toml",
+        PROJECT_ROOT / "registry" / "scenarios" / "baseline.toml",
+    )
+
+    basemap_stem = select_basemap_stem_for_resolution(build_config, model_config)
+
+    assert basemap_stem == "provinces_only_basemap_20km_centroid"
+
+
+def test_basemap_selection_rejects_ungenerated_resolution(
+    tmp_path: Path,
+) -> None:
+    build_config = load_geospatial_build_config(
+        PROJECT_ROOT / "config" / "build_profiles" / "provinces_only.toml"
+    )
+    scenario_path = tmp_path / "unavailable-resolution.toml"
+    scenario_path.write_text(
+        """[scenario]
+id = "bad-resolution"
+
+[basemap]
+grid_type = "projected"
+resolution = 999
+""",
+        encoding="utf-8",
+    )
+    model_config = load_model_config(
+        PROJECT_ROOT / "registry" / "model.toml",
+        scenario_path,
+    )
+
+    with pytest.raises(ValueError, match="No processed basemap matches"):
+        select_basemap_stem_for_resolution(build_config, model_config)
 
 
 def test_etl_curve_is_contiguous_and_monotonic() -> None:

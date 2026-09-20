@@ -25,6 +25,8 @@ def test_committed_model_registry_is_single_period_2025_to_2050() -> None:
     assert config.finance.default_loan_rate == 0.03
     assert config.storage.requirement == "minimum_cumulative_activity"
     assert config.storage.minimum_cumulative_activity == 7_500_000_000.0
+    assert config.basemap.grid_type == "projected"
+    assert config.basemap.resolution == 20.0
     assert config.scenario.scenario_id == "baseline"
 
 
@@ -49,6 +51,27 @@ minimum_cumulative_activity = 0
     assert config.storage.requirement == "none"
     assert config.storage.minimum_cumulative_activity == 0.0
     assert config.scenario.scenario_id == "optional-storage"
+
+
+def test_scenario_overrides_basemap_resolution(tmp_path: Path) -> None:
+    scenario_path = tmp_path / "coarse-resolution.toml"
+    scenario_path.write_text(
+        """[scenario]
+id = "coarse-resolution"
+description = "Build Gold from the 40km provinces_only basemap"
+
+[basemap]
+grid_type = "projected"
+resolution = 40
+""",
+        encoding="utf-8",
+    )
+
+    config = load_model_config(MODEL_CONFIG_PATH, scenario_path)
+
+    assert config.basemap.grid_type == "projected"
+    assert config.basemap.resolution == 40.0
+    assert config.scenario.scenario_id == "coarse-resolution"
 
 
 def test_model_registry_loads_no_minimum_cumulative_storage_policy(
@@ -96,6 +119,16 @@ def test_model_registry_loads_no_minimum_cumulative_storage_policy(
             "global_discount_rate = 0.03",
             "global_discount_rate = 1.0",
             "rate",
+        ),
+        (
+            'grid_type = "projected"',
+            'grid_type = "utm"',
+            "grid_type",
+        ),
+        (
+            "resolution = 20",
+            "resolution = 0",
+            "resolution",
         ),
     ],
 )
