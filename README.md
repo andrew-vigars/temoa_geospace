@@ -6,10 +6,11 @@ The repository is an active research codebase. The current implementation uses t
 
 ## Release and handoff history
 
-The current branch is the `0.7.0` release candidate. It consolidates the work
-completed since the original April 2026 handoff and is intended to be tagged
-`v0.7.0` after the release checks pass and before the branch is proposed for
-merge into `main`.
+The `v0.7.0` tag marks the completed orchestration and scenario-management
+release. The current `geo-dev` branch builds on that release with national NHN
+Bronze and Silver workflows, Aboriginal Lands acquisition, and the generalized
+geospatial source registry. Package metadata remains at `0.7.0` until the next
+release is prepared.
 
 | Version | Milestone |
 | --- | --- |
@@ -28,18 +29,13 @@ The Git tags preserve the detailed commit boundaries, while this summary gives
 new maintainers the architectural progression needed to interpret the current
 workflow.
 
-### `v0.7.0` release sequence
+### Post-`v0.7.0` development
 
-1. Install the locked development environment with
-   `python -m pip install -c requirements-lock.txt -e ".[dev]"`.
-2. Confirm both the package module and installed metadata report `0.7.0`.
-3. Run `python -m pip check`, `python -m ruff check src tests scripts`, and
-   `python -m pytest tests -q`.
-4. Commit the reviewed release-preparation changes.
-5. Create the annotated tag with
-   `git tag -a v0.7.0 -m "GeoCANOE v0.7.0"` and push the branch and tag.
-6. Open the pull request from the tagged `geo-dev` head to `main` and include
-   the release history and validation results in the PR description.
+Current development adds national hydrography evidence, Aboriginal Lands
+acquisition, and schema-v2 geospatial source metadata without changing the
+published package version. Release preparation should continue to verify the
+locked environment, package metadata, lint checks, and the complete GeoCANOE
+test suite before creating the next tag.
 
 ## Current capabilities
 
@@ -48,7 +44,11 @@ The workflow currently supports:
 - configurable Canadian study areas defined by province and territory;
 - geographic grids in EPSG:4326 and projected grids in EPSG:3347;
 - centroid-based cell retention and rook adjacency;
+- orchestrated Bronze acquisition for boundaries, Aboriginal Lands, roads,
+  hydrography, emissions, and geological-storage evidence;
 - filtered National Road Network backbone, primary-freight, and freight-access layers;
+- registered NHN waterbody and watercourse filtering, clipping, provenance,
+  summaries, and previews;
 - weak and strong road-connectivity mapping;
 - province assignment and graph-node snapping for legacy point inputs;
 - preprocessing of 2024 large-facility greenhouse-gas emissions;
@@ -97,6 +97,7 @@ Geospatial-CANOE/
 │
 ├── data_files/
 │   ├── raw/                       External and downloaded source datasets
+│   │   ├── aboriginal_lands/        National legislative boundaries and metadata
 │   │   ├── basemaps/
 │   │   ├── canco2_storage/          Acquired external CanCO₂ Silver release
 │   │   ├── emissions/
@@ -121,7 +122,7 @@ Geospatial-CANOE/
 │
 ├── registry/                      User-managed registered model inputs
 │   ├── bronze_registry.yaml       Dataset IDs, schemas, and source paths
-│   ├── geospatial_sources.yaml    External spatial sources, layers, and coded domains
+│   ├── geospatial_sources.yaml    Bronze roots, named artifacts, layers, and domains
 │   ├── model.toml                 Global Gold-model defaults
 │   ├── scenarios/
 │   │   └── baseline.toml          Named scenario overlays
@@ -132,7 +133,7 @@ Geospatial-CANOE/
 │
 ├── src/
 │   └── geocanoe/
-│       ├── acquisition/           Raw basemap, emissions, NRN, NHN, and CanCO₂ acquisition
+│       ├── acquisition/           Six Bronze source-acquisition modules
 │       │   └── co2_storage.py     Local CanCO₂ release acquisition
 │       ├── analysis/              Folium maps and output-table exports
 │       ├── config/                Build-profile parsing and validation
@@ -150,6 +151,7 @@ Geospatial-CANOE/
 │
 ├── scripts/                       Thin CLI entry points
 │   ├── batch_run.py
+│   ├── build_bronze.py
 │   ├── build_schema.py
 │   ├── build_silver.py
 │   ├── create_map_folium.py
@@ -203,7 +205,7 @@ A successful installation should make the package importable without modifying `
 python -c "import geocanoe; print(geocanoe.__version__)"
 ```
 
-For this release candidate, the command should print `0.7.0`.
+At the current development head, the command prints `0.7.0`.
 
 ### Development installation
 
@@ -270,9 +272,9 @@ Example profile path:
 config/build_profiles/provinces_only.toml
 ```
 
-The same profile should be used consistently across the basemap, adjacency,
-road, road-connectivity, legacy-input, emissions, cost, and schema stages. Each
-profile also declares a short artifact identity:
+The same profile should be used consistently across the basemap, hydrography,
+CO₂-storage, adjacency, road, road-connectivity, legacy-input, emissions, cost,
+and schema stages. Each profile also declares a short artifact identity:
 
 ```toml
 [profile]
@@ -483,7 +485,15 @@ data_files/processed/nhn/preview/*.png
 
 ### Raw acquisition
 
-Raw acquisition modules may also be run independently when source datasets need to be refreshed:
+The preferred entry point coordinates all six registered Bronze stages:
+
+```bash
+python scripts/build_bronze.py
+```
+
+Use `--stages` to run a subset, such as
+`python scripts/build_bronze.py --stages aboriginal_lands nhn`. Acquisition
+modules may also be run independently when one source needs to be refreshed:
 
 ```bash
 python -m geocanoe.acquisition.basemaps
@@ -508,6 +518,11 @@ data_files/raw/nhn/nhn_acquisition_manifest.json
 data_files/raw/emissions/co2_large_facilities_2024/
 data_files/raw/canco2_storage/
 ```
+
+`registry/geospatial_sources.yaml` schema v2 inventories these sources by
+stable ID. Each source declares a Bronze root and named artifacts using fixed
+paths or globs; source-layer mappings and coded domains are optional extensions
+used where downstream transformations require them.
 
 #### National Hydro Network acquisition
 
@@ -551,19 +566,23 @@ Run only this Bronze stage with:
 python scripts/build_bronze.py --stages aboriginal_lands
 ```
 
+This stage currently stops at validated Bronze preservation. Aboriginal Lands
+are not yet transformed into a Silver impedance or siting layer.
+
 ### Silver preprocessing stages
 
-The current silver workflow includes:
+The current Silver workflow includes ten stages:
 
 1. legacy site and demand province mapping;
 2. emissions preprocessing;
 3. hydrogen-pipeline capacity-cost preprocessing;
 4. hydrogen-pipeline cost-model fitting;
 5. study-area basemap construction;
-6. onshore CO₂ storage-to-basemap integration;
-7. regional adjacency construction;
-8. processed road-network construction;
-9. road-connectivity mapping.
+6. registered NHN hydrography filtering and clipping;
+7. onshore CO₂ storage-to-basemap integration;
+8. regional adjacency construction;
+9. processed road-network construction;
+10. road-connectivity mapping.
 
 These stages are implemented under `src/geocanoe/` and orchestrated by `geocanoe.execution.silver`.
 
@@ -574,6 +593,7 @@ data_files/processed/legacy_inputs/
 data_files/processed/emissions/
 data_files/processed/costs/
 data_files/processed/basemaps/
+data_files/processed/nhn/
 data_files/processed/co2_storage/
 data_files/processed/graph/
 data_files/processed/nrn/
@@ -832,7 +852,9 @@ Important processed directories include:
 
 ```text
 data_files/processed/basemaps/
+data_files/processed/co2_storage/
 data_files/processed/graph/
+data_files/processed/nhn/
 data_files/processed/nrn/
 data_files/processed/road_connectivity/
 data_files/processed/legacy_inputs/
