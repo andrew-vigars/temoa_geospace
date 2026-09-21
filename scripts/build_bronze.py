@@ -2,9 +2,9 @@
 
 This script provides the user-facing command-line interface for acquiring the
 Geospatial-CANOE bronze-layer raw inputs: Statistics Canada basemap
-boundaries, National Road Network GeoPackages, National Hydro Network
-hydrography, large-facility emissions data, and an acquired CanCO2
-unified-storage release.
+boundaries, Aboriginal Lands boundaries, National Road Network GeoPackages,
+National Hydro Network hydrography, large-facility emissions data, and an
+acquired CanCO2 unified-storage release.
 
 Reusable stage registration, execution, timing, and reporting are implemented
 in ``geocanoe.execution.bronze``. This script is intentionally limited to
@@ -99,6 +99,22 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--raw-aboriginal-lands-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Output directory for the aboriginal_lands stage. Defaults to "
+            "data_files/raw/aboriginal_lands."
+        ),
+    )
+
+    parser.add_argument(
+        "--keep-aboriginal-lands-archive",
+        action="store_true",
+        help="Retain the Aboriginal Lands source ZIP after validation.",
+    )
+
+    parser.add_argument(
         "--raw-nrn-dir",
         type=Path,
         default=None,
@@ -167,6 +183,8 @@ def main() -> None:
     options = BronzeStageOptions(
         overwrite=args.overwrite,
         raw_basemap_dir=args.raw_basemap_dir,
+        raw_aboriginal_lands_dir=args.raw_aboriginal_lands_dir,
+        keep_aboriginal_lands_archive=args.keep_aboriginal_lands_archive,
         raw_nrn_dir=args.raw_nrn_dir,
         raw_nhn_dir=args.raw_nhn_dir,
         keep_nhn_archive=args.keep_nhn_archive,

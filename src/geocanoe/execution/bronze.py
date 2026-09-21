@@ -5,9 +5,10 @@ acquisition for Geospatial-CANOE. It is the importable implementation used by
 the command-line entry point in ``scripts/build_bronze.py``.
 
 The bronze layer downloads or copies the external, unmodified source data that
-every later stage depends on: Statistics Canada basemap boundaries, National
-Road Network GeoPackages, National Hydro Network hydrography, large-facility
-emissions data, and an acquired CanCO2 unified-storage release.
+every later stage depends on: Statistics Canada basemap boundaries, Aboriginal
+Lands boundaries, National Road Network GeoPackages, National Hydro Network
+hydrography, large-facility emissions data, and an acquired CanCO2
+unified-storage release.
 Unlike the silver workflow, bronze stages are
 mutually independent: none of them reads another stage's output, so this
 module runs them without a dependency graph or a build profile.
@@ -63,6 +64,7 @@ DATA_FILES = PROJECT_ROOT / "data_files"
 
 STAGE_MODULE_NAMES: dict[str, str] = {
     "basemaps": "geocanoe.acquisition.basemaps",
+    "aboriginal_lands": "geocanoe.acquisition.aboriginal_lands",
     "nrn": "geocanoe.acquisition.nrn",
     "nhn": "geocanoe.acquisition.nhn",
     "emissions": "geocanoe.acquisition.emissions",
@@ -71,6 +73,7 @@ STAGE_MODULE_NAMES: dict[str, str] = {
 
 BRONZE_STAGE_ORDER = (
     "basemaps",
+    "aboriginal_lands",
     "nrn",
     "nhn",
     "emissions",
@@ -97,6 +100,10 @@ class BronzeStageOptions:
         exist.
     raw_basemap_dir : Path | None
         Output directory override for the ``basemaps`` stage.
+    raw_aboriginal_lands_dir : Path | None
+        Output directory override for the ``aboriginal_lands`` stage.
+    keep_aboriginal_lands_archive : bool
+        Whether the ``aboriginal_lands`` stage should retain its source ZIP.
     raw_nrn_dir : Path | None
         Output directory override for the ``nrn`` stage.
     raw_nhn_dir : Path | None
@@ -111,6 +118,8 @@ class BronzeStageOptions:
 
     overwrite: bool = False
     raw_basemap_dir: Path | None = None
+    raw_aboriginal_lands_dir: Path | None = None
+    keep_aboriginal_lands_archive: bool = False
     raw_nrn_dir: Path | None = None
     raw_nhn_dir: Path | None = None
     keep_nhn_archive: bool = False
@@ -240,6 +249,15 @@ def execute_bronze_stage(
         if options.raw_basemap_dir is not None:
             kwargs["raw_basemaps"] = options.raw_basemap_dir
         return module.acquire_basemap(**kwargs)
+
+    if stage_name == "aboriginal_lands":
+        kwargs = {
+            "overwrite": options.overwrite,
+            "keep_archive": options.keep_aboriginal_lands_archive,
+        }
+        if options.raw_aboriginal_lands_dir is not None:
+            kwargs["raw_aboriginal_lands"] = options.raw_aboriginal_lands_dir
+        return module.acquire_aboriginal_lands(**kwargs)
 
     if stage_name == "nrn":
         kwargs = {"overwrite": options.overwrite}

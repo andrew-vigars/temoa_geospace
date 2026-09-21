@@ -486,6 +486,7 @@ Raw acquisition modules may also be run independently when source datasets need 
 
 ```bash
 python -m geocanoe.acquisition.basemaps
+python -m geocanoe.acquisition.aboriginal_lands
 python -m geocanoe.acquisition.nrn
 python -m geocanoe.acquisition.nhn
 python -m geocanoe.acquisition.emissions
@@ -496,6 +497,9 @@ Primary outputs:
 
 ```text
 data_files/raw/basemaps/
+data_files/raw/aboriginal_lands/AL_TA_CA_*_eng.shp
+data_files/raw/aboriginal_lands/aboriginal_lands_wms_capabilities.xml
+data_files/raw/aboriginal_lands/aboriginal_lands_acquisition_manifest.json
 data_files/raw/nrn/{PROVINCE}/
 data_files/raw/nhn/rhn_nhn_hhyd.gpkg
 data_files/raw/nhn/nhn_wms_capabilities.xml
@@ -529,6 +533,22 @@ python scripts/build_bronze.py --stages nhn
 
 Use `--overwrite` only when the national archive should be downloaded and
 extracted again.
+
+#### Aboriginal Lands acquisition
+
+The `aboriginal_lands` Bronze stage acquires the Canada-wide English
+`AL_TA_CA_SHP_eng.zip` distribution from the official [NRCan Aboriginal Lands
+download directory](https://ftp.maps.canada.ca/pub/nrcan_rncan/vector/geobase_al_ta/shp_eng/).
+It preserves the versioned source shapefile name, snapshots the official WMS
+capabilities XML, validates polygon geometry, EPSG:4617, and identifying source
+fields, and writes an acquisition manifest. The ZIP is deleted after successful
+validation unless `--keep-aboriginal-lands-archive` is supplied.
+
+Run only this Bronze stage with:
+
+```bash
+python scripts/build_bronze.py --stages aboriginal_lands
+```
 
 ### Silver preprocessing stages
 
