@@ -27,25 +27,28 @@ flowchart TD
     subgraph ACQ["Raw data acquisition — geocanoe.acquisition"]
         A1["basemaps.py<br/>Statistics Canada boundaries"]
         A2["nrn.py<br/>National Road Network GeoPackages"]
-        A3["emissions.py<br/>2024 large-facility emissions data"]
-        A4["co2_storage.py<br/>Acquire selected local CanCO₂ release"]
+        A3["nhn.py<br/>National Hydro Network hydrography"]
+        A4["emissions.py<br/>2024 large-facility emissions data"]
+        A5["co2_storage.py<br/>Acquire selected local CanCO₂ release"]
     end
 
     subgraph RAW["Raw and controlled inputs"]
         R1["Boundary shapefile<br/>data_files/raw/basemaps/"]
         R2["NRN GeoPackages<br/>data_files/raw/nrn/{PROVINCE}/"]
-        R3["Emissions CSV and GeoJSON<br/>data_files/raw/emissions/"]
-        R4["Legacy site and demand CSVs"]
-        R5["Technology, commodity, efficiency, and transport CSVs"]
-        R6["CANOE/TEMOA SQL schema and baseline SQLite"]
-        R7["Controlled H2 pipeline cost workbook<br/>data_files/models/cost_models/"]
-        R8["CanCO₂ unified-storage release<br/>data_files/raw/canco2_storage/"]
+        R3["NHN hydrographic features<br/>data_files/raw/nhn/"]
+        R4["Emissions CSV and GeoJSON<br/>data_files/raw/emissions/"]
+        R5["Legacy site and demand CSVs"]
+        R6["Technology, commodity, efficiency, and transport CSVs"]
+        R7["CANOE/TEMOA SQL schema and baseline SQLite"]
+        R8["Controlled H2 pipeline cost workbook<br/>data_files/models/cost_models/"]
+        R9["CanCO₂ unified-storage release<br/>data_files/raw/canco2_storage/"]
     end
 
     A1 --> R1
     A2 --> R2
     A3 --> R3
-    A4 --> R8
+    A4 --> R4
+    A5 --> R9
 
     %% =====================================================================
     %% Silver preprocessing
@@ -71,15 +74,15 @@ flowchart TD
     CFG --> M1
 
     R1 --> L1
-    R4 --> L1
-    R3 --> E1
-    R7 --> C1
+    R5 --> L1
+    R4 --> E1
+    R8 --> C1
     C1 --> C2
 
     R1 --> B1
     B1 --> BP["Processed basemaps<br/>data_files/processed/basemaps/"]
     BP --> S0
-    R8 --> S0
+    R9 --> S0
     S0 --> SP["Storage evidence, crosswalks, and previews<br/>data_files/processed/co2_storage/"]
     BP --> G1
     G1 --> GP["Graph nodes and edges<br/>data_files/processed/graph/"]
@@ -115,8 +118,8 @@ flowchart TD
     LP --> S3
     EP --> S3
     CP --> S4
-    R5 --> S4
     R6 --> S4
+    R7 --> S4
 
     S1 --> S2 --> S3 --> S4 --> S5
     S5 --> DB["CANOE_geospatial_<basemap>_<road_layer>_<method>.sqlite<br/>data_files/processed/schema/"]

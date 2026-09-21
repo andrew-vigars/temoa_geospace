@@ -6,8 +6,9 @@ the command-line entry point in ``scripts/build_bronze.py``.
 
 The bronze layer downloads or copies the external, unmodified source data that
 every later stage depends on: Statistics Canada basemap boundaries, National
-Road Network GeoPackages, large-facility emissions data, and an acquired
-CanCO2 unified-storage release. Unlike the silver workflow, bronze stages are
+Road Network GeoPackages, National Hydro Network hydrography, large-facility
+emissions data, and an acquired CanCO2 unified-storage release.
+Unlike the silver workflow, bronze stages are
 mutually independent: none of them reads another stage's output, so this
 module runs them without a dependency graph or a build profile.
 
@@ -63,6 +64,7 @@ DATA_FILES = PROJECT_ROOT / "data_files"
 STAGE_MODULE_NAMES: dict[str, str] = {
     "basemaps": "geocanoe.acquisition.basemaps",
     "nrn": "geocanoe.acquisition.nrn",
+    "nhn": "geocanoe.acquisition.nhn",
     "emissions": "geocanoe.acquisition.emissions",
     "co2_storage": "geocanoe.acquisition.co2_storage",
 }
@@ -70,6 +72,7 @@ STAGE_MODULE_NAMES: dict[str, str] = {
 BRONZE_STAGE_ORDER = (
     "basemaps",
     "nrn",
+    "nhn",
     "emissions",
     "co2_storage",
 )
@@ -96,6 +99,10 @@ class BronzeStageOptions:
         Output directory override for the ``basemaps`` stage.
     raw_nrn_dir : Path | None
         Output directory override for the ``nrn`` stage.
+    raw_nhn_dir : Path | None
+        Output directory override for the ``nhn`` stage.
+    keep_nhn_archive : bool
+        Whether the ``nhn`` stage should retain its approximately 15 GB ZIP.
     co2_source_gpkg : Path | None
         Exact CanCO2 unified-storage GeoPackage for the ``co2_storage`` stage.
     co2_source_repo : Path | None
@@ -105,6 +112,8 @@ class BronzeStageOptions:
     overwrite: bool = False
     raw_basemap_dir: Path | None = None
     raw_nrn_dir: Path | None = None
+    raw_nhn_dir: Path | None = None
+    keep_nhn_archive: bool = False
     co2_source_gpkg: Path | None = None
     co2_source_repo: Path | None = None
 
@@ -237,6 +246,15 @@ def execute_bronze_stage(
         if options.raw_nrn_dir is not None:
             kwargs["raw_nrn"] = options.raw_nrn_dir
         return module.acquire_nrn(**kwargs)
+
+    if stage_name == "nhn":
+        kwargs = {
+            "overwrite": options.overwrite,
+            "keep_archive": options.keep_nhn_archive,
+        }
+        if options.raw_nhn_dir is not None:
+            kwargs["raw_nhn"] = options.raw_nhn_dir
+        return module.acquire_nhn(**kwargs)
 
     if stage_name == "emissions":
         return module.get_raw_emissions_data(overwrite=options.overwrite)

@@ -100,6 +100,7 @@ Geospatial-CANOE/
 │   │   ├── basemaps/
 │   │   ├── canco2_storage/          Acquired external CanCO₂ Silver release
 │   │   ├── emissions/
+│   │   ├── nhn/                      National NHN hydrographic features
 │   │   └── nrn/
 │   ├── models/                    Controlled engineering and cost workbooks
 │   │   └── cost_models/
@@ -129,7 +130,7 @@ Geospatial-CANOE/
 │
 ├── src/
 │   └── geocanoe/
-│       ├── acquisition/           Raw basemap, emissions, NRN, and CanCO₂ acquisition
+│       ├── acquisition/           Raw basemap, emissions, NRN, NHN, and CanCO₂ acquisition
 │       │   └── co2_storage.py     Local CanCO₂ release acquisition
 │       ├── analysis/              Folium maps and output-table exports
 │       ├── config/                Build-profile parsing and validation
@@ -471,6 +472,7 @@ Raw acquisition modules may also be run independently when source datasets need 
 ```bash
 python -m geocanoe.acquisition.basemaps
 python -m geocanoe.acquisition.nrn
+python -m geocanoe.acquisition.nhn
 python -m geocanoe.acquisition.emissions
 python -m geocanoe.acquisition.co2_storage
 ```
@@ -480,9 +482,37 @@ Primary outputs:
 ```text
 data_files/raw/basemaps/
 data_files/raw/nrn/{PROVINCE}/
+data_files/raw/nhn/rhn_nhn_hhyd.gpkg
+data_files/raw/nhn/nhn_wms_capabilities.xml
 data_files/raw/emissions/co2_large_facilities_2024/
 data_files/raw/canco2_storage/
 ```
+
+#### National Hydro Network acquisition
+
+The `nhn` Bronze stage acquires the Canada-wide English hydrographic-feature
+archive, `rhn_nhn_hhyd.gpkg.zip`, from the official [NRCan GeoPackage download
+directory](https://ftp.maps.canada.ca/pub/nrcan_rncan/vector/geobase_nhn_rhn/gpkg_en/CA/).
+It also snapshots the official [NHN WMS capabilities
+XML](https://open.canada.ca/data/en/dataset/a4b190fe-e090-4e6d-881e-b87956c07977/resource/f6ca81dd-a1ee-4002-ac94-bfaa1118e8ea)
+as source metadata.
+
+Because the archive is approximately 15 GB, the stage validates and reuses an
+existing `rhn_nhn_hhyd.gpkg` before attempting any archive download. New
+downloads use resumable `.part` files and show byte progress, transfer rate,
+and ETA. Extraction is atomic, and validation checks the expected NHN layer
+family, EPSG:4617 source CRS, and required waterbody classification fields.
+After successful GeoPackage and metadata validation, the approximately 15 GB
+ZIP is deleted by default; pass `--keep-nhn-archive` to retain it.
+
+Run only this Bronze stage with:
+
+```bash
+python scripts/build_bronze.py --stages nhn
+```
+
+Use `--overwrite` only when the national archive should be downloaded and
+extracted again.
 
 ### Silver preprocessing stages
 

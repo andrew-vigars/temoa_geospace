@@ -2,8 +2,9 @@
 
 This script provides the user-facing command-line interface for acquiring the
 Geospatial-CANOE bronze-layer raw inputs: Statistics Canada basemap
-boundaries, National Road Network GeoPackages, large-facility emissions data,
-and an acquired CanCO2 unified-storage release.
+boundaries, National Road Network GeoPackages, National Hydro Network
+hydrography, large-facility emissions data, and an acquired CanCO2
+unified-storage release.
 
 Reusable stage registration, execution, timing, and reporting are implemented
 in ``geocanoe.execution.bronze``. This script is intentionally limited to
@@ -105,6 +106,19 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--raw-nhn-dir",
+        type=Path,
+        default=None,
+        help="Output directory for the nhn stage. Defaults to data_files/raw/nhn.",
+    )
+
+    parser.add_argument(
+        "--keep-nhn-archive",
+        action="store_true",
+        help="Retain the approximately 15 GB NHN source ZIP after validation.",
+    )
+
+    parser.add_argument(
         "--co2-source-gpkg",
         type=Path,
         default=None,
@@ -154,6 +168,8 @@ def main() -> None:
         overwrite=args.overwrite,
         raw_basemap_dir=args.raw_basemap_dir,
         raw_nrn_dir=args.raw_nrn_dir,
+        raw_nhn_dir=args.raw_nhn_dir,
+        keep_nhn_archive=args.keep_nhn_archive,
         co2_source_gpkg=args.co2_source_gpkg,
         co2_source_repo=args.co2_source_repo,
     )
