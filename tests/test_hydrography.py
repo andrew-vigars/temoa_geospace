@@ -54,8 +54,8 @@ def test_hydrography_build_filters_clips_documents_and_previews(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    source_path = tmp_path / "nhn.gpkg"
-    metadata_path = tmp_path / "nhn.xml"
+    source_path = tmp_path / "rhn_nhn_hhyd.gpkg"
+    metadata_path = tmp_path / "nhn_wms_capabilities.xml"
     acquisition_manifest_path = tmp_path / "nhn_acquisition_manifest.json"
     _waterbody_rows().to_file(
         source_path,
@@ -67,14 +67,8 @@ def test_hydrography_build_filters_clips_documents_and_previews(
     acquisition_manifest_path.write_text("{}\n", encoding="utf-8")
 
     registry_text = REGISTRY_PATH.read_text(encoding="utf-8").replace(
-        "data_files/raw/nhn/rhn_nhn_hhyd.gpkg",
-        source_path.as_posix(),
-    ).replace(
-        "data_files/raw/nhn/nhn_wms_capabilities.xml",
-        metadata_path.as_posix(),
-    ).replace(
-        "data_files/raw/nhn/nhn_acquisition_manifest.json",
-        acquisition_manifest_path.as_posix(),
+        "root: data_files/raw/nhn",
+        f"root: {tmp_path.as_posix()}",
     ).replace(
         "primary_key_field: id",
         "primary_key_field: fid",

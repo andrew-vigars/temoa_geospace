@@ -1,4 +1,4 @@
-"""Validated registry access for external geospatial source databases."""
+"""Validated registry access for external geospatial Bronze sources."""
 
 from __future__ import annotations
 
@@ -39,8 +39,8 @@ def load_geospatial_source_registry(
     with registry_path.open("r", encoding="utf-8") as file:
         raw = yaml.safe_load(file)
     root = _require_mapping(raw, "Geospatial source registry")
-    if root.get("schema_version") != 1:
-        raise ValueError("Geospatial source registry schema_version must be 1.")
+    if root.get("schema_version") != 2:
+        raise ValueError("Geospatial source registry schema_version must be 2.")
 
     sources = root.get("sources")
     if not isinstance(sources, list) or not sources:
@@ -54,17 +54,64 @@ def load_geospatial_source_registry(
         for key in ("kind", "domain", "publisher", "title", "licence"):
             _require_string(source, key, f"source {source_id!r}")
 
-        bronze = _require_mapping(source.get("bronze"), f"source {source_id!r}.bronze")
-        for key in (
-            "path",
-            "metadata_path",
-            "acquisition_manifest_path",
-            "format",
-            "source_crs",
-        ):
-            _require_string(bronze, key, f"source {source_id!r}.bronze")
+        acquisition = _require_mapping(
+            source.get("acquisition"),
+            f"source {source_id!r}.acquisition",
+        )
+        for key in ("stage", "module", "refresh_policy", "release_model"):
+            _require_string(acquisition, key, f"source {source_id!r}.acquisition")
 
-        domains = _require_mapping(source.get("domains"), f"source {source_id!r}.domains")
+        bronze = _require_mapping(source.get("bronze"), f"source {source_id!r}.bronze")
+        _require_string(bronze, "root", f"source {source_id!r}.bronze")
+        primary_artifact = _require_string(
+            bronze,
+            "primary_artifact",
+            f"source {source_id!r}.bronze",
+        )
+        artifacts = _require_mapping(
+            bronze.get("artifacts"),
+            f"source {source_id!r}.bronze.artifacts",
+        )
+        if not artifacts:
+            raise ValueError(f"Source {source_id!r} requires at least one artifact.")
+        if primary_artifact not in artifacts:
+            raise ValueError(
+                f"Source {source_id!r} primary_artifact {primary_artifact!r} "
+                "is not declared in bronze.artifacts."
+            )
+        selection_artifact = bronze.get("selection_artifact")
+        if selection_artifact is not None and (
+            not isinstance(selection_artifact, str)
+            or selection_artifact not in artifacts
+        ):
+            raise ValueError(
+                f"Source {source_id!r}.bronze.selection_artifact must name "
+                "a declared artifact."
+            )
+        for artifact_name, artifact_value in artifacts.items():
+            if not isinstance(artifact_name, str) or not artifact_name.strip():
+                raise ValueError(f"Source {source_id!r} has an invalid artifact name.")
+            artifact = _require_mapping(
+                artifact_value,
+                f"source {source_id!r}.bronze.artifacts.{artifact_name}",
+            )
+            locators = [key for key in ("path", "glob") if key in artifact]
+            if len(locators) != 1:
+                raise ValueError(
+                    f"Artifact {artifact_name!r} must declare exactly one of "
+                    "'path' or 'glob'."
+                )
+            _require_string(artifact, locators[0], f"artifact {artifact_name!r}")
+            _require_string(artifact, "format", f"artifact {artifact_name!r}")
+            if "source_crs" in artifact:
+                _require_string(artifact, "source_crs", f"artifact {artifact_name!r}")
+            if "multiple" in artifact and not isinstance(artifact["multiple"], bool):
+                raise ValueError(f"Artifact {artifact_name!r}.multiple must be boolean.")
+
+        domains = _require_mapping(
+            source.get("domains", {}),
+            f"source {source_id!r}.domains",
+        )
         for domain_name, domain_value in domains.items():
             domain = _require_mapping(
                 domain_value,
@@ -85,9 +132,10 @@ def load_geospatial_source_registry(
             if len(set(values.values())) != len(values):
                 raise ValueError(f"Domain {domain_name!r} contains duplicate codes.")
 
-        layers = _require_mapping(source.get("layers"), f"source {source_id!r}.layers")
-        if not layers:
-            raise ValueError(f"Source {source_id!r} requires at least one layer mapping.")
+        layers = _require_mapping(
+            source.get("layers", {}),
+            f"source {source_id!r}.layers",
+        )
         for layer_name, layer_value in layers.items():
             layer = _require_mapping(layer_value, f"source {source_id!r}.layers.{layer_name}")
             for key in (
@@ -110,20 +158,22 @@ def load_geospatial_source_registry(
                 )
 
         source_ids.append(source_id)
+        source["domains"] = domains
+        source["layers"] = layers
         normalized.append(source)
 
     if len(source_ids) != len(set(source_ids)):
         raise ValueError("Geospatial source registry contains duplicate source IDs.")
 
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "path": registry_path,
         "sources": normalized,
     }
 
 
 class GeospatialSourceRegistry:
-    """Resolve source declarations, local Bronze paths, layers, and domains."""
+    """Resolve source declarations, Bronze artifacts, layers, and domains."""
 
     def __init__(
         self,
@@ -142,19 +192,76 @@ class GeospatialSourceRegistry:
         except KeyError as exc:
             raise KeyError(f"Unknown geospatial source ID: {source_id!r}") from exc
 
+    def list_ids(self) -> tuple[str, ...]:
+        """Return registered source IDs in declaration order."""
+
+        return tuple(self._sources)
+
+    def artifact(self, source_id: str, artifact_name: str) -> dict[str, Any]:
+        """Return one named Bronze artifact declaration."""
+
+        source = self.get(source_id)
+        try:
+            return source["bronze"]["artifacts"][artifact_name]
+        except KeyError as exc:
+            raise KeyError(
+                f"Source {source_id!r} has no artifact {artifact_name!r}."
+            ) from exc
+
+    def resolve_bronze_root(self, source_id: str) -> Path:
+        """Resolve the source's Bronze root directory."""
+
+        source = self.get(source_id)
+        return (self.repo_root / source["bronze"]["root"]).resolve()
+
+    def resolve_artifact_paths(
+        self,
+        source_id: str,
+        artifact_name: str,
+        *,
+        require_matches: bool = False,
+    ) -> tuple[Path, ...]:
+        """Resolve a fixed artifact path or all paths matching an artifact glob."""
+
+        artifact = self.artifact(source_id, artifact_name)
+        root = self.resolve_bronze_root(source_id)
+        if "path" in artifact:
+            paths = ((root / artifact["path"]).resolve(),)
+        else:
+            paths = tuple(sorted(path.resolve() for path in root.glob(artifact["glob"])))
+        if require_matches and not paths:
+            raise FileNotFoundError(
+                f"No files found for artifact {artifact_name!r} of source "
+                f"{source_id!r}."
+            )
+        if len(paths) > 1 and not artifact.get("multiple", False):
+            raise ValueError(
+                f"Artifact {artifact_name!r} of source {source_id!r} resolved "
+                f"to {len(paths)} paths but is not declared multiple."
+            )
+        return paths
+
+    def _resolve_single_artifact(self, source_id: str, artifact_name: str) -> Path:
+        paths = self.resolve_artifact_paths(source_id, artifact_name)
+        if len(paths) != 1:
+            raise ValueError(
+                f"Artifact {artifact_name!r} of source {source_id!r} must resolve "
+                f"to exactly one path; found {len(paths)}."
+            )
+        return paths[0]
+
     def resolve_bronze_path(self, source_id: str) -> Path:
         source = self.get(source_id)
-        return (self.repo_root / source["bronze"]["path"]).resolve()
+        return self._resolve_single_artifact(
+            source_id,
+            source["bronze"]["primary_artifact"],
+        )
 
     def resolve_metadata_path(self, source_id: str) -> Path:
-        source = self.get(source_id)
-        return (self.repo_root / source["bronze"]["metadata_path"]).resolve()
+        return self._resolve_single_artifact(source_id, "metadata")
 
     def resolve_acquisition_manifest_path(self, source_id: str) -> Path:
-        source = self.get(source_id)
-        return (
-            self.repo_root / source["bronze"]["acquisition_manifest_path"]
-        ).resolve()
+        return self._resolve_single_artifact(source_id, "acquisition_manifest")
 
     def layer(self, source_id: str, layer_name: str) -> dict[str, Any]:
         source = self.get(source_id)

@@ -74,9 +74,11 @@ print(registry.resolve_path("commodities"))
 
 ## External geospatial sources
 
-`geospatial_sources.yaml` records the stable identity of externally acquired
-geospatial databases, their local Bronze paths, source-layer mappings, and
-coded-value domains. Build profiles refer to these sources by ID rather than
-embedding file paths or NHN field codes. The Silver hydrography stage uses the
-registry to translate readable selections such as `lake`, `reservoir`, and
-`watercourse` into the source database query.
+`geospatial_sources.yaml` records the stable identity of every external
+geospatial source acquired by the Bronze workflow. Each source declares a
+Bronze root and named artifacts using either fixed paths or globs, allowing the
+same contract to represent fixed files, rolling versioned releases,
+jurisdictional collections, and companion metadata. Layer mappings and coded
+domains are optional and are currently used by the Silver hydrography stage to
+translate readable selections such as `lake`, `reservoir`, and `watercourse`
+into the source database query.

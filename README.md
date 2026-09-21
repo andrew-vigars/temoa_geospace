@@ -468,10 +468,11 @@ python -m geocanoe.execution.silver     --config config/build_profiles/provinces
 The silver workflow validates dependencies and executes the configured preprocessing stages in dependency order.
 
 NHN is transformed after basemaps because the configured study-area boundary
-defines the spatial subset. `registry/geospatial_sources.yaml` maps stable
-source IDs to the Bronze GeoPackage, source layers, and NHN coded domains;
-the build profile's `[hydrography]` tables select readable classes and minimum
-source area/length thresholds. Outputs are written to:
+defines the spatial subset. `registry/geospatial_sources.yaml` inventories all
+external geospatial Bronze sources using named fixed or globbed artifacts.
+Optional source-layer mappings and coded domains support specialized Silver
+stages; the build profile's `[hydrography]` tables select readable NHN classes
+and minimum source area/length thresholds. Outputs are written to:
 
 ```text
 data_files/processed/nhn/{study_area}_filtered_hydrography.gpkg

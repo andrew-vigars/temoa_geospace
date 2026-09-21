@@ -442,7 +442,10 @@ def run_hydrography_build(
         name: all_permanency_codes[name]
         for name in config.hydrography.permanency
     }
-    source_crs = source["bronze"]["source_crs"]
+    source_crs = registry.artifact(
+        config.hydrography.source_id,
+        source["bronze"]["primary_artifact"],
+    )["source_crs"]
     summary_rows: list[dict[str, Any]] = []
     outputs: dict[str, Path] = {}
 
