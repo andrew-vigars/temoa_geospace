@@ -26,6 +26,32 @@ sources:
           path: lpr_000b21a_e.xml
           format: xml
 
+  - id: statcan_2021_da_population_density_inputs
+    kind: vector_tabular_bundle
+    domain: population_exposure
+    publisher: Statistics Canada
+    title: 2021 Census dissemination areas and population and dwelling counts
+    licence: Statistics Canada Open Licence
+    catalogue_url: https://www12.statcan.gc.ca/census-recensement/2021/geo/sip-pis/boundary-limites/index-eng.cfm
+    distribution_url: https://www12.statcan.gc.ca/census-recensement/2021/geo/sip-pis/boundary-limites/files-fichiers/lda_000b21a_e.zip
+    population_table_url: https://www150.statcan.gc.ca/n1/tbl/csv/98100015-eng.zip
+    acquisition:
+      stage: residential
+      module: geocanoe.acquisition.residential
+      refresh_policy: manual
+      release_model: fixed_2021_census_release
+    bronze:
+      root: data_files/raw/residential
+      primary_artifact: boundaries
+      artifacts:
+        boundaries:
+          path: lda_000b21a_e.shp
+          format: shapefile
+          source_crs: EPSG:3347
+        population_table:
+          path: 98100015.csv
+          format: csv
+
   - id: nrcan_aboriginal_lands_national_en
     kind: vector_dataset
     domain: administrative_boundaries

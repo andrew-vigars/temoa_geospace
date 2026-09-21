@@ -1,10 +1,11 @@
 """Command-line entry point for the Geospatial-CANOE bronze build.
 
 This script provides the user-facing command-line interface for acquiring the
-Geospatial-CANOE bronze-layer raw inputs: Statistics Canada basemap
-boundaries, Aboriginal Lands boundaries, National Road Network GeoPackages,
-National Hydro Network hydrography, large-facility emissions data, and an
-acquired CanCO2 unified-storage release.
+Geospatial-CANOE bronze-layer raw inputs: Statistics Canada basemap and
+dissemination-area boundaries, Census population data, Aboriginal Lands
+boundaries, National Road Network GeoPackages, National Hydro Network
+hydrography, large-facility emissions data, and an acquired CanCO2
+unified-storage release.
 
 Reusable stage registration, execution, timing, and reporting are implemented
 in ``geocanoe.execution.bronze``. This script is intentionally limited to
@@ -99,6 +100,16 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--raw-residential-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Output directory for the residential stage. Defaults to "
+            "data_files/raw/residential."
+        ),
+    )
+
+    parser.add_argument(
         "--raw-aboriginal-lands-dir",
         type=Path,
         default=None,
@@ -183,6 +194,7 @@ def main() -> None:
     options = BronzeStageOptions(
         overwrite=args.overwrite,
         raw_basemap_dir=args.raw_basemap_dir,
+        raw_residential_dir=args.raw_residential_dir,
         raw_aboriginal_lands_dir=args.raw_aboriginal_lands_dir,
         keep_aboriginal_lands_archive=args.keep_aboriginal_lands_archive,
         raw_nrn_dir=args.raw_nrn_dir,

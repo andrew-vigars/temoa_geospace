@@ -56,7 +56,9 @@ sources:
     publisher: Statistics Canada
     title: 2021 Ontario dissemination areas with population density
     boundary_reference_url: https://www150.statcan.gc.ca/n1/pub/92-160-g/2021001/tbl/tbl_4.12-eng.htm
+    boundary_download_url: https://www12.statcan.gc.ca/census-recensement/2021/geo/sip-pis/boundary-limites/files-fichiers/lda_000b21a_e.zip
     population_table_url: https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=9810001501
+    population_table_download_url: https://www150.statcan.gc.ca/n1/tbl/csv/98100015-eng.zip
     population_table_id: 98-10-0015-01
     licence: Statistics Canada Open Licence
     geometry_type: polygon
@@ -67,6 +69,10 @@ sources:
         dissemination-area boundary record layout.
       - Every reference DGUID begins with 2021 and every PRUID is 35 (Ontario).
       - >-
+        The reference has 20,465 Ontario DAs, exactly matching the cartographic
+        boundary release after its three documented coastal-water exclusions;
+        all reference DGUIDs occur in the 2021 relationship file.
+      - >-
         The official population table contains 2021 population density per square
         kilometre at dissemination-area geography.
       - >-
@@ -74,7 +80,6 @@ sources:
         reference model, but its creation and the other filtered fields are not
         documented in the copied metadata.
     unresolved_lineage:
-      - Exact 2021 dissemination-area boundary download resource.
       - Exact population-table extract and join procedure.
       - Meaning and derivation of every filtered field other than the model's use of filtered16.
     reference_fingerprints:

@@ -29,11 +29,12 @@ flowchart TD
 
     subgraph ACQ["Source acquisition — geocanoe.acquisition"]
         A1["basemaps.py<br/>Statistics Canada boundaries"]
-        A2["aboriginal_lands.py<br/>Aboriginal Lands legislative boundaries"]
-        A3["nrn.py<br/>National Road Network GeoPackages"]
-        A4["nhn.py<br/>National Hydro Network hydrography"]
-        A5["emissions.py<br/>2024 large-facility emissions data"]
-        A6["co2_storage.py<br/>Acquire selected local CanCO₂ release"]
+        A2["residential.py<br/>Census DA boundaries and population table"]
+        A3["aboriginal_lands.py<br/>Aboriginal Lands legislative boundaries"]
+        A4["nrn.py<br/>National Road Network GeoPackages"]
+        A5["nhn.py<br/>National Hydro Network hydrography"]
+        A6["emissions.py<br/>2024 large-facility emissions data"]
+        A7["co2_storage.py<br/>Acquire selected local CanCO₂ release"]
     end
 
     BRONZE --> A1
@@ -42,18 +43,20 @@ flowchart TD
     BRONZE --> A4
     BRONZE --> A5
     BRONZE --> A6
+    BRONZE --> A7
 
     subgraph RAW["Raw and controlled inputs"]
         R1["Boundary shapefile<br/>data_files/raw/basemaps/"]
-        R2["Aboriginal Lands shapefile, WMS metadata, and manifest<br/>data_files/raw/aboriginal_lands/"]
-        R3["NRN GeoPackages<br/>data_files/raw/nrn/{PROVINCE}/"]
-        R4["NHN hydrographic features, WMS metadata, and manifest<br/>data_files/raw/nhn/"]
-        R5["Emissions CSV and GeoJSON<br/>data_files/raw/emissions/"]
-        R6["Legacy site and demand CSVs"]
-        R7["Technology, commodity, efficiency, and transport CSVs"]
-        R8["CANOE/TEMOA SQL schema and baseline SQLite"]
-        R9["Controlled H2 pipeline cost workbook<br/>data_files/models/cost_models/"]
-        R10["CanCO₂ release family and selection marker<br/>data_files/raw/canco2_storage/"]
+        R2["DA boundaries and population table<br/>data_files/raw/residential/"]
+        R3["Aboriginal Lands shapefile, WMS metadata, and manifest<br/>data_files/raw/aboriginal_lands/"]
+        R4["NRN GeoPackages<br/>data_files/raw/nrn/{PROVINCE}/"]
+        R5["NHN hydrographic features, WMS metadata, and manifest<br/>data_files/raw/nhn/"]
+        R6["Emissions CSV and GeoJSON<br/>data_files/raw/emissions/"]
+        R7["Legacy site and demand CSVs"]
+        R8["Technology, commodity, efficiency, and transport CSVs"]
+        R9["CANOE/TEMOA SQL schema and baseline SQLite"]
+        R10["Controlled H2 pipeline cost workbook<br/>data_files/models/cost_models/"]
+        R11["CanCO₂ release family and selection marker<br/>data_files/raw/canco2_storage/"]
     end
 
     A1 --> R1
@@ -61,7 +64,8 @@ flowchart TD
     A3 --> R3
     A4 --> R4
     A5 --> R5
-    A6 --> R10
+    A6 --> R6
+    A7 --> R11
 
     %% =====================================================================
     %% Silver preprocessing
@@ -90,23 +94,23 @@ flowchart TD
     CFG --> M1
 
     R1 --> L1
-    R6 --> L1
-    R5 --> E1
-    R9 --> C1
+    R7 --> L1
+    R6 --> E1
+    R10 --> C1
     C1 --> C2
 
     R1 --> B1
     B1 --> BP["Processed basemaps<br/>data_files/processed/basemaps/"]
     BP --> H1
-    R4 --> H1
+    R5 --> H1
     H1 --> HP["Filtered hydrography, summary, manifest, and PNG previews<br/>data_files/processed/nhn/"]
     BP --> S0
-    R10 --> S0
+    R11 --> S0
     S0 --> SP["Storage evidence, crosswalks, and previews<br/>data_files/processed/co2_storage/"]
     BP --> G1
     G1 --> GP["Graph nodes and edges<br/>data_files/processed/graph/"]
 
-    R3 --> N1
+    R4 --> N1
     N1 --> NP["Processed road networks<br/>data_files/processed/nrn/"]
 
     BP --> M1
@@ -138,8 +142,8 @@ flowchart TD
     LP --> S3
     EP --> S3
     CP --> S4
-    R7 --> S4
     R8 --> S4
+    R9 --> S4
 
     S1 --> S2 --> S3 --> S4 --> S5
     S5 --> DB["CANOE_geospatial_<basemap>_<road_layer>_<method>.sqlite<br/>data_files/processed/schema/"]
@@ -225,7 +229,7 @@ scripts/create_map_folium.py
 
 ## Execution dependencies
 
-- `geocanoe.execution.bronze` orchestrates six independent acquisition stages and supports stage subsets, overwrite behavior, output-directory overrides, and archive-retention options.
+- `geocanoe.execution.bronze` orchestrates seven independent acquisition stages and supports stage subsets, overwrite behavior, output-directory overrides, and archive-retention options.
 - `registry/geospatial_sources.yaml` schema v2 inventories every Bronze stage using named fixed or globbed artifacts; source layers and coded domains are optional.
 - Aboriginal Lands currently terminate at the validated Bronze artifact; no Silver transformation consumes them yet.
 - `geocanoe.execution.silver` orchestrates the ten current Silver preprocessing stages and validates their upstream dependencies.

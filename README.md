@@ -102,7 +102,8 @@ Geospatial-CANOE/
 │   │   ├── canco2_storage/          Acquired external CanCO₂ Silver release
 │   │   ├── emissions/
 │   │   ├── nhn/                      National NHN hydrographic features
-│   │   └── nrn/
+│   │   ├── nrn/
+│   │   └── residential/              Census DA boundaries and population table
 │   ├── models/                    Controlled engineering and cost workbooks
 │   │   └── cost_models/
 │   ├── processed/                 Durable workflow checkpoints
@@ -133,7 +134,7 @@ Geospatial-CANOE/
 │
 ├── src/
 │   └── geocanoe/
-│       ├── acquisition/           Six Bronze source-acquisition modules
+│       ├── acquisition/           Seven Bronze source-acquisition modules
 │       │   └── co2_storage.py     Local CanCO₂ release acquisition
 │       ├── analysis/              Folium maps and output-table exports
 │       ├── config/                Build-profile parsing and validation
@@ -485,7 +486,7 @@ data_files/processed/nhn/preview/*.png
 
 ### Raw acquisition
 
-The preferred entry point coordinates all six registered Bronze stages:
+The preferred entry point coordinates all seven registered Bronze stages:
 
 ```bash
 python scripts/build_bronze.py
@@ -497,6 +498,7 @@ modules may also be run independently when one source needs to be refreshed:
 
 ```bash
 python -m geocanoe.acquisition.basemaps
+python -m geocanoe.acquisition.residential
 python -m geocanoe.acquisition.aboriginal_lands
 python -m geocanoe.acquisition.nrn
 python -m geocanoe.acquisition.nhn
@@ -508,6 +510,8 @@ Primary outputs:
 
 ```text
 data_files/raw/basemaps/
+data_files/raw/residential/lda_000b21a_e.shp
+data_files/raw/residential/98100015.csv
 data_files/raw/aboriginal_lands/AL_TA_CA_*_eng.shp
 data_files/raw/aboriginal_lands/aboriginal_lands_wms_capabilities.xml
 data_files/raw/aboriginal_lands/aboriginal_lands_acquisition_manifest.json
@@ -523,6 +527,21 @@ data_files/raw/canco2_storage/
 stable ID. Each source declares a Bronze root and named artifacts using fixed
 paths or globs; source-layer mappings and coded domains are optional extensions
 used where downstream transformations require them.
+
+#### Residential Census acquisition
+
+The `residential` Bronze stage acquires the 2021 dissemination-area
+cartographic boundary archive and Statistics Canada table 98-10-0015-01. It
+validates the national boundary as the 57,932-feature EPSG:3347 cartographic
+release and checks the table for the fields required by a later DGUID join.
+Bronze preserves the national source records; Ontario filtering, population-
+density selection, and impedance-factor derivation belong in Silver.
+
+Run only this Bronze stage with:
+
+```bash
+python scripts/build_bronze.py --stages residential
+```
 
 #### National Hydro Network acquisition
 
