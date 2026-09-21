@@ -7,8 +7,8 @@ import pytest
 
 from geocanoe.execution.batch import (
     BatchRun,
-    normalize_schema_name,
-    validate_scenario_database_match,
+    load_solver_config,
+    validate_batch_runs,
 )
 from geocanoe.execution.run import (
     file_record,
@@ -66,17 +66,31 @@ def test_update_db_paths_updates_both_keys_and_preserves_comment(
     assert 'output_database = "new.sqlite"' in updated
 
 
-def test_batch_schema_name_normalization_and_mismatch() -> None:
-    assert normalize_schema_name(
-        "CANOE_geospatial_ON-QC_basemap_0.50deg"
-    ) == ["on", "qc", "0.5deg"]
-
-    run = BatchRun(
-        sequence=0,
-        config_path=Path("run.toml"),
-        database_path=Path("CANOE_geospatial_national_25km.sqlite"),
-        scenario="atlantic_25km",
-        enabled=True,
+@pytest.mark.parametrize("scenario", ["provinces_25km_baseline", "standard_run"])
+def test_batch_scenario_label_is_independent_of_database(
+    tmp_path: Path, scenario: str,
+) -> None:
+    database = tmp_path / "gold_provinces_baseline-25km_70bac04d.sqlite"
+    database.touch()
+    config = tmp_path / "run.toml"
+    config.write_text(
+        f'scenario = "{scenario}"\n'
+        f'input_database = "{database.as_posix()}"\n',
+        encoding="utf-8",
     )
-    with pytest.raises(ValueError, match="naming mismatch"):
-        validate_scenario_database_match(run)
+    label, database_path = load_solver_config(config)
+    assert label == scenario
+    assert database_path == database
+    validate_batch_runs([BatchRun(0, config, database_path, label, True)])
+
+
+@pytest.mark.parametrize("missing", ["config", "database"])
+def test_batch_still_rejects_missing_files(tmp_path: Path, missing: str) -> None:
+    config = tmp_path / "run.toml"
+    database = tmp_path / "model.sqlite"
+    if missing != "config":
+        config.touch()
+    if missing != "database":
+        database.touch()
+    with pytest.raises(FileNotFoundError, match=f"Run {missing} not found"):
+        validate_batch_runs([BatchRun(0, config, database, "standard_run", True)])

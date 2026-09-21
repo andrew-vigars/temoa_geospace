@@ -35,10 +35,8 @@ import argparse
 import csv
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from decimal import Decimal
 import json
 from pathlib import Path
-import re
 import subprocess
 import sys
 from time import perf_counter
@@ -433,72 +431,11 @@ def load_batch_config(
 # Validation
 # =============================================================================
 
-def normalize_schema_name(value: str) -> list[str]:
-    """Normalize a scenario or database name for schema matching."""
-
-    normalized = value.lower().replace("-", "_")
-
-    normalized = normalized.removeprefix("canoe_geospatial_")
-    normalized = normalized.removeprefix("gold_")
-
-    parts = [
-        part
-        for part in normalized.split("_")
-        if part and part != "basemap"
-    ]
-
-    if parts and re.fullmatch(r"[0-9a-f]{8}", parts[-1]):
-        parts = parts[:-1]
-
-    normalized_parts: list[str] = []
-
-    for part in parts:
-        degree_match = re.fullmatch(
-            r"(\d+(?:\.\d+)?)deg",
-            part,
-        )
-
-        if degree_match is not None:
-            resolution = Decimal(degree_match.group(1)).normalize()
-            normalized_parts.append(f"{resolution}deg")
-        else:
-            normalized_parts.append(part)
-
-    return normalized_parts
-
-
-def validate_scenario_database_match(run: BatchRun) -> None:
-    """Check that a scenario appears consistent with its database filename.
-
-    Common filename-only terms such as ``CANOE_geospatial`` and ``basemap`` are
-    removed before comparison. Periods and hyphens are normalized to support
-    resolution labels such as ``0.25deg``.
-
-    Parameters
-    ----------
-    run : BatchRun
-        Batch run to validate.
-
-    Raises
-    ------
-    ValueError
-        If the normalized scenario and database names do not match.
-    """
-
-    scenario_parts = normalize_schema_name(run.scenario)
-    database_parts = normalize_schema_name(run.database_path.stem)
-
-    if scenario_parts != database_parts:
-        raise ValueError(
-            "Scenario and database naming mismatch:\n"
-            f"  Scenario: {run.scenario}\n"
-            f"  Database: {run.database_path.name}\n"
-            f"  Scenario tag: {'_'.join(scenario_parts)}\n"
-            f"  Database tag: {'_'.join(database_parts)}"
-        )
-
 def validate_batch_runs(runs: list[BatchRun]) -> None:
-    """Validate all enabled run files before batch execution.
+    """Validate run files without coupling scenario labels to database names.
+
+    The solver configuration explicitly selects the input database; its scenario
+    is a results label and does not need to describe the database filename.
 
     Parameters
     ----------
@@ -509,8 +446,6 @@ def validate_batch_runs(runs: list[BatchRun]) -> None:
     ------
     FileNotFoundError
         If a solver configuration or an enabled database is missing.
-    ValueError
-        If a solver configuration does not correspond to its database filename.
     """
 
 
@@ -524,9 +459,6 @@ def validate_batch_runs(runs: list[BatchRun]) -> None:
             raise FileNotFoundError(
                 f"Run database not found: {run.database_path}"
             )
-
-        if run.enabled:
-            validate_scenario_database_match(run)
 
 
 # =============================================================================

@@ -3,9 +3,9 @@
 This script preserves the run selection, database decoding, geospatial path
 resolution, technology linkage, transport-edge decoding, and resolution-aware
 parallel-corridor logic used by ``create_map.py``. Instead of writing static
-Matplotlib figures, it writes a self-contained Leaflet/Folium HTML map with
-layer controls, hover tooltips, popups, web basemaps, and optional geographic
-context layers.
+Matplotlib figures, it writes a Leaflet/Folium HTML map with embedded geographic
+data, layer controls, hover tooltips, and popups. Basemaps require no tile API;
+Folium's JavaScript and CSS assets still load from CDNs.
 
 The script is intended as a trial replacement renderer. It does not alter the
 solved database or upstream geospatial products.
@@ -27,7 +27,7 @@ from urllib.error import URLError
 import contextily as ctx
 import folium
 from branca.element import Figure
-from folium.plugins import Fullscreen, MeasureControl, MiniMap
+from folium.plugins import Fullscreen, MeasureControl
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
@@ -1335,12 +1335,12 @@ def build_node_layers(tables: ModelTables, geodata: GeospatialData) -> dict[str,
     co2_cap = add_site_coords(co2_cap, geodata.sites, idx_col="region")
 
     return {
-        "Electricity": (elc_gen, "blue"),
-        "H2": (h2_plant, "green"),
-        "CO2": (co2_cap, "gray"),
-        "CO2 storage": (co2_storage, "purple"),
-        "Methanol": (metoh_plant, "orange"),
-        "Gasoline": (gsl_plant, "brown"),
+        "Electricity": (elc_gen, "#0072B2"),
+        "H2": (h2_plant, "#009E73"),
+        "CO2": (co2_cap, "#777777"),
+        "CO2 storage": (co2_storage, "#CC79A7"),
+        "Methanol": (metoh_plant, "#E69F00"),
+        "Gasoline": (gsl_plant, "#D55E00"),
     }
 
 
@@ -1387,15 +1387,15 @@ def build_transport_layers(
     elc_trans = add_from_to_coords(flow_out.loc[flow_out.tech == "ELC_TRANS"], edges)
 
     return {
-        "H2 pipeline": (h2_pipe, "green", "-", 2.5),
-        "H2 truck": (h2_truck, "green", "--", 1.0),
-        "CO2 pipeline": (co2_pipe, "gray", "-", 2.5),
-        "CO2 truck": (co2_truck, "gray", "--", 1.0),
-        "Methanol pipeline": (meth_pipe, "orange", "-", 2.5),
-        "Methanol truck": (meth_truck, "orange", "--", 1.0),
-        "Gasoline pipeline": (gsl_pipe, "brown", "-", 2.5),
-        "Gasoline truck": (gsl_truck, "brown", "--", 1.0),
-        "Electricity transmission": (elc_trans, "blue", "-", 2.0),
+        "H2 pipeline": (h2_pipe, "#009E73", "-", 2.5),
+        "H2 truck": (h2_truck, "#009E73", "--", 1.0),
+        "CO2 pipeline": (co2_pipe, "#777777", "-", 2.5),
+        "CO2 truck": (co2_truck, "#777777", "--", 1.0),
+        "Methanol pipeline": (meth_pipe, "#E69F00", "-", 2.5),
+        "Methanol truck": (meth_truck, "#E69F00", "--", 1.0),
+        "Gasoline pipeline": (gsl_pipe, "#D55E00", "-", 2.5),
+        "Gasoline truck": (gsl_truck, "#D55E00", "--", 1.0),
+        "Electricity transmission": (elc_trans, "#0072B2", "-", 2.0),
     }
 
 
@@ -2416,7 +2416,7 @@ def save_polygon_context_figure(
         s=3,
         alpha=0.12,
         label="Region centroid",
-        c="gray",
+        c="#777777",
         zorder=10,
     )
 
@@ -2554,7 +2554,7 @@ def save_basemap_overlay_figure(
 
     sites_web_points.plot(
         ax=ax,
-        color="gray",
+        color="#777777",
         markersize=2,
         alpha=0.12,
         label="Region centroid",
@@ -2621,10 +2621,9 @@ def save_basemap_overlay_figure(
 # Folium rendering
 # =============================================================================
 
-FOLIUM_MAP_TILES = "CartoDB positron"
+FOLIUM_BASEMAP_PATH: Path | None = PROJECT_ROOT / "data_files/raw/basemaps/lpr_000b21a_e.shp"
 FOLIUM_SHOW_GRID = True
 FOLIUM_SHOW_ROAD_EDGES = False
-FOLIUM_SHOW_MINIMAP = True
 FOLIUM_OPEN_BROWSER = False
 FOLIUM_MAX_GRID_FEATURES = 25_000
 
@@ -2640,6 +2639,55 @@ def _html_escape(value: object) -> str:
         .replace('"', "&quot;")
         .replace("'", "&#39;")
     )
+
+
+def format_map_value(value: float, layer: str) -> str:
+    """Format Gold model tonnes/MWh without scientific notation.
+
+    Preserve the upstream aggregation; do not imply an annual rate for flows
+    summed across periods. CO2 capture is an available capacity, not output.
+    """
+    value = float(value)
+    if not np.isfinite(value):
+        return "Unavailable"
+    units = ("MWh", "GWh", "TWh") if layer.startswith("Electricity") else ("t", "kt", "Mt")
+    scale = 2 if abs(value) >= 1e6 else 1 if abs(value) >= 1e3 else 0
+    scaled = value / (1000 ** scale)
+    number = f"{scaled:,.3f}".rstrip("0").rstrip(".")
+    if value != 0 and abs(scaled) < 0.001:
+        number = "<0.001" if value > 0 else ">-0.001"
+    suffix = " CO2e/year capacity" if layer == "CO2" else ""
+    if layer == "Gasoline demand":
+        suffix = "/year"
+    return f"{number} {units[scale]}{suffix}"
+
+
+def add_map_legend(model_map: folium.Map, layers: PlotLayers) -> None:
+    """Explain categorical colour and symbol encodings, including hidden layers."""
+    rows = []
+    for name, (points, color) in layers.tech_points.items():
+        if not points.empty:
+            label = "CO2 capture capacity" if name == "CO2" else name
+            rows.append(f'<div><span style="color:{color}">●</span> {_html_escape(label)}</div>')
+    for name, (links, color, style, _) in layers.tech_links.items():
+        if not links.empty:
+            border = "dashed" if style == "--" else "solid"
+            rows.append(f'<div><span style="display:inline-block;width:24px;border-top:3px {border} {color}"></span> {_html_escape(name)}</div>')
+    if not layers.demand_pts.empty:
+        rows.append('<div>○ Gasoline demand</div>')
+    model_map.get_root().html.add_child(folium.Element(
+        '<aside aria-label="Map legend" style="position:fixed;bottom:25px;left:12px;'
+        'z-index:1000;background:white;padding:12px;border:1px solid #777;'
+        'font:12px Arial;max-height:45vh;overflow:auto;max-width:280px">'
+        '<b>Legend · all available layers</b>' + ''.join(rows) +
+        '<hr>Colour identifies technology (Okabe–Ito palette).<br>'
+        'Marker radius: square-root scale within each layer.<br>'
+        'Line width: square-root scale across links, weighted by mode.<br>'
+        'Hover for values; click for details. Toggle layers at top right.<br>'
+        'Flows retain the source aggregation across model periods.<br>'
+        'Mt = million tonnes; TWh = million MWh.<br>'
+        'Local vector basemap; no tile service required.</aside>'
+    ))
 
 
 def _popup_table(rows: Sequence[tuple[str, object]]) -> folium.Popup:
@@ -2688,33 +2736,13 @@ def create_folium_base_map(geodata: GeospatialData) -> folium.Map:
         prefer_canvas=True,
     )
 
-    folium.TileLayer(
-        tiles=FOLIUM_MAP_TILES,
-        name="CartoDB Positron",
-        control=True,
-        show=True,
-    ).add_to(model_map)
-
-    folium.TileLayer(
-        tiles="OpenStreetMap",
-        name="OpenStreetMap",
-        control=True,
-        show=False,
-    ).add_to(model_map)
-
-    folium.TileLayer(
-        tiles="CartoDB dark_matter",
-        name="CartoDB Dark Matter",
-        control=True,
-        show=False,
-    ).add_to(model_map)
+    folium.map.CustomPane('land', z_index=200, pointer_events=False).add_to(model_map)
+    folium.map.CustomPane('context', z_index=250, pointer_events=False).add_to(model_map)
 
     model_map.fit_bounds(bounds, padding=(12, 12))
     Fullscreen(position="topright").add_to(model_map)
     MeasureControl(position="topright", primary_length_unit="kilometers").add_to(model_map)
 
-    if FOLIUM_SHOW_MINIMAP:
-        MiniMap(toggle_display=True, position="bottomright").add_to(model_map)
 
     return model_map
 
@@ -2727,12 +2755,33 @@ def add_context_layers_folium(
 
     basemap_wgs84 = geodata.basemap.to_crs(epsg=4326).copy()
 
+    # Embed once at export time: no tile requests or map-provider API keys.
+    # The existing Statistics Canada province file is preferred; a local
+    # Natural Earth GeoPackage/GeoJSON can also be supplied via this setting.
+    if FOLIUM_BASEMAP_PATH is not None and FOLIUM_BASEMAP_PATH.exists():
+        context = gpd.read_file(FOLIUM_BASEMAP_PATH).to_crs(epsg=3347)
+        # Display-only simplification drops sub-500 m coastal details. Avoid
+        # topology-preserving simplification of the full national coastline,
+        # which is prohibitively slow; model geometries remain untouched.
+        context.geometry = context.geometry.simplify(500, preserve_topology=False)
+        folium.GeoJson(
+            context[["geometry"]].to_crs(epsg=4326).to_json(),
+            name="Local geographic context", pane="land", interactive=False,
+            style_function=lambda _: {
+                "color": "#a5aaa9", "weight": 0.7,
+                "fillColor": "#f0f1ed", "fillOpacity": 1,
+            },
+        ).add_to(model_map)
+    else:
+        print("Local geographic context unavailable; using embedded model grid only.")
+
     if FOLIUM_SHOW_GRID and len(basemap_wgs84) <= FOLIUM_MAX_GRID_FEATURES:
         grid_group = folium.FeatureGroup(
             name=f"Model grid ({len(basemap_wgs84):,} regions)",
-            show=False,
+            show=True,
         )
         folium.GeoJson(
+            pane="context", interactive=False,
             data=basemap_wgs84[["geometry"]].to_json(),
             name="Model grid",
             style_function=lambda _feature: {
@@ -2754,7 +2803,7 @@ def add_context_layers_folium(
     boundary = basemap_wgs84[["geometry"]].dissolve()
     boundary_group = folium.FeatureGroup(name="Study-area boundary", show=True)
     folium.GeoJson(
-        data=boundary.to_json(),
+        data=boundary.to_json(), pane="context", interactive=False,
         style_function=lambda _feature: {
             "color": "#444444",
             "weight": 1.5,
@@ -2771,7 +2820,7 @@ def add_context_layers_folium(
             show=False,
         )
         folium.GeoJson(
-            data=roads[["geometry"]].to_json(),
+            data=roads[["geometry"]].to_json(), pane="context", interactive=False,
             style_function=lambda _feature: {
                 "color": "#777777",
                 "weight": 0.8,
@@ -2844,7 +2893,7 @@ def add_transport_layers_folium(
             dash_array = "7 7" if str(row.linestyle) == "--" else None
             tooltip = (
                 f"{_html_escape(row.display_name)} | "
-                f"Flow: {float(row.flow):,.3g} | "
+                f"Flow: {format_map_value(row.flow, display_name)} | "
                 f"{_html_escape(row.region_from)} → {_html_escape(row.region_to)}"
             )
             popup = _popup_table([
@@ -2853,7 +2902,7 @@ def add_transport_layers_folium(
                 ("Transport region", row.region),
                 ("From", row.region_from),
                 ("To", row.region_to),
-                ("Flow", f"{float(row.flow):,.6g}"),
+                ("Flow", format_map_value(row.flow, display_name)),
                 ("Parallel layers", int(row.parallel_count)),
                 ("Parallel offset (m)", f"{float(row.offset_m):,.0f}"),
             ])
@@ -2903,7 +2952,7 @@ def add_process_layers_folium(
                 ("Layer", display_name),
                 ("Technology", technology),
                 ("Region", row.region),
-                ("Flow/capacity", f"{float(row.flow):,.6g}"),
+                ("Flow/capacity", format_map_value(row.flow, display_name)),
                 ("Longitude", f"{lon:.5f}"),
                 ("Latitude", f"{lat:.5f}"),
             ])
@@ -2919,7 +2968,7 @@ def add_process_layers_folium(
                 tooltip=(
                     f"{_html_escape(display_name)} | "
                     f"{_html_escape(row.region)} | "
-                    f"{float(row.flow):,.3g}"
+                    f"{format_map_value(row.flow, display_name)}"
                 ),
                 popup=popup,
             ).add_to(group)
@@ -2958,7 +3007,7 @@ def add_demand_layer_folium(
 
         popup_rows = [
             ("Layer", "Gasoline demand"),
-            ("Demand", f"{float(row.demand):,.6g}"),
+            ("Demand", format_map_value(row.demand, "Gasoline demand")),
         ]
 
         if region is not None and pd.notna(region):
@@ -2977,7 +3026,7 @@ def add_demand_layer_folium(
             fill_opacity=0.55,
             tooltip=(
                 f"Gasoline demand | {_html_escape(region_label)} | "
-                f"{float(row.demand):,.3g}"
+                f"{format_map_value(row.demand, 'Gasoline demand')}"
             ),
             popup=_popup_table(popup_rows),
         ).add_to(group)
@@ -3009,13 +3058,14 @@ def save_folium_map(
     spacing: PlotSpacing,
     paths: GeospatialPaths,
 ) -> Path:
-    """Build and save the self-contained interactive Folium HTML map."""
+    """Build and save the embedded-data interactive Folium HTML map."""
 
     model_map = create_folium_base_map(geodata)
     add_context_layers_folium(model_map, geodata)
     add_transport_layers_folium(model_map, layers, spacing)
     add_process_layers_folium(model_map, layers, spacing)
     add_demand_layer_folium(model_map, layers)
+    add_map_legend(model_map, layers)
     add_map_title(model_map, paths.fig_stem.replace("_", " "))
 
     folium.LayerControl(
@@ -3069,4 +3119,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
