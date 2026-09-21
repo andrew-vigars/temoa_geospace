@@ -52,6 +52,51 @@ sources:
           path: 98100015.csv
           format: csv
 
+  - id: statcan_gasoline_demand_inputs
+    kind: vector_tabular_bundle
+    domain: gasoline_demand
+    publisher: Statistics Canada
+    title: Provincial motor-fuel sales and 2021 population centres
+    licence: Statistics Canada Open Licence
+    catalogue_url: https://www150.statcan.gc.ca/n1/en/catalogue/2310006601
+    fuel_sales_distribution_url: https://www150.statcan.gc.ca/n1/en/tbl/csv/23100066-eng.zip
+    population_centres_catalogue_url: https://www150.statcan.gc.ca/n1/en/catalogue/92-166-X
+    population_centres_distribution_url: https://www12.statcan.gc.ca/census-recensement/2021/geo/sip-pis/boundary-limites/files-fichiers/lpc_000b21a_e.zip
+    methodology_reference_url: https://natural-resources.canada.ca/energy-sources/fossil-fuels/petroleum-products-distribution-networks
+    methodology_reference_note: >-
+      Natural Resources Canada describes the refinery-to-terminal and
+      terminal-to-retail distribution structure. It supports using selected
+      population centres as bulk-terminal proxies but is not a geocoded
+      terminal inventory.
+    acquisition:
+      stage: gasoline_demand
+      module: geocanoe.acquisition.gasoline_demand
+      refresh_policy: manual
+      release_model: rolling_annual_sales_fixed_2021_geography
+    bronze:
+      root: data_files/raw/gasoline_demand
+      primary_artifact: fuel_sales
+      artifacts:
+        fuel_sales:
+          path: fuel_sales/23100066.csv
+          format: csv
+        fuel_sales_metadata:
+          path: fuel_sales/23100066_MetaData.csv
+          format: csv
+        population_centres:
+          path: population_centres/lpc_000b21a_e.shp
+          format: shapefile
+          source_crs: EPSG:3347
+        population_centres_metadata:
+          path: population_centres/lpc_000b21a_e.xml
+          format: xml
+        acquisition_manifest:
+          path: gasoline_demand_acquisition_manifest.json
+          format: json
+    dependencies:
+      - source_id: statcan_2021_da_population_density_inputs
+        role: dissemination_area_population_weights
+
   - id: nrcan_aboriginal_lands_national_en
     kind: vector_dataset
     domain: administrative_boundaries

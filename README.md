@@ -486,7 +486,7 @@ data_files/processed/nhn/preview/*.png
 
 ### Raw acquisition
 
-The preferred entry point coordinates all seven registered Bronze stages:
+The preferred entry point coordinates all eight registered Bronze stages:
 
 ```bash
 python scripts/build_bronze.py
@@ -499,6 +499,7 @@ modules may also be run independently when one source needs to be refreshed:
 ```bash
 python -m geocanoe.acquisition.basemaps
 python -m geocanoe.acquisition.residential
+python -m geocanoe.acquisition.gasoline_demand
 python -m geocanoe.acquisition.aboriginal_lands
 python -m geocanoe.acquisition.nrn
 python -m geocanoe.acquisition.nhn
@@ -512,6 +513,11 @@ Primary outputs:
 data_files/raw/basemaps/
 data_files/raw/residential/lda_000b21a_e.shp
 data_files/raw/residential/98100015.csv
+data_files/raw/gasoline_demand/fuel_sales/23100066.csv
+data_files/raw/gasoline_demand/fuel_sales/23100066_MetaData.csv
+data_files/raw/gasoline_demand/population_centres/lpc_000b21a_e.shp
+data_files/raw/gasoline_demand/population_centres/lpc_000b21a_e.xml
+data_files/raw/gasoline_demand/gasoline_demand_acquisition_manifest.json
 data_files/raw/aboriginal_lands/AL_TA_CA_*_eng.shp
 data_files/raw/aboriginal_lands/aboriginal_lands_wms_capabilities.xml
 data_files/raw/aboriginal_lands/aboriginal_lands_acquisition_manifest.json
@@ -541,6 +547,29 @@ Run only this Bronze stage with:
 
 ```bash
 python scripts/build_bronze.py --stages residential
+```
+
+#### Gasoline-demand acquisition
+
+The `gasoline_demand` Bronze stage groups its gasoline-specific inputs under
+one domain root with separate source folders. It acquires Statistics Canada
+table 23-10-0066-01, including its distributed metadata CSV, and the 2021
+national population-centre cartographic boundary file, including its XML
+metadata. The stage validates the presence of net-gasoline observations and
+the EPSG:3347 population-centre release: 1,030 provincial-part records
+representing 1,026 unique centres (four centres cross provincial boundaries).
+
+The acquisition manifest records the Natural Resources Canada petroleum-
+distribution page as methodological support for representing selected
+population centres as regional bulk-terminal proxies. That page is not treated
+as a geocoded terminal inventory. Dissemination-area population weights are
+reused from the `residential` Bronze stage rather than copied into the gasoline
+folder.
+
+Run only this Bronze stage with:
+
+```bash
+python scripts/build_bronze.py --stages gasoline_demand
 ```
 
 #### National Hydro Network acquisition

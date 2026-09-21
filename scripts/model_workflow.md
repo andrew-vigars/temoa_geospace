@@ -30,11 +30,12 @@ flowchart TD
     subgraph ACQ["Source acquisition — geocanoe.acquisition"]
         A1["basemaps.py<br/>Statistics Canada boundaries"]
         A2["residential.py<br/>Census DA boundaries and population table"]
-        A3["aboriginal_lands.py<br/>Aboriginal Lands legislative boundaries"]
-        A4["nrn.py<br/>National Road Network GeoPackages"]
-        A5["nhn.py<br/>National Hydro Network hydrography"]
-        A6["emissions.py<br/>2024 large-facility emissions data"]
-        A7["co2_storage.py<br/>Acquire selected local CanCO₂ release"]
+        A3["gasoline_demand.py<br/>Fuel sales and population-centre boundaries"]
+        A4["aboriginal_lands.py<br/>Aboriginal Lands legislative boundaries"]
+        A5["nrn.py<br/>National Road Network GeoPackages"]
+        A6["nhn.py<br/>National Hydro Network hydrography"]
+        A7["emissions.py<br/>2024 large-facility emissions data"]
+        A8["co2_storage.py<br/>Acquire selected local CanCO₂ release"]
     end
 
     BRONZE --> A1
@@ -44,10 +45,12 @@ flowchart TD
     BRONZE --> A5
     BRONZE --> A6
     BRONZE --> A7
+    BRONZE --> A8
 
     subgraph RAW["Raw and controlled inputs"]
         R1["Boundary shapefile<br/>data_files/raw/basemaps/"]
         R2["DA boundaries and population table<br/>data_files/raw/residential/"]
+        RG["Fuel-sales table and population-centre boundaries<br/>data_files/raw/gasoline_demand/"]
         R3["Aboriginal Lands shapefile, WMS metadata, and manifest<br/>data_files/raw/aboriginal_lands/"]
         R4["NRN GeoPackages<br/>data_files/raw/nrn/{PROVINCE}/"]
         R5["NHN hydrographic features, WMS metadata, and manifest<br/>data_files/raw/nhn/"]
@@ -61,11 +64,12 @@ flowchart TD
 
     A1 --> R1
     A2 --> R2
-    A3 --> R3
-    A4 --> R4
-    A5 --> R5
-    A6 --> R6
-    A7 --> R11
+    A3 --> RG
+    A4 --> R3
+    A5 --> R4
+    A6 --> R5
+    A7 --> R6
+    A8 --> R11
 
     %% =====================================================================
     %% Silver preprocessing

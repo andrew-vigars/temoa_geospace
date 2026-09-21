@@ -3,7 +3,8 @@
 This script provides the user-facing command-line interface for acquiring the
 Geospatial-CANOE bronze-layer raw inputs: Statistics Canada basemap and
 dissemination-area boundaries, Census population data, Aboriginal Lands
-boundaries, National Road Network GeoPackages, National Hydro Network
+boundaries, gasoline sales and population-centre boundaries, National Road
+Network GeoPackages, National Hydro Network
 hydrography, large-facility emissions data, and an acquired CanCO2
 unified-storage release.
 
@@ -110,6 +111,16 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--raw-gasoline-demand-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Output directory for the gasoline_demand stage. Defaults to "
+            "data_files/raw/gasoline_demand."
+        ),
+    )
+
+    parser.add_argument(
         "--raw-aboriginal-lands-dir",
         type=Path,
         default=None,
@@ -195,6 +206,7 @@ def main() -> None:
         overwrite=args.overwrite,
         raw_basemap_dir=args.raw_basemap_dir,
         raw_residential_dir=args.raw_residential_dir,
+        raw_gasoline_demand_dir=args.raw_gasoline_demand_dir,
         raw_aboriginal_lands_dir=args.raw_aboriginal_lands_dir,
         keep_aboriginal_lands_archive=args.keep_aboriginal_lands_archive,
         raw_nrn_dir=args.raw_nrn_dir,

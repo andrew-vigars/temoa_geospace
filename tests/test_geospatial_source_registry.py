@@ -21,6 +21,7 @@ def test_committed_registry_covers_current_bronze_stages() -> None:
     assert registry.list_ids() == (
         "statcan_2021_province_territory_boundaries",
         "statcan_2021_da_population_density_inputs",
+        "statcan_gasoline_demand_inputs",
         "nrcan_aboriginal_lands_national_en",
         "statcan_nrn_national_bilingual",
         "nrcan_nhn_hhyd_national_en",
