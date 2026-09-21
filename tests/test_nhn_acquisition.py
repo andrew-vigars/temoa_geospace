@@ -150,6 +150,7 @@ def test_acquisition_reuses_existing_gpkg_before_archive_download(
     assert result["gpkg"] == gpkg_path
     assert result["metadata_xml"] == xml_path
     assert result["archive"] is None
+    assert result["manifest"].is_file()
     assert calls == [nhn.NHN_WMS_CAPABILITIES_URL]
 
 
@@ -169,6 +170,7 @@ def test_acquisition_deletes_archive_after_successful_validation(
 
     assert result["archive"] is None
     assert not archive_path.exists()
+    assert result["manifest"].is_file()
 
 
 def test_acquisition_can_keep_archive_after_validation(tmp_path: Path) -> None:
@@ -185,6 +187,7 @@ def test_acquisition_can_keep_archive_after_validation(tmp_path: Path) -> None:
 
     assert result["archive"] == archive_path
     assert archive_path.exists()
+    assert result["manifest"].is_file()
 
 
 def test_bronze_dispatches_nhn_with_output_override(tmp_path: Path) -> None:

@@ -15,10 +15,12 @@ for complete Bronze inputs, and may be resumed when the server supports ranges.
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import sqlite3
 import time
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TypedDict
 from xml.etree import ElementTree
@@ -57,6 +59,7 @@ NHN_WMS_CAPABILITIES_URL = (
     "&feature_info_type=text%2Fhtml"
 )
 NHN_XML_NAME = "nhn_wms_capabilities.xml"
+NHN_MANIFEST_NAME = "nhn_acquisition_manifest.json"
 
 EXPECTED_GPKG_APPLICATION_ID = 1_196_444_487
 EXPECTED_LAYERS = {
@@ -97,6 +100,53 @@ class NHNAcquisitionResult(TypedDict):
     gpkg: Path
     metadata_xml: Path
     archive: Path | None
+    manifest: Path
+
+
+def write_acquisition_manifest(
+    raw_nhn: Path,
+    gpkg_path: Path,
+    xml_path: Path,
+    archive_path: Path | None,
+) -> Path:
+    """Record the validated local snapshot and its authoritative source URLs."""
+
+    manifest_path = raw_nhn / NHN_MANIFEST_NAME
+    manifest = {
+        "schema_version": 1,
+        "validated_at": datetime.now(timezone.utc).isoformat(),
+        "dataset_page": NHN_DATASET_PAGE,
+        "gpkg_resource_page": NHN_GPKG_RESOURCE_PAGE,
+        "metadata_resource_page": NHN_XML_RESOURCE_PAGE,
+        "distribution_url": NHN_ARCHIVE_URL,
+        "metadata_url": NHN_WMS_CAPABILITIES_URL,
+        "gpkg": {
+            "path": str(gpkg_path),
+            "size_bytes": gpkg_path.stat().st_size,
+            "modified_at": datetime.fromtimestamp(
+                gpkg_path.stat().st_mtime,
+                tz=timezone.utc,
+            ).isoformat(),
+        },
+        "metadata_xml": {
+            "path": str(xml_path),
+            "size_bytes": xml_path.stat().st_size,
+            "modified_at": datetime.fromtimestamp(
+                xml_path.stat().st_mtime,
+                tz=timezone.utc,
+            ).isoformat(),
+        },
+        "archive": (
+            {
+                "path": str(archive_path),
+                "size_bytes": archive_path.stat().st_size,
+            }
+            if archive_path is not None
+            else None
+        ),
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    return manifest_path
 
 
 def _content_length(response: requests.Response, offset: int) -> int | None:
@@ -408,10 +458,17 @@ def acquire_nhn(
         print(f"[Delete archive] {archive_path.name}")
 
     archive = archive_path if archive_path.exists() else None
+    manifest_path = write_acquisition_manifest(
+        raw_nhn,
+        gpkg_path,
+        xml_path,
+        archive,
+    )
     return NHNAcquisitionResult(
         gpkg=gpkg_path,
         metadata_xml=xml_path,
         archive=archive,
+        manifest=manifest_path,
     )
 
 
@@ -422,6 +479,7 @@ def print_summary(result: NHNAcquisitionResult) -> None:
     print("-----------------------")
     print(f"GeoPackage:   {result['gpkg']}")
     print(f"Metadata XML: {result['metadata_xml']}")
+    print(f"Manifest:     {result['manifest']}")
     if result["archive"] is not None:
         print(f"Archive:      {result['archive']}")
 

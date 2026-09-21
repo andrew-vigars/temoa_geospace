@@ -107,6 +107,7 @@ Geospatial-CANOE/
 │   ├── processed/                 Durable workflow checkpoints
 │   │   ├── basemaps/
 │   │   ├── co2_storage/              GeoCANOE storage crosswalk and regional evidence
+│   │   ├── nhn/                      Filtered hydrography, manifests, summaries, and previews
 │   │   ├── costs/
 │   │   ├── emissions/
 │   │   ├── graph/
@@ -120,6 +121,7 @@ Geospatial-CANOE/
 │
 ├── registry/                      User-managed registered model inputs
 │   ├── bronze_registry.yaml       Dataset IDs, schemas, and source paths
+│   ├── geospatial_sources.yaml    External spatial sources, layers, and coded domains
 │   ├── model.toml                 Global Gold-model defaults
 │   ├── scenarios/
 │   │   └── baseline.toml          Named scenario overlays
@@ -139,7 +141,7 @@ Geospatial-CANOE/
 │       │       └── h2/            H2 pipeline capacity and cost models
 │       ├── emissions/             Facility-emissions preprocessing
 │       ├── execution/             Silver orchestration, single runs, and batches
-│       ├── geospatial/            Basemaps, adjacency, roads, connectivity
+│       ├── geospatial/            Basemaps, hydrography, adjacency, roads, connectivity
 │       │   └── co2_storage.py     Storage-to-basemap integration and previews
 │       ├── preprocessing/         Legacy input harmonization
 │       ├── registry/              Dataset/stage metadata
@@ -465,6 +467,19 @@ python -m geocanoe.execution.silver     --config config/build_profiles/provinces
 
 The silver workflow validates dependencies and executes the configured preprocessing stages in dependency order.
 
+NHN is transformed after basemaps because the configured study-area boundary
+defines the spatial subset. `registry/geospatial_sources.yaml` maps stable
+source IDs to the Bronze GeoPackage, source layers, and NHN coded domains;
+the build profile's `[hydrography]` tables select readable classes and minimum
+source area/length thresholds. Outputs are written to:
+
+```text
+data_files/processed/nhn/{study_area}_filtered_hydrography.gpkg
+data_files/processed/nhn/{study_area}_hydrography_summary.csv
+data_files/processed/nhn/{study_area}_hydrography_manifest.json
+data_files/processed/nhn/preview/*.png
+```
+
 ### Raw acquisition
 
 Raw acquisition modules may also be run independently when source datasets need to be refreshed:
@@ -484,6 +499,7 @@ data_files/raw/basemaps/
 data_files/raw/nrn/{PROVINCE}/
 data_files/raw/nhn/rhn_nhn_hhyd.gpkg
 data_files/raw/nhn/nhn_wms_capabilities.xml
+data_files/raw/nhn/nhn_acquisition_manifest.json
 data_files/raw/emissions/co2_large_facilities_2024/
 data_files/raw/canco2_storage/
 ```

@@ -26,6 +26,15 @@ def test_committed_sample_build_profile_loads() -> None:
     assert config.road_connectivity.road_layer in config.roads.networks
     assert config.storage.eligibility == "all_mapped"
     assert config.storage.use_capacity_bound is False
+    assert config.hydrography.enabled is True
+    assert config.hydrography.polygons.classes == ("lake",)
+    assert config.hydrography.polygons.minimum_source_measure == {"lake": 50.0}
+    assert config.hydrography.permanency == (
+        "unknown",
+        "permanent",
+        "intermittent",
+    )
+    assert config.hydrography.lines.enabled is False
 
 
 def test_profile_rejects_duplicate_provinces(tmp_path: Path) -> None:
@@ -123,6 +132,24 @@ resolutions_km = [25, 50]
 method = "rook"
 coordinate_precision = 6
 no_neighbor_id = "R-999"
+
+[hydrography]
+source_id = "nrcan_nhn_hhyd_national_en"
+enabled = false
+output_crs = "EPSG:3347"
+permanency = ["permanent", "intermittent"]
+
+[hydrography.polygons]
+enabled = false
+classes = []
+
+[hydrography.polygons.minimum_source_area_km2]
+
+[hydrography.lines]
+enabled = false
+classes = []
+
+[hydrography.lines.minimum_source_length_km]
 
 [roads]
 networks = ["backbone"]

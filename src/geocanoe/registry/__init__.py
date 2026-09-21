@@ -19,6 +19,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from geocanoe.registry.geospatial_sources import (
+    GEOSPATIAL_SOURCE_REGISTRY,
+    GeospatialSourceRegistry,
+    load_geospatial_source_registry,
+)
+
 
 try:
     import yaml
@@ -257,6 +263,9 @@ class Registry:
 
 
 __all__ = [
+    "GEOSPATIAL_SOURCE_REGISTRY",
+    "GeospatialSourceRegistry",
     "Registry",
+    "load_geospatial_source_registry",
     "load_registry",
 ]

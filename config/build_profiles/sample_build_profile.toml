@@ -210,3 +210,37 @@ eligibility = "all_mapped"
 
 # Numerical regional capacity bounds are not yet available in the Silver product.
 use_capacity_bound = false
+
+
+# -----------------------------------------------------------------------------
+# Hydrography evidence
+# -----------------------------------------------------------------------------
+
+[hydrography]
+
+# Canonical source ID from registry/geospatial_sources.yaml.
+source_id = "nrcan_nhn_hhyd_national_en"
+enabled = true
+output_crs = "EPSG:3347"
+permanency = ["unknown", "permanent", "intermittent"]
+
+
+[hydrography.polygons]
+
+enabled = true
+# Supported NHN classes include lake, reservoir, pond, watercourse, and
+# tidal_river. Polygon and line families are configured independently.
+classes = ["lake"]
+
+# Thresholds apply to complete source geometries before study-area clipping.
+[hydrography.polygons.minimum_source_area_km2]
+lake = 50.0
+
+
+[hydrography.lines]
+
+enabled = false
+# Example for a later network build: ["watercourse", "tidal_river"]
+classes = []
+
+[hydrography.lines.minimum_source_length_km]

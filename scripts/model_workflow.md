@@ -16,7 +16,8 @@ flowchart TD
     %% Configuration
     %% =====================================================================
 
-    TOML["config/build_profiles/*.toml<br/>Study area, grids, roads, connectivity, schema selection"]
+    TOML["config/build_profiles/*.toml<br/>Study area, grids, hydrography, roads, connectivity, schema selection"]
+    REG["registry/geospatial_sources.yaml<br/>Bronze paths, source layers, and coded domains"]
     CFG["geocanoe.config<br/>Load and validate geospatial build profile"]
     TOML --> CFG
 
@@ -60,6 +61,7 @@ flowchart TD
         C1["geocanoe.costs.pipelines.h2.capacity_costs<br/>Normalize H2 pipeline capacity-cost data"]
         C2["geocanoe.costs.pipelines.h2.cost_models<br/>Fit/select H2 pipeline cost models"]
         B1["geocanoe.geospatial.basemaps<br/>Build regular study-area grids"]
+        H1["geocanoe.geospatial.hydrography<br/>Select and clip registered NHN features"]
         S0["geocanoe.geospatial.co2_storage<br/>Map storage evidence onto onshore regions"]
         G1["geocanoe.geospatial.adjacency<br/>Build rook-adjacency graph"]
         N1["geocanoe.geospatial.roads<br/>Build processed road networks"]
@@ -68,6 +70,8 @@ flowchart TD
 
     CFG --> L1
     CFG --> B1
+    CFG --> H1
+    REG --> H1
     CFG --> S0
     CFG --> G1
     CFG --> N1
@@ -81,6 +85,9 @@ flowchart TD
 
     R1 --> B1
     B1 --> BP["Processed basemaps<br/>data_files/processed/basemaps/"]
+    BP --> H1
+    R3 --> H1
+    H1 --> HP["Filtered hydrography, summary, manifest, and PNG previews<br/>data_files/processed/nhn/"]
     BP --> S0
     R9 --> S0
     S0 --> SP["Storage evidence, crosswalks, and previews<br/>data_files/processed/co2_storage/"]
@@ -204,6 +211,8 @@ scripts/create_map_folium.py
 - `geocanoe.execution.silver` orchestrates the nine current silver preprocessing stages and validates their upstream dependencies.
 - `geocanoe.geospatial.co2_storage` requires an acquired CanCO₂ release and processed basemaps; it currently maps only onto the onshore model-region domain.
 - `geocanoe.geospatial.adjacency` requires processed basemaps.
+- `geocanoe.geospatial.hydrography` requires processed basemaps plus the
+  registered Bronze NHN GeoPackage and metadata snapshot.
 - `geocanoe.geospatial.road_connectivity` requires processed basemaps, graph products, and processed road networks.
 - `geocanoe.schema.build` requires the selected basemap, graph, road-connectivity products, processed legacy inputs, processed emissions, static CANOE tables, and pipeline cost templates.
 - `geocanoe.execution.run` operates only on an already encoded SQLite database; it does not rebuild the schema.

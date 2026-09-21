@@ -1,0 +1,96 @@
+schema_version: 1
+
+sources:
+  - id: nrcan_nhn_hhyd_national_en
+    kind: vector_database
+    domain: hydrography
+    publisher: Natural Resources Canada
+    title: National Hydro Network - Hydrographic Features
+    licence: Open Government Licence - Canada
+    catalogue_url: https://open.canada.ca/data/en/dataset/a4b190fe-e090-4e6d-881e-b87956c07977
+    distribution_url: https://ftp.maps.canada.ca/pub/nrcan_rncan/vector/geobase_nhn_rhn/gpkg_en/CA/rhn_nhn_hhyd.gpkg.zip
+    distribution_directory_url: https://ftp.maps.canada.ca/pub/nrcan_rncan/vector/geobase_nhn_rhn/gpkg_en/CA/
+    metadata_url: https://maps.geogratis.gc.ca/wms/hydro_network_en?request=GetCapabilities&service=WMS&version=1.3.0
+
+    acquisition:
+      module: geocanoe.acquisition.nhn
+      refresh_policy: manual
+      release_model: rolling_national_distribution
+
+    bronze:
+      path: data_files/raw/nhn/rhn_nhn_hhyd.gpkg
+      metadata_path: data_files/raw/nhn/nhn_wms_capabilities.xml
+      acquisition_manifest_path: data_files/raw/nhn/nhn_acquisition_manifest.json
+      format: gpkg
+      source_crs: EPSG:4617
+
+    domains:
+      water_definition:
+        field: water_definition
+        values:
+          canal: 1
+          conduit: 2
+          ditch: 3
+          lake: 4
+          reservoir: 5
+          watercourse: 6
+          tidal_river: 7
+          liquid_waste: 8
+          pond: 9
+
+      permanency:
+        field: permanency
+        values:
+          unknown: -1
+          none: 0
+          permanent: 1
+          intermittent: 2
+
+    layers:
+      waterbody_polygons:
+        source_layer: nhn_hhyd_Waterbody_2
+        geometry_type: MultiPolygon
+        primary_key_field: id
+        geometry_field: geom
+        feature_id_field: nid
+        preserve_fields:
+          - validity_date
+          - dataset_name
+          - planimetric_accuracy
+          - provider
+          - water_definition
+          - permanency
+          - isolated
+          - code_spec
+          - nid
+          - geonamedb
+          - lakeid_1
+          - lakeid_2
+          - lakename_1
+          - lakename_2
+          - rivid_1
+          - rivid_2
+          - rivname_1
+          - rivname_2
+
+      watercourse_lines:
+        source_layer: nhn_hhyd_S_L_Watercourse_1
+        geometry_type: MultiLineString
+        primary_key_field: id
+        geometry_field: geom
+        feature_id_field: nid
+        preserve_fields:
+          - validity_date
+          - dataset_name
+          - planimetric_accuracy
+          - provider
+          - water_definition
+          - permanency
+          - isolated
+          - code_spec
+          - nid
+          - geonamedb
+          - nameid_1
+          - nameid_2
+          - name_1
+          - name_2

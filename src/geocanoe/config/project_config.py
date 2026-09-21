@@ -71,6 +71,23 @@ SUPPORTED_STORAGE_ELIGIBILITY_MODES = {
     "quantitative",
     "qualitative",
 }
+SUPPORTED_HYDROGRAPHY_CLASSES = {
+    "canal",
+    "conduit",
+    "ditch",
+    "lake",
+    "reservoir",
+    "watercourse",
+    "tidal_river",
+    "liquid_waste",
+    "pond",
+}
+SUPPORTED_HYDROGRAPHY_PERMANENCY = {
+    "unknown",
+    "none",
+    "permanent",
+    "intermittent",
+}
 ARTIFACT_ID_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,14}[a-z0-9])?$")
 
 DEFAULT_CONFIG_RELATIVE_PATH = (
@@ -317,6 +334,27 @@ class StorageConfig:
 
 
 @dataclass(frozen=True)
+class HydrographyFeatureFamilyConfig:
+    """Selection rules for one polygon or line hydrography family."""
+
+    enabled: bool
+    classes: tuple[str, ...]
+    minimum_source_measure: dict[str, float]
+
+
+@dataclass(frozen=True)
+class HydrographyConfig:
+    """Topology-specific selection of registered Bronze hydrography."""
+
+    enabled: bool
+    source_id: str
+    output_crs: str
+    permanency: tuple[str, ...]
+    polygons: HydrographyFeatureFamilyConfig
+    lines: HydrographyFeatureFamilyConfig
+
+
+@dataclass(frozen=True)
 class GeospatialBuildConfig:
     """Immutable shared configuration for the geospatial preprocessing workflow.
 
@@ -340,6 +378,8 @@ class GeospatialBuildConfig:
         Schema-selection, boundary-processing, and point-snapping settings.
     storage : StorageConfig
         Geological storage eligibility and capacity-bound settings.
+    hydrography : HydrographyConfig
+        Registered source and feature-selection rules for Silver hydrography.
     source_path : Path
         Path to the TOML build profile from which the configuration was loaded.
     """
@@ -352,6 +392,7 @@ class GeospatialBuildConfig:
     road_connectivity: RoadConnectivityConfig
     schema: SchemaConfig
     storage: StorageConfig
+    hydrography: HydrographyConfig
     source_path: Path
 
 
@@ -422,6 +463,46 @@ def _require_string_list(
         )
 
     return tuple(item.strip() for item in value)
+
+
+def _require_string_list_allow_empty(
+    table: dict,
+    key: str,
+    section: str,
+) -> tuple[str, ...]:
+    """Return a possibly empty list of unique, normalized strings."""
+
+    value = table.get(key)
+    if not isinstance(value, list):
+        raise ValueError(f"[{section}].{key} must be a list.")
+    if not all(isinstance(item, str) and item.strip() for item in value):
+        raise ValueError(f"[{section}].{key} must contain only non-empty strings.")
+    normalized = tuple(item.strip() for item in value)
+    if len(normalized) != len(set(normalized)):
+        raise ValueError(f"[{section}].{key} must not contain duplicates.")
+    return normalized
+
+
+def _validate_measure_thresholds(
+    table: dict,
+    classes: tuple[str, ...],
+    section: str,
+) -> dict[str, float]:
+    """Validate one non-negative source-measure threshold per selected class."""
+
+    if set(table) != set(classes):
+        raise ValueError(
+            f"[{section}] keys must exactly match the selected classes: "
+            f"{list(classes)}."
+        )
+    thresholds: dict[str, float] = {}
+    for feature_class, value in table.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"[{section}].{feature_class} must be numeric.")
+        if value < 0:
+            raise ValueError(f"[{section}].{feature_class} must be non-negative.")
+        thresholds[feature_class] = float(value)
+    return thresholds
 
 
 def _require_positive_number_list(
@@ -794,6 +875,7 @@ def load_geospatial_build_config(
     )
     schema_raw = require_table(raw, "schema")
     storage_raw = require_table(raw, "storage")
+    hydrography_raw = require_table(raw, "hydrography")
 
     geographic_raw = require_table(
         basemaps_raw,
@@ -806,6 +888,16 @@ def load_geospatial_build_config(
     road_classes_raw = require_table(
         roads_raw,
         "classes",
+    )
+    hydrography_polygons_raw = require_table(hydrography_raw, "polygons")
+    hydrography_lines_raw = require_table(hydrography_raw, "lines")
+    polygon_area_thresholds_raw = require_table(
+        hydrography_polygons_raw,
+        "minimum_source_area_km2",
+    )
+    line_length_thresholds_raw = require_table(
+        hydrography_lines_raw,
+        "minimum_source_length_km",
     )
 
     build_id = require_string(profile_raw, "id", "profile")
@@ -1046,6 +1138,82 @@ def load_geospatial_build_config(
         ),
     )
 
+    polygon_classes = _validate_choices(
+        _require_string_list_allow_empty(
+            hydrography_polygons_raw,
+            "classes",
+            "hydrography.polygons",
+        ),
+        SUPPORTED_HYDROGRAPHY_CLASSES,
+        "hydrography.polygons.classes",
+    )
+    line_classes = _validate_choices(
+        _require_string_list_allow_empty(
+            hydrography_lines_raw,
+            "classes",
+            "hydrography.lines",
+        ),
+        SUPPORTED_HYDROGRAPHY_CLASSES,
+        "hydrography.lines.classes",
+    )
+    hydrography = HydrographyConfig(
+        enabled=require_bool(hydrography_raw, "enabled", "hydrography"),
+        source_id=require_string(hydrography_raw, "source_id", "hydrography"),
+        output_crs=require_string(hydrography_raw, "output_crs", "hydrography"),
+        permanency=_validate_choices(
+            _require_string_list(
+                hydrography_raw,
+                "permanency",
+                "hydrography",
+            ),
+            SUPPORTED_HYDROGRAPHY_PERMANENCY,
+            "hydrography.permanency",
+        ),
+        polygons=HydrographyFeatureFamilyConfig(
+            enabled=require_bool(
+                hydrography_polygons_raw,
+                "enabled",
+                "hydrography.polygons",
+            ),
+            classes=polygon_classes,
+            minimum_source_measure=_validate_measure_thresholds(
+                polygon_area_thresholds_raw,
+                polygon_classes,
+                "hydrography.polygons.minimum_source_area_km2",
+            ),
+        ),
+        lines=HydrographyFeatureFamilyConfig(
+            enabled=require_bool(
+                hydrography_lines_raw,
+                "enabled",
+                "hydrography.lines",
+            ),
+            classes=line_classes,
+            minimum_source_measure=_validate_measure_thresholds(
+                line_length_thresholds_raw,
+                line_classes,
+                "hydrography.lines.minimum_source_length_km",
+            ),
+        ),
+    )
+
+    if hydrography.enabled and not (
+        hydrography.polygons.enabled or hydrography.lines.enabled
+    ):
+        raise ValueError(
+            "When hydrography.enabled is true, at least one feature family "
+            "must be enabled."
+        )
+    for family_name, family in (
+        ("polygons", hydrography.polygons),
+        ("lines", hydrography.lines),
+    ):
+        if family.enabled and not family.classes:
+            raise ValueError(
+                f"hydrography.{family_name}.classes must not be empty when "
+                f"hydrography.{family_name}.enabled is true."
+            )
+
     if (
         schema.road_connection_method
         not in road_connectivity.methods
@@ -1082,6 +1250,7 @@ def load_geospatial_build_config(
         road_connectivity=road_connectivity,
         schema=schema,
         storage=storage,
+        hydrography=hydrography,
         source_path=config_path,
     )
 
@@ -1149,6 +1318,16 @@ def print_build_config(
         "Storage capacity bound: "
         f"{config.storage.use_capacity_bound}"
     )
+    print(f"Hydrography enabled:     {config.hydrography.enabled}")
+    print(f"Hydrography source:      {config.hydrography.source_id}")
+    print(
+        "Hydrography polygons:    "
+        + ", ".join(config.hydrography.polygons.classes)
+    )
+    print(
+        "Hydrography lines:       "
+        + ", ".join(config.hydrography.lines.classes)
+    )
     print(
         "Point boundary buffer:  "
         f"{config.schema.boundary_buffer_km:g} km"
@@ -1187,6 +1366,8 @@ __all__ = [
     "BasemapConfig",
     "BasemapGridFamilyConfig",
     "GeospatialBuildConfig",
+    "HydrographyConfig",
+    "HydrographyFeatureFamilyConfig",
     "RoadClassConfig",
     "RoadConfig",
     "RoadConnectivityConfig",

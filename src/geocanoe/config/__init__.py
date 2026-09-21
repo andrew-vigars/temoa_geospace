@@ -12,6 +12,8 @@ from .model_config import (
 )
 from .project_config import (
     GeospatialBuildConfig,
+    HydrographyConfig,
+    HydrographyFeatureFamilyConfig,
     StorageConfig,
     default_config_path,
     load_geospatial_build_config,
@@ -20,6 +22,8 @@ from .project_config import (
 
 __all__ = [
     "GeospatialBuildConfig",
+    "HydrographyConfig",
+    "HydrographyFeatureFamilyConfig",
     "ModelBasemapConfig",
     "ModelConfig",
     "ModelEmissionsConfig",

@@ -62,6 +62,7 @@ from typing import Any, Literal, TypedDict, cast
 
 from geocanoe.config import GeospatialBuildConfig
 from geocanoe.paths import find_project_root
+from geocanoe.registry.geospatial_sources import GeospatialSourceRegistry
 
 # =============================================================================
 # Project discovery and import path
@@ -247,6 +248,7 @@ STAGE_MODULE_NAMES = {
     "h2_pipeline_costs": "geocanoe.costs.pipelines.h2.capacity_costs",
     "h2_pipeline_cost_models": "geocanoe.costs.pipelines.h2.cost_models",
     "basemaps": "geocanoe.geospatial.basemaps",
+    "hydrography": "geocanoe.geospatial.hydrography",
     "co2_storage": "geocanoe.geospatial.co2_storage",
     "adjacency": "geocanoe.geospatial.adjacency",
     "roads": "geocanoe.geospatial.roads",
@@ -259,6 +261,7 @@ SILVER_STAGE_ORDER = (
     "h2_pipeline_costs",
     "h2_pipeline_cost_models",
     "basemaps",
+    "hydrography",
     "co2_storage",
     "adjacency",
     "roads",
@@ -271,6 +274,7 @@ SILVER_STAGE_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "h2_pipeline_costs": (),
     "h2_pipeline_cost_models": ("h2_pipeline_costs",),
     "basemaps": (),
+    "hydrography": ("basemaps",),
     "co2_storage": ("basemaps",),
     "adjacency": ("basemaps",),
     "roads": (),
@@ -290,6 +294,12 @@ EXTERNAL_INPUT_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "h2_pipeline_costs": ("H2 pipeline master cost workbook",),
     "h2_pipeline_cost_models": (),
     "basemaps": ("raw provincial boundary shapefile",),
+    "hydrography": (
+        "geospatial source registry",
+        "registered Bronze NHN GeoPackage",
+        "registered NHN metadata XML",
+        "registered NHN acquisition manifest",
+    ),
     "co2_storage": ("acquired CanCO2 unified-storage GeoPackage",),
     "adjacency": (),
     "roads": ("raw provincial and territorial NRN GeoPackages",),
@@ -495,6 +505,13 @@ def build_stage_executors(
                 stage_modules["basemaps"],
                 "run_basemap_build",
                 "basemaps",
+            )
+        ),
+        "hydrography": FunctionExecutor(
+            require_stage_callable(
+                stage_modules["hydrography"],
+                "run_hydrography_build",
+                "hydrography",
             )
         ),
         "co2_storage": FunctionExecutor(
@@ -910,6 +927,39 @@ def validate_external_inputs(
             stage_name="co2_storage",
             input_name="acquired CanCO2 unified-storage GeoPackage",
             path=raw_storage_gpkg,
+        )
+
+    if config.hydrography.enabled:
+        source_registry = GeospatialSourceRegistry()
+        check_required_file(
+            checks,
+            stage_name="hydrography",
+            input_name="geospatial source registry",
+            path=source_registry.path,
+        )
+        check_required_file(
+            checks,
+            stage_name="hydrography",
+            input_name="registered Bronze NHN GeoPackage",
+            path=source_registry.resolve_bronze_path(
+                config.hydrography.source_id
+            ),
+        )
+        check_required_file(
+            checks,
+            stage_name="hydrography",
+            input_name="registered NHN metadata XML",
+            path=source_registry.resolve_metadata_path(
+                config.hydrography.source_id
+            ),
+        )
+        check_required_file(
+            checks,
+            stage_name="hydrography",
+            input_name="registered NHN acquisition manifest",
+            path=source_registry.resolve_acquisition_manifest_path(
+                config.hydrography.source_id
+            ),
         )
 
     raw_nrn_dir = DATA_FILES / "raw" / "nrn"
@@ -1374,6 +1424,8 @@ def verify_silver_build(
         "road networks": processed_root / "nrn",
         "road connectivity": processed_root / "road_connectivity",
     }
+    if config.hydrography.enabled and "hydrography" in expected:
+        processed_directories["hydrography"] = processed_root / "nhn"
     missing_directories = {
         label: path
         for label, path in processed_directories.items()

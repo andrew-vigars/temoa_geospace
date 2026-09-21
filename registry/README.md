@@ -18,6 +18,10 @@ optional orchestration layer. Neither axis knows about the other:
   `map_roads.py`, and `build_schema.py` via
   `geocanoe.config.load_geospatial_build_config`.
 
+  Hydrography selection is also topology-specific. The `[hydrography]`
+  section selects registered feature families, classes, permanency values,
+  and minimum source area/length thresholds for the Silver build.
+
 - **Model design** — `registry/model.toml` (global defaults) optionally
   overlaid by one `registry/scenarios/*.toml` file (e.g. `baseline.toml`, or
   a future `net_zero_2050.toml`). Controls non-spatial policy: the
@@ -67,3 +71,12 @@ registry = Registry()
 print(registry.list_ids())
 print(registry.resolve_path("commodities"))
 ```
+
+## External geospatial sources
+
+`geospatial_sources.yaml` records the stable identity of externally acquired
+geospatial databases, their local Bronze paths, source-layer mappings, and
+coded-value domains. Build profiles refer to these sources by ID rather than
+embedding file paths or NHN field codes. The Silver hydrography stage uses the
+registry to translate readable selections such as `lake`, `reservoir`, and
+`watercourse` into the source database query.
