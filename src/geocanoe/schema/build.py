@@ -3704,11 +3704,9 @@ def rebuild_storage_efficiency(
         coverage or the physical process fields are incorrect.
     """
     eligibility_column = STORAGE_ELIGIBILITY_COLUMNS.get(eligibility)
-    required_columns = {
-        "region",
-        eligibility_column,
-    }
-    required_columns.discard(None)
+    required_columns = {"region"}
+    if eligibility_column is not None:
+        required_columns.add(eligibility_column)
     missing_columns = required_columns - set(storage_regions.columns)
     if missing_columns:
         raise ValueError(

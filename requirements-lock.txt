@@ -168,7 +168,6 @@ pyogrio==0.12.1
 pyomo==6.9.2
 pyparsing==3.2.3
 pyproj==3.7.2
-pyright==1.1.414
 pytest==8.4.1
 pytest-cov==6.2.1
 python-dateutil==2.9.0.post0

@@ -22,7 +22,7 @@ import sqlite3
 import sys
 import tomllib
 from collections.abc import Sequence
-from typing import TypeAlias
+from typing import TypeAlias, cast
 from urllib.error import URLError
 
 import folium
@@ -35,6 +35,7 @@ import pandas as pd
 import requests
 import seaborn as sns
 from matplotlib.axes import Axes
+from matplotlib.artist import Artist
 from matplotlib.lines import Line2D
 from rasterio.errors import RasterioError
 from shapely.geometry import LineString
@@ -593,7 +594,7 @@ def build_geospatial_paths_from_manifest(
     node_path = Path(resolved["graph_node_path"])
     edge_path = Path(resolved["graph_edge_path"])
     basemap_path = Path(resolved["basemap_path"])
-    road_edge_gpkg_path = Path(resolved["road_edges_gpkg_path"])
+    road_edge_candidate = Path(resolved["road_edges_gpkg_path"])
 
     required_paths = {
         "Graph nodes": node_path,
@@ -609,8 +610,9 @@ def build_geospatial_paths_from_manifest(
             print(f"  {name}: {path} (exists: {path.exists()})")
         sys.exit(1)
 
-    if not road_edge_gpkg_path.exists():
-        road_edge_gpkg_path = None
+    road_edge_gpkg_path = (
+        road_edge_candidate if road_edge_candidate.exists() else None
+    )
 
     figure_dir = selected_run.db_path.parent
     figure_dir.mkdir(parents=True, exist_ok=True)
@@ -2221,7 +2223,7 @@ def build_legend(
 
     handles, labels = ax.get_legend_handles_labels()
 
-    labelled_handles: dict[str, object] = {
+    labelled_handles: dict[str, Artist] = {
         str(label): handle
         for label, handle in zip(labels, handles)
         if str(label)
@@ -2273,7 +2275,7 @@ def build_legend(
     )
 
     legend_labels: list[str] = list(unique_legend_entries.keys())
-    legend_handles = list(unique_legend_entries.values())
+    legend_handles: list[Artist] = list(unique_legend_entries.values())
 
     ax.legend(
         legend_handles,
@@ -2815,7 +2817,8 @@ def add_map_legend(
             context_rows.append('<div><span style="color:#8c6bb1">■</span> Aboriginal Lands</div>')
         if geodata.urban_centres is not None and not geodata.urban_centres.empty:
             context_rows.append('<div><span style="color:#d89000">■</span> Urban centres</div>')
-    model_map.get_root().html.add_child(folium.Element(
+    root = cast(Figure, model_map.get_root())
+    root.html.add_child(folium.Element(
         '<aside aria-label="Map legend" style="position:fixed;bottom:25px;left:12px;'
         'z-index:1000;background:white;padding:12px;border:1px solid #777;'
         'font:12px Arial;max-height:45vh;overflow:auto;max-width:280px">'

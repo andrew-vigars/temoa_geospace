@@ -225,6 +225,7 @@ class GeospatialSourceRegistry:
 
         artifact = self.artifact(source_id, artifact_name)
         root = self.resolve_bronze_root(source_id)
+        paths: tuple[Path, ...]
         if "path" in artifact:
             paths = ((root / artifact["path"]).resolve(),)
         else:

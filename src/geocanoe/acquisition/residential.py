@@ -18,9 +18,9 @@ import zipfile
 from pathlib import Path
 from typing import TypedDict
 
-import pyogrio  # type: ignore[import-untyped]
-import requests  # type: ignore[import-untyped]
-from tqdm.auto import tqdm  # type: ignore[import-untyped]
+import pyogrio
+import requests
+from tqdm.auto import tqdm
 
 from geocanoe import __version__
 from geocanoe.paths import find_project_root

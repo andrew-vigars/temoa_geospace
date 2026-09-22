@@ -50,7 +50,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypedDict, cast
 
 import geopandas as gpd
 import pandas as pd
@@ -147,7 +147,17 @@ REQUIRED_SCHEMA_TABLES = [
 # Table-driven schema description.
 # Each table spec describes columns that reference Region, Commodity, and
 # Technology set tables, plus primary-key-like columns for duplicate checks.
-PARAM_TABLES = {
+class ParameterTableSpec(TypedDict):
+    """Reference and uniqueness columns for one schema parameter table."""
+
+    region: list[str]
+    commodity: list[str]
+    tech: list[str]
+    pk: list[str]
+    required: bool
+
+
+PARAM_TABLES: dict[str, ParameterTableSpec] = {
     "Demand": {
         "region": ["region"],
         "commodity": ["commodity"],

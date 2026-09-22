@@ -19,11 +19,11 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import TypedDict
 
-import geopandas as gpd  # type: ignore[import-untyped]
-import matplotlib.pyplot as plt  # type: ignore[import-untyped]
-from matplotlib.colors import LogNorm  # type: ignore[import-untyped]
+import geopandas as gpd
+import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
 import numpy as np
-import pandas as pd  # type: ignore[import-untyped]
+import pandas as pd
 
 from geocanoe.config import GeospatialBuildConfig
 from geocanoe.geospatial.adjacency import find_basemap_files

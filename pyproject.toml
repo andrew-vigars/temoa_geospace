@@ -35,3 +35,35 @@ dev = {file = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src/geocanoe", "scripts", "diagnostics"]
+mypy_path = "src"
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_unused_configs = true
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+module = [
+    "branca.*",
+    "contextily.*",
+    "folium.*",
+    "geopandas.*",
+    "geopy.*",
+    "matplotlib.*",
+    "openpyxl.*",
+    "pandas.*",
+    "pyogrio.*",
+    "rasterio.*",
+    "requests.*",
+    "seaborn.*",
+    "shapely.*",
+    "tqdm.*",
+    "xyzservices.*",
+    "yaml.*",
+]
+ignore_missing_imports = true

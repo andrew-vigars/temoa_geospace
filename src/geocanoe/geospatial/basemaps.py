@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import shutil
+from typing import TypedDict
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -91,7 +92,17 @@ PROVINCE_NAME_TO_CODE = {
 
 # Stable grid-family definitions. The TOML profile selects grid types,
 # resolutions, retention method, and coordinate precision.
-GRID_SYSTEMS = {
+class GridSystem(TypedDict):
+    """Coordinate-system metadata for one supported grid family."""
+
+    crs: str
+    resolution_unit: str
+    filename_unit: str
+    native_scale: float
+    native_unit: str
+
+
+GRID_SYSTEMS: dict[str, GridSystem] = {
     "geographic": {
         "crs": WGS84_CRS,
         "resolution_unit": "degree",

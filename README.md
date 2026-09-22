@@ -239,6 +239,18 @@ python -m pip install -e ".[dev]"
 The `dev` extra adds testing, coverage, linting, type-checking, pre-commit, and
 interactive Jupyter tooling to the complete runtime environment.
 
+Mypy is the canonical static type checker. Its project policy is stored in
+`pyproject.toml` and covers the importable package plus the compatibility CLI
+and diagnostics adapters:
+
+```bash
+python -m mypy
+```
+
+Third-party exceptions are scoped to individual scientific and geospatial
+libraries that do not publish complete PEP 561 typing information; first-party
+GeoCANOE modules remain fully checked by the configured policy.
+
 Verify the installation with:
 
 ```bash
