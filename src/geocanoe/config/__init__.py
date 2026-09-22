@@ -9,6 +9,7 @@ from .model_config import (
     ModelScenarioConfig,
     ModelStorageConfig,
     ModelTimeConfig,
+    ModelTransportModesConfig,
     load_model_config,
 )
 from .project_config import (
@@ -39,6 +40,7 @@ __all__ = [
     "ModelScenarioConfig",
     "ModelStorageConfig",
     "ModelTimeConfig",
+    "ModelTransportModesConfig",
     "StorageConfig",
     "default_config_path",
     "load_geospatial_build_config",

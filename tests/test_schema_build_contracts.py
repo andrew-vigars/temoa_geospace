@@ -18,6 +18,7 @@ from geocanoe.schema.build import (
     build_generalized_pipeline_opex_rows,
     build_transport_costvariable,
     build_transport_efficiency,
+    build_tech_specs,
     build_schema_fingerprint,
     clear_output_tables,
     rebuild_capacity_limits,
@@ -26,6 +27,7 @@ from geocanoe.schema.build import (
     rebuild_storage_activity_limit,
     rebuild_storage_efficiency,
     select_basemap_stem_for_resolution,
+    select_enabled_transport_tech_specs,
     select_storage_eligible_regions,
     validate_storage_capacity_bound_setting,
     validate_gasoline_demand_region_coverage,
@@ -224,6 +226,35 @@ def test_transport_tables_expand_links_by_technology() -> None:
         (costs["region"] == "R1-R2") & (costs["tech"] == "TRUCK_B"),
         "cost",
     ].item() == 64.0
+
+
+def test_transport_master_switches_select_modes_independently() -> None:
+    raw = pd.read_csv(PROJECT_ROOT / "registry" / "transport_techs.csv")
+    all_specs = build_tech_specs(raw)
+
+    roads_only = select_enabled_transport_tech_specs(
+        all_specs,
+        roads_enabled=True,
+        pipelines_enabled=False,
+    )
+    pipelines_only = select_enabled_transport_tech_specs(
+        all_specs,
+        roads_enabled=False,
+        pipelines_enabled=True,
+    )
+    neither = select_enabled_transport_tech_specs(
+        all_specs,
+        roads_enabled=False,
+        pipelines_enabled=False,
+    )
+
+    assert roads_only.truck_techs == all_specs.truck_techs
+    assert not roads_only.pipe_techs
+    assert pipelines_only.pipe_techs == all_specs.pipe_techs
+    assert not pipelines_only.truck_techs
+    assert not neither.pipe_techs
+    assert not neither.truck_techs
+    assert neither.trans_techs == all_specs.trans_techs
 
 
 def test_transport_costs_reject_nonpositive_distance() -> None:

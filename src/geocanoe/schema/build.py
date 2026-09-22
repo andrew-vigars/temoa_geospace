@@ -291,6 +291,8 @@ class ResolvedSchemaConfig:
     legacy_gasoline_enabled: bool
     legacy_gasoline_years_of_demand: float
     output_sqlite_path: Path
+    roads_enabled: bool = True
+    pipelines_enabled: bool = True
     pipeline_impedance_scope: str = "none"
     pipeline_impedance_path: Path | None = None
 
@@ -721,7 +723,8 @@ def resolve_schema_configuration(
     pipeline_impedance_scope = model_config.pipeline_costs.impedance_scope
 
     if (
-        pipeline_impedance_scope != "none"
+        model_config.transport_modes.pipelines_enabled
+        and pipeline_impedance_scope != "none"
         and not build_config.pipeline_impedance.enabled
     ):
         raise ValueError(
@@ -730,7 +733,10 @@ def resolve_schema_configuration(
         )
 
     pipeline_impedance_path = None
-    if pipeline_impedance_scope != "none":
+    if (
+        model_config.transport_modes.pipelines_enabled
+        and pipeline_impedance_scope != "none"
+    ):
         pipeline_impedance_path = (
             PROCESSED_PIPELINE_IMPEDANCE
             / build_config.build_id
@@ -800,6 +806,8 @@ def resolve_schema_configuration(
             model_config.legacy_gasoline.years_of_demand
         ),
         output_sqlite_path=artifacts.schema,
+        roads_enabled=model_config.transport_modes.roads_enabled,
+        pipelines_enabled=model_config.transport_modes.pipelines_enabled,
         pipeline_impedance_scope=pipeline_impedance_scope,
         pipeline_impedance_path=pipeline_impedance_path,
     )
@@ -828,6 +836,7 @@ def build_schema_fingerprint(
             "emissions": asdict(model_config.emissions),
             "storage": asdict(model_config.storage),
             "legacy_gasoline": asdict(model_config.legacy_gasoline),
+            "transport_modes": asdict(model_config.transport_modes),
             "pipeline_costs": asdict(model_config.pipeline_costs),
         },
     }
@@ -912,11 +921,14 @@ def validate_required_paths(config: ResolvedSchemaConfig) -> None:
         "processed_basemap": config.basemap_path,
         "graph_nodes": config.graph_node_path,
         "graph_edges": config.graph_edge_path,
-        "road_edge_connections": config.road_edge_connections_path,
-        "road_edges_gpkg": config.road_edges_gpkg_path,
-        "road_region_overlay": config.road_region_overlay_path,
         "co2_storage": config.co2_storage_path,
     }
+    if config.roads_enabled:
+        required_paths.update({
+            "road_edge_connections": config.road_edge_connections_path,
+            "road_edges_gpkg": config.road_edges_gpkg_path,
+            "road_region_overlay": config.road_region_overlay_path,
+        })
     if config.pipeline_impedance_path is not None:
         required_paths["pipeline_edge_impedance"] = config.pipeline_impedance_path
 
@@ -1503,8 +1515,28 @@ def load_inputs(config: ResolvedSchemaConfig) -> LoadedInputs:
         basemap=gpd.read_file(config.basemap_path),
         graph_nodes=gpd.read_file(config.graph_node_path),
         graph_edges=pd.read_csv(config.graph_edge_path),
-        road_edge_connections=pd.read_csv(config.road_edge_connections_path),
-        road_edges_gdf=gpd.read_file(config.road_edges_gpkg_path),
+        road_edge_connections=(
+            pd.read_csv(config.road_edge_connections_path)
+            if config.roads_enabled
+            else pd.DataFrame({
+                "edge_region": pd.Series(dtype=str),
+                "region_from": pd.Series(dtype=str),
+                "region_to": pd.Series(dtype=str),
+                "direction": pd.Series(dtype=str),
+                "connection_method": pd.Series(dtype=str),
+                "distance_km": pd.Series(dtype=float),
+                "lon_from": pd.Series(dtype=float),
+                "lat_from": pd.Series(dtype=float),
+                "lon_to": pd.Series(dtype=float),
+                "lat_to": pd.Series(dtype=float),
+                "has_road_connection": pd.Series(dtype=bool),
+            })
+        ),
+        road_edges_gdf=(
+            gpd.read_file(config.road_edges_gpkg_path)
+            if config.roads_enabled
+            else gpd.GeoDataFrame(geometry=[])
+        ),
         storage_regions=gpd.read_file(
             config.co2_storage_path,
             layer="regional_storage_evidence",
@@ -1823,7 +1855,11 @@ def build_canonical_links(
     pipeline_links = attach_pipeline_cost_distances(
         graph_edges,
         pipeline_edge_impedance,
-        config.pipeline_impedance_scope,
+        (
+            config.pipeline_impedance_scope
+            if config.pipelines_enabled
+            else "none"
+        ),
     )
     pipeline_links["canoe_region"] = pipeline_links["edge_region"]
 
@@ -1999,6 +2035,63 @@ def build_tech_specs(transport_techs_raw: pd.DataFrame) -> TechSpecs:
     print(f"Transmission techs: {sorted(specs.trans_techs)}")
 
     return specs
+
+
+def select_enabled_transport_tech_specs(
+    specs: TechSpecs,
+    *,
+    roads_enabled: bool,
+    pipelines_enabled: bool,
+) -> TechSpecs:
+    """Return transport specifications restricted by the Gold master switches."""
+
+    pipeline_tech_specs = (
+        specs.pipeline_tech_specs.copy()
+        if pipelines_enabled
+        else specs.pipeline_tech_specs.iloc[0:0].copy()
+    )
+    truck_tech_specs = (
+        specs.truck_tech_specs.copy()
+        if roads_enabled
+        else specs.truck_tech_specs.iloc[0:0].copy()
+    )
+    pipe_techs = set(pipeline_tech_specs["tech"])
+    truck_techs = set(truck_tech_specs["tech"])
+
+    return TechSpecs(
+        pipeline_tech_specs=pipeline_tech_specs,
+        truck_tech_specs=truck_tech_specs,
+        transmission_tech_specs=specs.transmission_tech_specs.copy(),
+        pipe_techs=pipe_techs,
+        truck_techs=truck_techs,
+        trans_techs=set(specs.trans_techs),
+        transport_techs=pipe_techs | truck_techs | set(specs.trans_techs),
+    )
+
+
+def remove_disabled_transport_technologies(
+    db_encoded: dict[str, pd.DataFrame],
+    disabled_techs: set[str],
+) -> None:
+    """Remove disabled transport technologies from inherited database tables."""
+
+    if not disabled_techs:
+        return
+
+    removed_rows = 0
+    for table_name, table in db_encoded.items():
+        filtered = table
+        for column in ("tech", "tech_or_group", "technology"):
+            if column in filtered.columns:
+                keep = ~filtered[column].astype(str).isin(disabled_techs)
+                removed_rows += int((~keep).sum())
+                filtered = filtered.loc[keep].copy()
+        db_encoded[table_name] = filtered
+
+    print(
+        "Disabled transport technologies removed: "
+        f"{', '.join(sorted(disabled_techs))} ({removed_rows:,} inherited rows)"
+    )
 
 
 PROVINCE_NAME_TO_CODE = {
@@ -4106,10 +4199,14 @@ def rebuild_etl_segments(
         canonical=canonical,
         specs=specs,
     )
-    pipeline_etl = build_generalized_pipeline_etl_segments(
-        pipeline_links=canonical.pipeline_links,
-        pipeline_tech_specs=specs.pipeline_tech_specs,
-        etl_template=h2_etlsegment_template,
+    pipeline_etl = (
+        build_generalized_pipeline_etl_segments(
+            pipeline_links=canonical.pipeline_links,
+            pipeline_tech_specs=specs.pipeline_tech_specs,
+            etl_template=h2_etlsegment_template,
+        )
+        if specs.pipe_techs
+        else pd.DataFrame(columns=legacy_etl.columns)
     )
 
     db_encoded["ETLSegment"] = pd.concat(
@@ -4254,6 +4351,12 @@ def build_transport_efficiency(
                 }
             )
         )
+    if not rows:
+        return pd.DataFrame(columns=[
+            "region", "input_comm", "tech", "vintage", "output_comm",
+            "efficiency", "notes", "data_source", "dq_cred", "dq_geog",
+            "dq_struc", "dq_tech", "dq_time", "data_id",
+        ])
     return pd.concat(rows, ignore_index=True)
 
 
@@ -4385,6 +4488,12 @@ def build_transport_costvariable(
             )
         )
 
+    if not rows:
+        return pd.DataFrame(columns=[
+            "region", "period", "tech", "vintage", "cost", "units",
+            "notes", "data_source", "dq_cred", "dq_geog", "dq_struc",
+            "dq_tech", "dq_time", "data_id",
+        ])
     out = pd.concat(rows, ignore_index=True)
     assert out[["region", "period", "tech", "vintage", "data_id"]].duplicated().sum() == 0
     return out
@@ -5578,6 +5687,8 @@ def run_schema_build(
         "Legacy gasoline years of demand: "
         f"{config.legacy_gasoline_years_of_demand:g}"
     )
+    print(f"Road transport enabled: {config.roads_enabled}")
+    print(f"Pipeline transport enabled: {config.pipelines_enabled}")
     print(f"Pipeline impedance scope: {config.pipeline_impedance_scope}")
     print(f"Output SQLite: {config.output_sqlite_path.name}")
 
@@ -5590,19 +5701,30 @@ def run_schema_build(
         config=config,
         pipeline_edge_impedance=inputs.pipeline_edge_impedance,
     )
-    specs = build_tech_specs(inputs.transport_techs_raw)
-
-    print("\nTemporary generalized pipeline cost assumption:")
-    print(f"  {GENERALIZED_PIPELINE_COST_NOTE}")
-    print(
-        "  Pipeline technologies: "
-        + ", ".join(sorted(specs.pipe_techs))
+    all_specs = build_tech_specs(inputs.transport_techs_raw)
+    specs = select_enabled_transport_tech_specs(
+        all_specs,
+        roads_enabled=config.roads_enabled,
+        pipelines_enabled=config.pipelines_enabled,
     )
+    disabled_transport_techs = all_specs.transport_techs - specs.transport_techs
+
+    if specs.pipe_techs:
+        print("\nTemporary generalized pipeline cost assumption:")
+        print(f"  {GENERALIZED_PIPELINE_COST_NOTE}")
+        print(
+            "  Pipeline technologies: "
+            + ", ".join(sorted(specs.pipe_techs))
+        )
 
     db_encoded = {
         table_name: dataframe.copy()
         for table_name, dataframe in inputs.db.items()
     }
+    remove_disabled_transport_technologies(
+        db_encoded,
+        disabled_transport_techs,
+    )
 
     print("\nRebuilding core model sets...")
     db_encoded["Region"] = canonical.region_table.copy()
@@ -5616,7 +5738,9 @@ def run_schema_build(
     )
     rebuild_technology_table(
         db_encoded,
-        inputs.technologies_raw,
+        inputs.technologies_raw.loc[
+            ~inputs.technologies_raw["tech"].isin(disabled_transport_techs)
+        ].copy(),
         specs,
     )
 
@@ -5676,20 +5800,22 @@ def run_schema_build(
         connection_method=config.connection_method,
         model_period=config.model_start_year,
     )
-    rebuild_generalized_pipeline_opex(
-        db_encoded=db_encoded,
-        pipeline_links=canonical.pipeline_links,
-        pipeline_tech_specs=specs.pipeline_tech_specs,
-        opex_coefficients=inputs.h2_opex_coefficients,
-        model_period=config.model_start_year,
-        impedance_scope=config.pipeline_impedance_scope,
-    )
-    rebuild_truck_costinvest(
-        db_encoded=db_encoded,
-        canonical=canonical,
-        specs=specs,
-        model_period=config.model_start_year,
-    )
+    if specs.pipe_techs:
+        rebuild_generalized_pipeline_opex(
+            db_encoded=db_encoded,
+            pipeline_links=canonical.pipeline_links,
+            pipeline_tech_specs=specs.pipeline_tech_specs,
+            opex_coefficients=inputs.h2_opex_coefficients,
+            model_period=config.model_start_year,
+            impedance_scope=config.pipeline_impedance_scope,
+        )
+    if specs.truck_techs:
+        rebuild_truck_costinvest(
+            db_encoded=db_encoded,
+            canonical=canonical,
+            specs=specs,
+            model_period=config.model_start_year,
+        )
     remove_pipeline_ordinary_costinvest(
         db_encoded,
         specs.pipe_techs,

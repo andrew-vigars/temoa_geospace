@@ -74,6 +74,15 @@ grid_type = "projected"
 # instead of falling back to an interactive prompt.
 resolution = 25
 
+[transport_modes]
+
+# Master switches controlling which transport representations are encoded in
+# the Gold model. Silver products may still be built and reused later; disabling
+# a mode here only prevents its technologies and topology-dependent rows from
+# entering the model database.
+roads_enabled = true
+pipelines_enabled = true
+
 [pipeline_costs]
 
 # Control whether the Silver pipeline cost-distance multiplier is applied to

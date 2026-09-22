@@ -27,6 +27,8 @@ def test_committed_model_registry_is_single_period_2025_to_2050() -> None:
     assert config.storage.minimum_cumulative_activity == 0.0
     assert config.basemap.grid_type == "projected"
     assert config.basemap.resolution == 25.0
+    assert config.transport_modes.roads_enabled is True
+    assert config.transport_modes.pipelines_enabled is True
     assert config.pipeline_costs.impedance_scope == "none"
     assert config.scenario.scenario_id == "baseline-25km"
 
@@ -73,6 +75,45 @@ resolution = 40
     assert config.basemap.grid_type == "projected"
     assert config.basemap.resolution == 40.0
     assert config.scenario.scenario_id == "coarse-resolution"
+
+
+@pytest.mark.parametrize(
+    ("roads_enabled", "pipelines_enabled"),
+    [(False, True), (True, False), (False, False)],
+)
+def test_scenario_overrides_transport_mode_switches(
+    tmp_path: Path,
+    roads_enabled: bool,
+    pipelines_enabled: bool,
+) -> None:
+    scenario_path = tmp_path / "transport-switches.toml"
+    scenario_path.write_text(
+        f'''[scenario]
+id = "transport-switches"
+
+[transport_modes]
+roads_enabled = {str(roads_enabled).lower()}
+pipelines_enabled = {str(pipelines_enabled).lower()}
+''',
+        encoding="utf-8",
+    )
+
+    config = load_model_config(MODEL_CONFIG_PATH, scenario_path)
+
+    assert config.transport_modes.roads_enabled is roads_enabled
+    assert config.transport_modes.pipelines_enabled is pipelines_enabled
+
+
+def test_model_registry_rejects_nonboolean_transport_switch(tmp_path: Path) -> None:
+    source = MODEL_CONFIG_PATH.read_text(encoding="utf-8")
+    path = tmp_path / "invalid-transport-switch.toml"
+    path.write_text(
+        source.replace("roads_enabled = true", 'roads_enabled = "no"', 1),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="roads_enabled"):
+        load_model_config(path)
 
 
 @pytest.mark.parametrize(

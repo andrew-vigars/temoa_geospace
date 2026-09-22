@@ -19,7 +19,7 @@
 #   4. Silver evidence layers are never modified or rebuilt by a scenario.
 #
 # Supported override sections are [time], [finance], [emissions], [storage],
-# [legacy_gasoline], [basemap], and [pipeline_costs]. Unknown sections,
+# [legacy_gasoline], [basemap], [transport_modes], and [pipeline_costs]. Unknown sections,
 # unknown keys, invalid values, and
 # inconsistent combinations fail validation before schema construction.
 
@@ -143,6 +143,19 @@ description = "Canonical baseline using all global model defaults"
 # [basemap]
 # grid_type = "projected"
 # resolution = 25
+
+
+# -----------------------------------------------------------------------------
+# Optional transport-representation switches
+# -----------------------------------------------------------------------------
+#
+# These switches affect only Gold schema construction. Existing Silver road and
+# pipeline-impedance products remain available for later scenarios. Electricity
+# transmission continues to use the graph-edge topology independently.
+#
+# [transport_modes]
+# roads_enabled = false
+# pipelines_enabled = true
 
 
 # -----------------------------------------------------------------------------

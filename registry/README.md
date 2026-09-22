@@ -26,7 +26,8 @@ optional orchestration layer. Neither axis knows about the other:
   overlaid by one `registry/scenarios/*.toml` file (e.g. `baseline.toml`, or
   a future `net_zero_2050.toml`). Controls non-spatial policy: the
   optimization time horizon, discounting/financing rates, the emissions
-  projection method, and the geological CO2 storage requirement. A scenario
+  projection method, the geological CO2 storage requirement, and master
+  switches for road/truck and pipeline transport representations. A scenario
   file only declares the settings it overrides — everything else is
   inherited from `model.toml` — and never touches the Silver evidence
   layers. Consumed via `geocanoe.config.load_model_config`.
@@ -34,10 +35,11 @@ optional orchestration layer. Neither axis knows about the other:
 A single Gold artifact is the product of exactly one build profile and one
 scenario overlay: `gold_<build-id>_<scenario-id>_<fingerprint>.sqlite`. To add
 a new scenario set (e.g. "net-zero 2050"), copy
-`registry/scenarios/baseline.toml`, give it a unique `[scenario].id`, and
+  `registry/scenarios/sample_scenario.toml`, give it a unique `[scenario].id`, and
 uncomment only the sections that should differ — see the comments in that
 file for the supported override sections (`[time]`, `[finance]`,
-`[emissions]`, `[storage]`).
+  `[emissions]`, `[storage]`, `[legacy_gasoline]`, `[basemap]`,
+  `[transport_modes]`, and `[pipeline_costs]`).
 
 - **Orchestration (optional)** — `config/batch_profiles/*.toml` names an
   ordered list of already-built TEMOA solver configurations (each naming its

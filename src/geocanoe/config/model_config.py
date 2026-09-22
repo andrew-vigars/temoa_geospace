@@ -29,6 +29,7 @@ MODEL_SECTIONS = {
     "storage",
     "legacy_gasoline",
     "basemap",
+    "transport_modes",
     "pipeline_costs",
 }
 SCENARIO_ID_PATTERN = re.compile(
@@ -107,6 +108,14 @@ class ModelBasemapConfig:
 
 
 @dataclass(frozen=True)
+class ModelTransportModesConfig:
+    """Master switches for Gold transport-mode representations."""
+
+    roads_enabled: bool
+    pipelines_enabled: bool
+
+
+@dataclass(frozen=True)
 class ModelPipelineCostsConfig:
     """Application scope for Silver pipeline cost-distance impedance."""
 
@@ -132,6 +141,7 @@ class ModelConfig:
     storage: ModelStorageConfig
     legacy_gasoline: ModelLegacyGasolineConfig
     basemap: ModelBasemapConfig
+    transport_modes: ModelTransportModesConfig
     pipeline_costs: ModelPipelineCostsConfig
     scenario: ModelScenarioConfig
     source_path: Path
@@ -250,6 +260,7 @@ def load_model_config(
     emissions_raw = require_table(raw, "emissions")
     storage_raw = require_table(raw, "storage")
     basemap_raw = require_table(raw, "basemap")
+    transport_modes_raw = require_table(raw, "transport_modes")
     pipeline_costs_raw = require_table(raw, "pipeline_costs")
 
     start_year = require_int(time_raw, "start_year", "time")
@@ -358,6 +369,18 @@ def load_model_config(
         basemap=ModelBasemapConfig(
             grid_type=basemap_grid_type,
             resolution=basemap_resolution,
+        ),
+        transport_modes=ModelTransportModesConfig(
+            roads_enabled=require_bool(
+                transport_modes_raw,
+                "roads_enabled",
+                "transport_modes",
+            ),
+            pipelines_enabled=require_bool(
+                transport_modes_raw,
+                "pipelines_enabled",
+                "transport_modes",
+            ),
         ),
         pipeline_costs=ModelPipelineCostsConfig(
             impedance_scope=impedance_scope,
