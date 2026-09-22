@@ -77,6 +77,9 @@ flowchart TD
 
     subgraph SILVER["Silver preprocessing — geocanoe.execution.silver"]
         L1["geocanoe.preprocessing.legacy_inputs<br/>Assign province codes"]
+        D1["geocanoe.preprocessing.gasoline_demand<br/>Select population-centre proxies and map DAs"]
+        D2["geocanoe.preprocessing.gasoline_demand<br/>Allocate provincial gasoline sales"]
+        D3["geocanoe.preprocessing.gasoline_demand<br/>Map proxy demand onto every basemap"]
         E1["geocanoe.emissions.facilities<br/>Clean facility emissions"]
         C1["geocanoe.costs.pipelines.h2.capacity_costs<br/>Normalize H2 pipeline capacity-cost data"]
         C2["geocanoe.costs.pipelines.h2.cost_models<br/>Fit/select H2 pipeline cost models"]
@@ -89,6 +92,9 @@ flowchart TD
     end
 
     CFG --> L1
+    CFG --> D1
+    CFG --> D2
+    CFG --> D3
     CFG --> B1
     CFG --> H1
     REG --> H1
@@ -99,12 +105,18 @@ flowchart TD
 
     R1 --> L1
     R7 --> L1
+    RG --> D1
+    R2 --> D1
+    D1 --> D2
+    RG --> D2
+    D2 --> D3
     R6 --> E1
     R10 --> C1
     C1 --> C2
 
     R1 --> B1
     B1 --> BP["Processed basemaps<br/>data_files/processed/basemaps/"]
+    BP --> D3
     BP --> H1
     R5 --> H1
     H1 --> HP["Filtered hydrography, summary, manifest, and PNG previews<br/>data_files/processed/nhn/"]
@@ -123,6 +135,8 @@ flowchart TD
     M1 --> MP["Road connectivity products<br/>data_files/processed/road_connectivity/"]
 
     L1 --> LP["Processed legacy inputs<br/>data_files/processed/legacy_inputs/"]
+    D2 --> DP["Proxy geometry, DA crosswalk, and allocated demand<br/>data_files/processed/gasoline_demand/{build-id}/"]
+    D3 --> DP
     E1 --> EP["Processed emissions<br/>data_files/processed/emissions/"]
     C2 --> CP["Pipeline cost templates<br/>data_files/processed/costs/"]
 
@@ -236,7 +250,7 @@ scripts/create_map_folium.py
 - `geocanoe.execution.bronze` orchestrates seven independent acquisition stages and supports stage subsets, overwrite behavior, output-directory overrides, and archive-retention options.
 - `registry/geospatial_sources.yaml` schema v2 inventories every Bronze stage using named fixed or globbed artifacts; source layers and coded domains are optional.
 - Aboriginal Lands currently terminate at the validated Bronze artifact; no Silver transformation consumes them yet.
-- `geocanoe.execution.silver` orchestrates the ten current Silver preprocessing stages and validates their upstream dependencies.
+- `geocanoe.execution.silver` orchestrates the thirteen current Silver preprocessing stages and validates their upstream dependencies.
 - `geocanoe.geospatial.co2_storage` requires an acquired CanCO₂ release and processed basemaps; it currently maps only onto the onshore model-region domain.
 - `geocanoe.geospatial.adjacency` requires processed basemaps.
 - `geocanoe.geospatial.hydrography` requires processed basemaps plus the

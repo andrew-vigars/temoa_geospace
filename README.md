@@ -619,9 +619,9 @@ are not yet transformed into a Silver impedance or siting layer.
 
 ### Silver preprocessing stages
 
-The current Silver workflow includes ten stages:
+The current Silver workflow includes thirteen stages:
 
-1. legacy site and demand province mapping;
+1. legacy site and demand province mapping (retained while Gold migration is in progress);
 2. emissions preprocessing;
 3. hydrogen-pipeline capacity-cost preprocessing;
 4. hydrogen-pipeline cost-model fitting;
@@ -630,7 +630,10 @@ The current Silver workflow includes ten stages:
 7. onshore CO₂ storage-to-basemap integration;
 8. regional adjacency construction;
 9. processed road-network construction;
-10. road-connectivity mapping.
+10. road-connectivity mapping;
+11. gasoline-demand proxy selection and DA-to-proxy assignment;
+12. provincial gasoline-sales allocation to the selected proxies;
+13. proxy-demand mapping onto every configured basemap resolution.
 
 These stages are implemented under `src/geocanoe/` and orchestrated by `geocanoe.execution.silver`.
 
@@ -646,6 +649,68 @@ data_files/processed/co2_storage/
 data_files/processed/graph/
 data_files/processed/nrn/
 data_files/processed/road_connectivity/
+data_files/processed/gasoline_demand/<build-id>/
+```
+
+The gasoline stages support all ten provinces and three territories. Configure
+them in the build profile:
+
+```toml
+[gasoline_demand]
+sales_year = 2024
+gasoline_density_t_per_litre = 0.00074
+
+[gasoline_demand.proxies]
+strategy = "population_threshold"
+minimum_population = 100000
+candidate_minimum_population = 30000
+empty_jurisdiction_policy = "largest_population_centre"
+anchor_registry = "registry/gasoline_supply_anchors.csv"
+
+[gasoline_demand.proxies.additional_hubs]
+# Used by supply_anchors_plus_fill, for example:
+# ON = 5
+```
+
+`population_threshold` selects the official 2021 population-centre class at or
+above the configured threshold. `supply_anchors_plus_fill` begins with the
+controlled anchor registry and greedily adds eligible centres that most reduce
+population-weighted DA-to-proxy distance. A jurisdiction with no qualifying
+centre or registered anchor receives its largest population centre, so a
+national build always covers all 13 jurisdictions.
+
+Every DA is assigned to the nearest selected proxy within its own jurisdiction.
+Provincial net gasoline sales from Statistics Canada table 23-10-0066-01 are
+then allocated by assigned 2021 DA population. The output audit reconciles both
+allocation weights and litres to the source total. DAs whose published
+population is unavailable remain in the crosswalk with zero allocation weight
+and an explicit availability flag.
+
+The NRCan distribution-network illustration is qualitative rather than a
+terminal inventory. Accordingly, `registry/gasoline_supply_anchors.csv`
+distinguishes centres explicitly named in NRCan text from centres inferred from
+the map; these are modelling controls, not claims about physical terminal
+locations. Silver outputs include selected proxy geometry, the DA crosswalk,
+catchment diagnostics, demand by proxy, allocation audits, and a manifest. Gold
+continues to consume the legacy demand input until its input selector is switched
+to the new resolution-matched Silver products.
+
+The `gasoline_basemap` stage writes a source-point PNG before grid assignment,
+then maps every proxy to a cell in each compatible basemap. Point-in-cell matches
+are preferred; coastal or otherwise uncontained points fall back to the nearest
+cell whose centroid belongs to the same jurisdiction. Multiple proxies in one
+cell are aggregated. Each resolution receives a GeoPackage with
+`regional_gasoline_demand` and `gasoline_region_crosswalk` layers, equivalent
+CSVs, a conservation audit, and a mapping PNG under:
+
+```text
+data_files/processed/gasoline_demand/<build-id>/
+    preview/gasoline_demand_proxies.png
+    basemaps/<basemap-stem>_gasoline_demand.gpkg
+    basemaps/<basemap-stem>_regional_gasoline_demand.csv
+    basemaps/<basemap-stem>_gasoline_region_crosswalk.csv
+    basemaps/<basemap-stem>_gasoline_mapping_audit.csv
+    basemaps/preview/<basemap-stem>_gasoline_demand_mapping.png
 ```
 
 The storage stage can also be run independently after basemap construction:

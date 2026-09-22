@@ -71,6 +71,14 @@ SUPPORTED_STORAGE_ELIGIBILITY_MODES = {
     "quantitative",
     "qualitative",
 }
+SUPPORTED_GASOLINE_PROXY_STRATEGIES = {
+    "population_threshold",
+    "supply_anchors_plus_fill",
+}
+SUPPORTED_GASOLINE_EMPTY_JURISDICTION_POLICIES = {
+    "largest_population_centre",
+}
+SUPPORTED_POPULATION_CENTRE_THRESHOLDS = {1_000, 30_000, 100_000}
 SUPPORTED_HYDROGRAPHY_CLASSES = {
     "canal",
     "conduit",
@@ -355,6 +363,27 @@ class HydrographyConfig:
 
 
 @dataclass(frozen=True)
+class GasolineProxyConfig:
+    """Population-centre proxy selection and jurisdiction fallback settings."""
+
+    strategy: str
+    minimum_population: int
+    candidate_minimum_population: int
+    empty_jurisdiction_policy: str
+    anchor_registry: str
+    additional_hubs: dict[str, int]
+
+
+@dataclass(frozen=True)
+class GasolineDemandConfig:
+    """Silver gasoline-demand year, unit conversion, and proxy settings."""
+
+    sales_year: int
+    gasoline_density_t_per_litre: float
+    proxies: GasolineProxyConfig
+
+
+@dataclass(frozen=True)
 class GeospatialBuildConfig:
     """Immutable shared configuration for the geospatial preprocessing workflow.
 
@@ -380,6 +409,8 @@ class GeospatialBuildConfig:
         Geological storage eligibility and capacity-bound settings.
     hydrography : HydrographyConfig
         Registered source and feature-selection rules for Silver hydrography.
+    gasoline_demand : GasolineDemandConfig
+        Provincial sales year and configurable spatial proxy strategy.
     source_path : Path
         Path to the TOML build profile from which the configuration was loaded.
     """
@@ -393,6 +424,7 @@ class GeospatialBuildConfig:
     schema: SchemaConfig
     storage: StorageConfig
     hydrography: HydrographyConfig
+    gasoline_demand: GasolineDemandConfig
     source_path: Path
 
 
@@ -876,6 +908,7 @@ def load_geospatial_build_config(
     schema_raw = require_table(raw, "schema")
     storage_raw = require_table(raw, "storage")
     hydrography_raw = require_table(raw, "hydrography")
+    gasoline_demand_raw = require_table(raw, "gasoline_demand")
 
     geographic_raw = require_table(
         basemaps_raw,
@@ -891,6 +924,11 @@ def load_geospatial_build_config(
     )
     hydrography_polygons_raw = require_table(hydrography_raw, "polygons")
     hydrography_lines_raw = require_table(hydrography_raw, "lines")
+    gasoline_proxies_raw = require_table(gasoline_demand_raw, "proxies")
+    gasoline_additional_hubs_raw = require_table(
+        gasoline_proxies_raw,
+        "additional_hubs",
+    )
     polygon_area_thresholds_raw = require_table(
         hydrography_polygons_raw,
         "minimum_source_area_km2",
@@ -1197,6 +1235,97 @@ def load_geospatial_build_config(
         ),
     )
 
+    minimum_population = require_int(
+        gasoline_proxies_raw,
+        "minimum_population",
+        "gasoline_demand.proxies",
+        minimum=1,
+    )
+    candidate_minimum_population = require_int(
+        gasoline_proxies_raw,
+        "candidate_minimum_population",
+        "gasoline_demand.proxies",
+        minimum=1,
+    )
+    for key, value in (
+        ("minimum_population", minimum_population),
+        ("candidate_minimum_population", candidate_minimum_population),
+    ):
+        if value not in SUPPORTED_POPULATION_CENTRE_THRESHOLDS:
+            raise ValueError(
+                f"[gasoline_demand.proxies].{key} must be one of "
+                f"{sorted(SUPPORTED_POPULATION_CENTRE_THRESHOLDS)} because "
+                "the current Bronze boundary supplies population classes "
+                "rather than exact population counts."
+            )
+
+    additional_hubs: dict[str, int] = {}
+    for province, value in gasoline_additional_hubs_raw.items():
+        normalized_province = str(province).upper().strip()
+        if normalized_province not in ALL_PROVINCE_CODES:
+            raise ValueError(
+                "[gasoline_demand.proxies.additional_hubs] contains an "
+                f"unsupported jurisdiction: {province!r}."
+            )
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(
+                "[gasoline_demand.proxies.additional_hubs]."
+                f"{normalized_province} must be a non-negative integer."
+            )
+        additional_hubs[normalized_province] = value
+
+    gasoline_proxy_strategy = _validate_choice(
+        require_string(
+            gasoline_proxies_raw,
+            "strategy",
+            "gasoline_demand.proxies",
+        ),
+        SUPPORTED_GASOLINE_PROXY_STRATEGIES,
+        "gasoline_demand.proxies.strategy",
+    )
+    if (
+        gasoline_proxy_strategy == "population_threshold"
+        and any(additional_hubs.values())
+    ):
+        raise ValueError(
+            "gasoline_demand.proxies.additional_hubs must be empty or zero "
+            "when strategy is 'population_threshold'."
+        )
+
+    gasoline_demand = GasolineDemandConfig(
+        sales_year=require_int(
+            gasoline_demand_raw,
+            "sales_year",
+            "gasoline_demand",
+            minimum=1987,
+        ),
+        gasoline_density_t_per_litre=_require_positive_number(
+            gasoline_demand_raw,
+            "gasoline_density_t_per_litre",
+            "gasoline_demand",
+        ),
+        proxies=GasolineProxyConfig(
+            strategy=gasoline_proxy_strategy,
+            minimum_population=minimum_population,
+            candidate_minimum_population=candidate_minimum_population,
+            empty_jurisdiction_policy=_validate_choice(
+                require_string(
+                    gasoline_proxies_raw,
+                    "empty_jurisdiction_policy",
+                    "gasoline_demand.proxies",
+                ),
+                SUPPORTED_GASOLINE_EMPTY_JURISDICTION_POLICIES,
+                "gasoline_demand.proxies.empty_jurisdiction_policy",
+            ),
+            anchor_registry=require_string(
+                gasoline_proxies_raw,
+                "anchor_registry",
+                "gasoline_demand.proxies",
+            ),
+            additional_hubs=additional_hubs,
+        ),
+    )
+
     if hydrography.enabled and not (
         hydrography.polygons.enabled or hydrography.lines.enabled
     ):
@@ -1251,6 +1380,7 @@ def load_geospatial_build_config(
         schema=schema,
         storage=storage,
         hydrography=hydrography,
+        gasoline_demand=gasoline_demand,
         source_path=config_path,
     )
 

@@ -35,6 +35,26 @@ def test_committed_sample_build_profile_loads() -> None:
         "intermittent",
     )
     assert config.hydrography.lines.enabled is False
+    assert config.gasoline_demand.sales_year == 2024
+    assert config.gasoline_demand.proxies.strategy == "population_threshold"
+    assert config.gasoline_demand.proxies.minimum_population == 100_000
+
+
+@pytest.mark.parametrize(
+    "profile_path",
+    sorted(PROFILE_DIR.glob("*.toml")),
+    ids=lambda path: path.name,
+)
+def test_all_committed_build_profiles_load(profile_path: Path) -> None:
+    config = load_geospatial_build_config(profile_path)
+
+    assert config.gasoline_demand.sales_year == 2024
+    assert config.gasoline_demand.proxies.strategy == "population_threshold"
+    assert config.gasoline_demand.proxies.minimum_population in {
+        1_000,
+        30_000,
+        100_000,
+    }
 
 
 def test_profile_rejects_duplicate_provinces(tmp_path: Path) -> None:
@@ -176,6 +196,19 @@ max_snap_distance_factor = 2.0
 [storage]
 eligibility = "all_mapped"
 use_capacity_bound = false
+
+[gasoline_demand]
+sales_year = 2024
+gasoline_density_t_per_litre = 0.00074
+
+[gasoline_demand.proxies]
+strategy = "population_threshold"
+minimum_population = 100000
+candidate_minimum_population = 30000
+empty_jurisdiction_policy = "largest_population_centre"
+anchor_registry = "registry/gasoline_supply_anchors.csv"
+
+[gasoline_demand.proxies.additional_hubs]
 """
 
 

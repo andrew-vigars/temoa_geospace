@@ -11,6 +11,8 @@ from .model_config import (
     load_model_config,
 )
 from .project_config import (
+    GasolineDemandConfig,
+    GasolineProxyConfig,
     GeospatialBuildConfig,
     HydrographyConfig,
     HydrographyFeatureFamilyConfig,
@@ -21,6 +23,8 @@ from .project_config import (
 )
 
 __all__ = [
+    "GasolineDemandConfig",
+    "GasolineProxyConfig",
     "GeospatialBuildConfig",
     "HydrographyConfig",
     "HydrographyFeatureFamilyConfig",

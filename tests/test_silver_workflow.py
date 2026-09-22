@@ -7,6 +7,8 @@ import pytest
 
 from geocanoe.execution.silver import (
     FunctionExecutor,
+    SILVER_STAGE_DEPENDENCIES,
+    SILVER_STAGE_ORDER,
     ScriptExecutor,
     SilverWorkflowDefinition,
     SilverWorkflowState,
@@ -16,6 +18,17 @@ from geocanoe.execution.silver import (
     validate_stage_dependencies,
     validate_workflow_definition,
 )
+
+
+def test_gasoline_basemap_stage_follows_both_inputs() -> None:
+    positions = {stage: index for index, stage in enumerate(SILVER_STAGE_ORDER)}
+
+    assert SILVER_STAGE_DEPENDENCIES["gasoline_basemap"] == (
+        "gasoline_demand",
+        "basemaps",
+    )
+    assert positions["gasoline_demand"] < positions["gasoline_basemap"]
+    assert positions["basemaps"] < positions["gasoline_basemap"]
 
 
 def _config() -> SimpleNamespace:

@@ -7,9 +7,10 @@ used by the command-line entry point in ``scripts/build_silver.py``.
 The silver workflow coordinates the transformations that convert raw and
 controlled project inputs into standardized intermediate products under
 ``data_files/processed/``. The workflow currently includes province assignment
-for legacy inputs, emissions preprocessing, hydrogen-pipeline cost processing,
-basemap construction, onshore CO2 storage integration, regional adjacency,
-processed road networks, and road-to-region connectivity.
+for legacy inputs, gasoline proxy selection, demand allocation and basemap
+mapping, emissions preprocessing, hydrogen-pipeline cost processing, basemap
+construction, onshore CO2 storage integration, regional adjacency, processed
+road networks, and road-to-region connectivity.
 
 Individual scientific and geospatial transformations remain implemented in
 their stage-specific modules. This module is responsible for orchestration:
@@ -244,6 +245,9 @@ class SilverWorkflowState:
 
 STAGE_MODULE_NAMES = {
     "legacy_inputs": "geocanoe.preprocessing.legacy_inputs",
+    "gasoline_proxies": "geocanoe.preprocessing.gasoline_demand",
+    "gasoline_demand": "geocanoe.preprocessing.gasoline_demand",
+    "gasoline_basemap": "geocanoe.preprocessing.gasoline_demand",
     "emissions": "geocanoe.emissions.facilities",
     "h2_pipeline_costs": "geocanoe.costs.pipelines.h2.capacity_costs",
     "h2_pipeline_cost_models": "geocanoe.costs.pipelines.h2.cost_models",
@@ -257,10 +261,13 @@ STAGE_MODULE_NAMES = {
 
 SILVER_STAGE_ORDER = (
     "legacy_inputs",
+    "gasoline_proxies",
+    "gasoline_demand",
     "emissions",
     "h2_pipeline_costs",
     "h2_pipeline_cost_models",
     "basemaps",
+    "gasoline_basemap",
     "hydrography",
     "co2_storage",
     "adjacency",
@@ -270,6 +277,9 @@ SILVER_STAGE_ORDER = (
 
 SILVER_STAGE_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "legacy_inputs": (),
+    "gasoline_proxies": (),
+    "gasoline_demand": ("gasoline_proxies",),
+    "gasoline_basemap": ("gasoline_demand", "basemaps"),
     "emissions": (),
     "h2_pipeline_costs": (),
     "h2_pipeline_cost_models": ("h2_pipeline_costs",),
@@ -300,6 +310,13 @@ EXTERNAL_INPUT_DEPENDENCIES: dict[str, tuple[str, ...]] = {
         "registered NHN metadata XML",
         "registered NHN acquisition manifest",
     ),
+    "gasoline_proxies": (
+        "registered Bronze population-centre boundaries",
+        "registered Bronze DA boundaries and population",
+        "controlled supply-anchor registry when hybrid selection is enabled",
+    ),
+    "gasoline_demand": ("registered Bronze provincial fuel-sales table",),
+    "gasoline_basemap": (),
     "co2_storage": ("acquired CanCO2 unified-storage GeoPackage",),
     "adjacency": (),
     "roads": ("raw provincial and territorial NRN GeoPackages",),
@@ -505,6 +522,27 @@ def build_stage_executors(
                 stage_modules["basemaps"],
                 "run_basemap_build",
                 "basemaps",
+            )
+        ),
+        "gasoline_proxies": FunctionExecutor(
+            require_stage_callable(
+                stage_modules["gasoline_proxies"],
+                "run_gasoline_proxy_build",
+                "gasoline_proxies",
+            )
+        ),
+        "gasoline_demand": FunctionExecutor(
+            require_stage_callable(
+                stage_modules["gasoline_demand"],
+                "run_gasoline_demand_build",
+                "gasoline_demand",
+            )
+        ),
+        "gasoline_basemap": FunctionExecutor(
+            require_stage_callable(
+                stage_modules["gasoline_basemap"],
+                "run_gasoline_basemap_build",
+                "gasoline_basemap",
             )
         ),
         "hydrography": FunctionExecutor(
@@ -863,6 +901,33 @@ def validate_external_inputs(
         stage_name="legacy_inputs",
         input_name="legacy demand table",
         path=DATA_FILES / "demand.csv",
+    )
+
+    gasoline_module = stage_modules["gasoline_proxies"]
+    for input_name, attribute in (
+        ("Bronze population-centre boundary", "POPULATION_CENTRES_PATH"),
+        ("Bronze DA boundary", "DA_BOUNDARIES_PATH"),
+        ("Bronze DA population table", "DA_POPULATION_PATH"),
+    ):
+        check_required_file(
+            checks,
+            stage_name="gasoline_proxies",
+            input_name=input_name,
+            path=Path(getattr(gasoline_module, attribute)),
+        )
+    if config.gasoline_demand.proxies.strategy == "supply_anchors_plus_fill":
+        anchor_resolver = getattr(gasoline_module, "resolve_anchor_registry")
+        check_required_file(
+            checks,
+            stage_name="gasoline_proxies",
+            input_name="controlled gasoline supply-anchor registry",
+            path=Path(anchor_resolver(config)),
+        )
+    check_required_file(
+        checks,
+        stage_name="gasoline_demand",
+        input_name="Bronze provincial fuel-sales table",
+        path=Path(getattr(gasoline_module, "FUEL_SALES_PATH")),
     )
 
     emissions_module = stage_modules["emissions"]
@@ -1426,6 +1491,12 @@ def verify_silver_build(
     }
     if config.hydrography.enabled and "hydrography" in expected:
         processed_directories["hydrography"] = processed_root / "nhn"
+    if expected.intersection(
+        {"gasoline_proxies", "gasoline_demand", "gasoline_basemap"}
+    ):
+        processed_directories["gasoline demand"] = (
+            processed_root / "gasoline_demand" / config.build_id
+        )
     missing_directories = {
         label: path
         for label, path in processed_directories.items()

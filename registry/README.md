@@ -56,6 +56,13 @@ elsewhere in the repository) are source inputs to the schema-building
 in `bronze_registry.yaml` synchronized with its file. Registry entries may
 also point to source inputs elsewhere in the repository.
 
+`gasoline_supply_anchors.csv` is a separate controlled Silver modelling input.
+It resolves selected 2021 population centres as optional distribution anchors
+for the `supply_anchors_plus_fill` proxy strategy. Its evidence fields distinguish
+centres named in NRCan distribution text from centres interpreted from the
+qualitative supply-orbit map; it must not be treated as a physical terminal
+inventory.
+
 ### Quick start
 
 1. Inspect `bronze_registry.yaml` to see available dataset IDs and their
