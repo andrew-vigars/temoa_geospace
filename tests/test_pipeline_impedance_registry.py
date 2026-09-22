@@ -21,6 +21,10 @@ def test_committed_penalty_profiles_are_audited_and_sources_are_registered() -> 
     legacy = penalties.get_layer("legacy_reference_v1", "aboriginal_lands")
     disabled_nhn = penalties.get_layer("no_penalties", "nhn_waterbodies")
     legacy_nhn = penalties.get_layer("legacy_reference_v1", "nhn_waterbodies")
+    disabled_population = penalties.get_layer("no_penalties", "population_exposure")
+    legacy_population = penalties.get_layer(
+        "legacy_reference_v1", "population_exposure"
+    )
 
     assert disabled.enabled is False
     assert disabled.applied_scalar == 0.0
@@ -33,3 +37,8 @@ def test_committed_penalty_profiles_are_audited_and_sources_are_registered() -> 
     assert legacy_nhn.enabled is True
     assert legacy_nhn.scalar == 9.0
     assert legacy_nhn.source_id in sources.list_ids()
+    assert disabled_population.enabled is False
+    assert legacy_population.enabled is True
+    assert legacy_population.penalty_method == "population_density_band_factor"
+    assert [band.factor for band in legacy_population.bands] == [0.0, 0.11, 0.43, 0.82]
+    assert legacy_population.source_id in sources.list_ids()

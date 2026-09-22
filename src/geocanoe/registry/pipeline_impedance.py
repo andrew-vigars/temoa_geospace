@@ -21,6 +21,31 @@ IDENTIFIER_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 @dataclass(frozen=True)
+class PopulationDensityBand:
+    """One population-density interval and its added-distance factor."""
+
+    name: str
+    minimum: float | None
+    maximum: float | None
+    minimum_inclusive: bool
+    maximum_inclusive: bool
+    factor: float
+
+    def contains(self, value: float) -> bool:
+        if self.minimum is not None:
+            if value < self.minimum or (
+                value == self.minimum and not self.minimum_inclusive
+            ):
+                return False
+        if self.maximum is not None:
+            if value > self.maximum or (
+                value == self.maximum and not self.maximum_inclusive
+            ):
+                return False
+        return True
+
+
+@dataclass(frozen=True)
 class PipelinePenaltyLayer:
     """One versioned scalar penalty assumption within a named profile."""
 
@@ -29,6 +54,9 @@ class PipelinePenaltyLayer:
     source_id: str
     penalty_method: str
     scalar: float
+    density_field: str | None
+    spatial_scope: str | None
+    bands: tuple[PopulationDensityBand, ...]
     evidence_status: str
     citation: str
     publication_year: int | None
@@ -120,10 +148,83 @@ class PipelinePenaltyRegistry:
                 if not math.isfinite(scalar) or scalar < 0:
                     raise ValueError(f"{label}.scalar must be finite and non-negative.")
                 method = _string(layer_raw, "penalty_method", label)
-                if method != "additional_distance_factor":
+                if method not in {
+                    "additional_distance_factor",
+                    "population_density_band_factor",
+                }:
                     raise ValueError(
-                        f"{label}.penalty_method must be 'additional_distance_factor'."
+                        f"{label}.penalty_method must be "
+                        "'additional_distance_factor' or "
+                        "'population_density_band_factor'."
                     )
+                density_field: str | None = None
+                spatial_scope: str | None = None
+                bands: tuple[PopulationDensityBand, ...] = ()
+                if method == "population_density_band_factor":
+                    density_field = _string(layer_raw, "density_field", label)
+                    spatial_scope = _string(layer_raw, "spatial_scope", label)
+                    bands_raw = layer_raw.get("bands")
+                    if not isinstance(bands_raw, list) or not bands_raw:
+                        raise ValueError(f"{label}.bands must be a non-empty list.")
+                    parsed_bands: list[PopulationDensityBand] = []
+                    for band_index, band_value in enumerate(bands_raw):
+                        band_label = f"{label}.bands[{band_index}]"
+                        band_raw = _mapping(band_value, band_label)
+                        minimum = band_raw.get("minimum")
+                        maximum = band_raw.get("maximum")
+                        factor = band_raw.get("factor")
+                        for key, value in {
+                            "minimum": minimum,
+                            "maximum": maximum,
+                        }.items():
+                            if value is not None and (
+                                isinstance(value, bool)
+                                or not isinstance(value, (int, float))
+                                or not math.isfinite(float(value))
+                            ):
+                                raise ValueError(
+                                    f"{band_label}.{key} must be null or finite numeric."
+                                )
+                        if (
+                            minimum is not None
+                            and maximum is not None
+                            and float(minimum) >= float(maximum)
+                        ):
+                            raise ValueError(
+                                f"{band_label}.minimum must be less than maximum."
+                            )
+                        if (
+                            isinstance(factor, bool)
+                            or not isinstance(factor, (int, float))
+                            or not math.isfinite(float(factor))
+                            or float(factor) < 0
+                        ):
+                            raise ValueError(
+                                f"{band_label}.factor must be finite and non-negative."
+                            )
+                        minimum_inclusive = band_raw.get("minimum_inclusive", True)
+                        maximum_inclusive = band_raw.get("maximum_inclusive", False)
+                        if not isinstance(minimum_inclusive, bool) or not isinstance(
+                            maximum_inclusive, bool
+                        ):
+                            raise ValueError(
+                                f"{band_label} inclusivity fields must be boolean."
+                            )
+                        parsed_bands.append(
+                            PopulationDensityBand(
+                                name=_string(band_raw, "name", band_label),
+                                minimum=(
+                                    float(minimum) if minimum is not None else None
+                                ),
+                                maximum=(
+                                    float(maximum) if maximum is not None else None
+                                ),
+                                minimum_inclusive=minimum_inclusive,
+                                maximum_inclusive=maximum_inclusive,
+                                factor=float(factor),
+                            )
+                        )
+                    bands = tuple(parsed_bands)
                 evidence = _mapping(layer_raw.get("evidence"), f"{label}.evidence")
                 publication_year = evidence.get("publication_year")
                 if publication_year is not None and (
@@ -145,6 +246,9 @@ class PipelinePenaltyRegistry:
                     source_id=_string(layer_raw, "source_id", label),
                     penalty_method=method,
                     scalar=scalar,
+                    density_field=density_field,
+                    spatial_scope=spatial_scope,
+                    bands=bands,
                     evidence_status=_string(evidence, "status", f"{label}.evidence"),
                     citation=_string(evidence, "citation", f"{label}.evidence"),
                     publication_year=publication_year,
@@ -185,6 +289,7 @@ class PipelinePenaltyRegistry:
 
 __all__ = [
     "PIPELINE_IMPEDANCE_PENALTY_REGISTRY",
+    "PopulationDensityBand",
     "PipelinePenaltyLayer",
     "PipelinePenaltyProfile",
     "PipelinePenaltyRegistry",

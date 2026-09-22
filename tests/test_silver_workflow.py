@@ -45,6 +45,29 @@ def test_nhn_impedance_stage_follows_hydrography() -> None:
     assert positions["hydrography"] < positions["nhn_impedance"]
 
 
+def test_population_impedance_stage_follows_basemaps() -> None:
+    positions = {stage: index for index, stage in enumerate(SILVER_STAGE_ORDER)}
+
+    assert SILVER_STAGE_DEPENDENCIES["population_impedance"] == ("basemaps",)
+    assert positions["basemaps"] < positions["population_impedance"]
+
+
+def test_pipeline_edge_impedance_follows_graph_and_evidence() -> None:
+    positions = {stage: index for index, stage in enumerate(SILVER_STAGE_ORDER)}
+    dependencies = SILVER_STAGE_DEPENDENCIES["pipeline_edge_impedance"]
+
+    assert dependencies == (
+        "adjacency",
+        "aboriginal_lands",
+        "population_impedance",
+        "nhn_impedance",
+    )
+    assert all(
+        positions[dependency] < positions["pipeline_edge_impedance"]
+        for dependency in dependencies
+    )
+
+
 def _config() -> SimpleNamespace:
     return SimpleNamespace(
         source_path=Path("profile.toml"),
