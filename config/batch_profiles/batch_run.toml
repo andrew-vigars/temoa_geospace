@@ -25,10 +25,17 @@ retry_failed = false
 # =============================================================================
 
 [[runs]]
-config = "temoa/data_files/my_configs/provinces_25km_baseline.toml"
+config = "temoa/data_files/my_configs/provinces_baseline_25km_population.toml"
 enabled = true
 
 [[runs]]
-config = "temoa/data_files/my_configs/provinces_25km_net_zero.toml"
+config = "temoa/data_files/my_configs/provinces_baseline_25km_supplyorbit.toml"
 enabled = true
 
+[[runs]]
+config = "temoa/data_files/my_configs/provinces_net_zero_25km_population.toml"
+enabled = true
+
+[[runs]]
+config = "temoa/data_files/my_configs/provinces_net_zero_25km_supplyorbit.toml"
+enabled = true
