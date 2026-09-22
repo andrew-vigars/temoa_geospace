@@ -327,6 +327,9 @@ projection_method = "constant"
 [storage]
 requirement = "minimum_cumulative_activity"
 minimum_cumulative_activity = 7_500_000_000
+
+[pipeline_costs]
+impedance_scope = "none"
 ```
 
 Every Gold build also selects one file from `registry/scenarios/`. A scenario
@@ -354,6 +357,29 @@ minimum_cumulative_activity = 0
 `model.toml` is loaded first and the selected scenario is applied second.
 Unknown scenario sections or settings fail validation, and the complete merged
 configuration—not only the override—is recorded with the Gold artifact.
+
+Pipeline scenarios can apply the Silver ``cost_distance_multiplier`` associated
+with every directed ``Ri-Rj`` edge without changing the graph's physical
+``distance_km``. The supported ``[pipeline_costs].impedance_scope`` values are:
+
+- ``none``: use physical distance for all pipeline costs;
+- ``etl_capex_only``: use weighted distance only for pipeline ``ETLSegment``
+  CAPEX; and
+- ``all_km_dependent``: use weighted distance for pipeline ``ETLSegment``
+  CAPEX, fixed OPEX, and variable OPEX.
+
+For example, a scenario that applies the geographic bias only to pipeline CAPEX
+contains:
+
+```toml
+[pipeline_costs]
+impedance_scope = "etl_capex_only"
+```
+
+When weighting is enabled, schema construction requires exact one-to-one edge
+coverage from the matching Silver artifact under
+``data_files/processed/pipeline_impedance/<build-id>/edges/``. Truck and
+electricity-transmission costs always retain physical distance.
 
 The two time boundaries define exactly one optimization period, `[2025, 2050)`,
 with a 25-year duration. Temoa optimizes one representative year and assumes its
@@ -790,7 +816,11 @@ configuration. It prevents materially different builds from overwriting one
 another without making filenames excessively long. The adjacent manifest stores
 the full resolved paths and values needed to interpret or reproduce the artifact.
 
-The current generalized pipeline assumption applies the processed hydrogen-pipeline capacity and cost representation to all pipeline technologies until commodity-specific pipeline cost layers are available.
+The current generalized pipeline assumption applies the processed
+hydrogen-pipeline capacity and cost representation to all pipeline technologies
+until commodity-specific pipeline cost layers are available. A scenario may
+apply the matching Silver edge-impedance multiplier to CAPEX only or to all
+kilometre-dependent pipeline costs; physical graph distances remain unchanged.
 
 ### Single-scenario execution
 

@@ -89,6 +89,7 @@ RAW_BASEMAPS = DATA_FILES / "raw" / "basemaps"
 PROCESSED_BASEMAPS = DATA_FILES / "processed" / "basemaps"
 PROCESSED_GRAPH = DATA_FILES / "processed" / "graph"
 PROCESSED_ROAD_CONNECTIVITY = DATA_FILES / "processed" / "road_connectivity"
+PROCESSED_PIPELINE_IMPEDANCE = DATA_FILES / "processed" / "pipeline_impedance"
 PROCESSED_SCHEMA = DATA_FILES / "processed" / "schema"
 
 RAW_BASEMAP_PATH = RAW_BASEMAPS / "lpr_000b21a_e.shp"
@@ -290,6 +291,8 @@ class ResolvedSchemaConfig:
     legacy_gasoline_enabled: bool
     legacy_gasoline_years_of_demand: float
     output_sqlite_path: Path
+    pipeline_impedance_scope: str = "none"
+    pipeline_impedance_path: Path | None = None
 
 
 @dataclass
@@ -354,6 +357,7 @@ class LoadedInputs:
     commodities_raw: pd.DataFrame
     h2_etlsegment_template: pd.DataFrame
     h2_opex_coefficients: pd.DataFrame
+    pipeline_edge_impedance: pd.DataFrame | None = None
 
 
 @dataclass
@@ -714,6 +718,25 @@ def resolve_schema_configuration(
 
     road_layer = build_config.road_connectivity.road_layer
     connection_method = build_config.schema.road_connection_method
+    pipeline_impedance_scope = model_config.pipeline_costs.impedance_scope
+
+    if (
+        pipeline_impedance_scope != "none"
+        and not build_config.pipeline_impedance.enabled
+    ):
+        raise ValueError(
+            "Pipeline cost impedance was requested by [pipeline_costs], but "
+            "pipeline_impedance.enabled is false in the Silver build profile."
+        )
+
+    pipeline_impedance_path = None
+    if pipeline_impedance_scope != "none":
+        pipeline_impedance_path = (
+            PROCESSED_PIPELINE_IMPEDANCE
+            / build_config.build_id
+            / "edges"
+            / f"{basemap_stem}_pipeline_impedance_edges.csv"
+        )
 
     if connection_method not in build_config.road_connectivity.methods:
         raise ValueError(
@@ -777,6 +800,8 @@ def resolve_schema_configuration(
             model_config.legacy_gasoline.years_of_demand
         ),
         output_sqlite_path=artifacts.schema,
+        pipeline_impedance_scope=pipeline_impedance_scope,
+        pipeline_impedance_path=pipeline_impedance_path,
     )
 
     ensure_baseline_sqlite_exists()
@@ -803,6 +828,7 @@ def build_schema_fingerprint(
             "emissions": asdict(model_config.emissions),
             "storage": asdict(model_config.storage),
             "legacy_gasoline": asdict(model_config.legacy_gasoline),
+            "pipeline_costs": asdict(model_config.pipeline_costs),
         },
     }
     canonical = json.dumps(
@@ -891,6 +917,8 @@ def validate_required_paths(config: ResolvedSchemaConfig) -> None:
         "road_region_overlay": config.road_region_overlay_path,
         "co2_storage": config.co2_storage_path,
     }
+    if config.pipeline_impedance_path is not None:
+        required_paths["pipeline_edge_impedance"] = config.pipeline_impedance_path
 
     missing_paths = {
         name: path
@@ -1494,6 +1522,11 @@ def load_inputs(config: ResolvedSchemaConfig) -> LoadedInputs:
         commodities_raw=pd.read_csv(COMMODITIES_PATH),
         h2_etlsegment_template=pd.read_csv(H2_ETLSEGMENT_TEMPLATE_PATH),
         h2_opex_coefficients=pd.read_csv(H2_OPEX_COEFFICIENT_PATH),
+        pipeline_edge_impedance=(
+            pd.read_csv(config.pipeline_impedance_path)
+            if config.pipeline_impedance_path is not None
+            else None
+        ),
     )
 
     basemap_study_area = str(inputs.basemap["study_area"].iloc[0])
@@ -1534,8 +1567,175 @@ def load_inputs(config: ResolvedSchemaConfig) -> LoadedInputs:
     print(f"Clean spatial CO2 facilities: {len(inputs.co2_raw):,}")
     print(f"H2 ETLSegment template rows: {len(inputs.h2_etlsegment_template):,}")
     print(f"H2 OPEX coefficient rows: {len(inputs.h2_opex_coefficients):,}")
+    if inputs.pipeline_edge_impedance is not None:
+        print(
+            "Pipeline edge impedance rows: "
+            f"{len(inputs.pipeline_edge_impedance):,}"
+        )
 
     return inputs
+
+
+def attach_pipeline_cost_distances(
+    graph_edges: pd.DataFrame,
+    pipeline_edge_impedance: pd.DataFrame | None,
+    impedance_scope: str,
+) -> pd.DataFrame:
+    """Join Silver edge weights and derive pipeline-specific cost distances.
+
+    The graph's physical ``distance_km`` is never modified. Depending on the
+    configured scope, the Silver effective distance is assigned to the CAPEX
+    distance, both CAPEX and OPEX distances, or neither.
+    """
+
+    supported_scopes = {"none", "etl_capex_only", "all_km_dependent"}
+    if impedance_scope not in supported_scopes:
+        raise ValueError(
+            "Unsupported pipeline impedance scope: "
+            f"{impedance_scope!r}."
+        )
+
+    edges = graph_edges.copy().reset_index(drop=True)
+    required_graph_columns = {
+        "edge_region",
+        "region_from",
+        "region_to",
+        "distance_km",
+    }
+    missing_graph_columns = required_graph_columns - set(edges.columns)
+    if missing_graph_columns:
+        raise ValueError(
+            "Graph edges are missing columns required for pipeline cost "
+            f"mapping: {sorted(missing_graph_columns)}"
+        )
+    if edges["edge_region"].isna().any() or edges["edge_region"].duplicated().any():
+        raise ValueError("Graph edge_region values must be non-null and unique.")
+
+    physical_distance = pd.to_numeric(edges["distance_km"], errors="coerce")
+    if (
+        physical_distance.isna().any()
+        or not np.isfinite(physical_distance.to_numpy(dtype=float)).all()
+        or (physical_distance <= 0).any()
+    ):
+        raise ValueError("Graph edge distances must be finite and positive.")
+
+    if impedance_scope == "none":
+        edges["physical_distance_km"] = physical_distance
+        edges["cost_distance_multiplier"] = 1.0
+        edges["effective_distance_km"] = physical_distance
+    else:
+        if pipeline_edge_impedance is None:
+            raise ValueError(
+                "Pipeline cost impedance is enabled, but no Silver pipeline "
+                "edge impedance table was loaded."
+            )
+        required_impedance_columns = {
+            "edge_region",
+            "region_from",
+            "region_to",
+            "physical_distance_km",
+            "effective_distance_km",
+            "cost_distance_multiplier",
+        }
+        missing_impedance_columns = (
+            required_impedance_columns - set(pipeline_edge_impedance.columns)
+        )
+        if missing_impedance_columns:
+            raise ValueError(
+                "Silver pipeline edge impedance is missing required columns: "
+                f"{sorted(missing_impedance_columns)}"
+            )
+        impedance = pipeline_edge_impedance[
+            sorted(required_impedance_columns)
+        ].copy()
+        if (
+            impedance["edge_region"].isna().any()
+            or impedance["edge_region"].duplicated().any()
+        ):
+            raise ValueError(
+                "Silver pipeline edge impedance edge_region values must be "
+                "non-null and unique."
+            )
+
+        graph_ids = set(edges["edge_region"].astype(str))
+        impedance_ids = set(impedance["edge_region"].astype(str))
+        missing_edges = sorted(graph_ids - impedance_ids)
+        extra_edges = sorted(impedance_ids - graph_ids)
+        if missing_edges or extra_edges:
+            raise ValueError(
+                "Silver pipeline edge impedance does not exactly cover graph "
+                f"edges. Missing: {missing_edges[:10]}; extra: {extra_edges[:10]}"
+            )
+
+        edges = edges.merge(
+            impedance,
+            on="edge_region",
+            how="left",
+            validate="one_to_one",
+            suffixes=("", "_impedance"),
+        )
+        for endpoint in ("region_from", "region_to"):
+            impedance_endpoint = f"{endpoint}_impedance"
+            mismatch = (
+                edges[endpoint].astype(str)
+                != edges[impedance_endpoint].astype(str)
+            )
+            if mismatch.any():
+                bad_edges = edges.loc[mismatch, "edge_region"].astype(str).tolist()
+                raise ValueError(
+                    "Silver pipeline edge impedance endpoints disagree with "
+                    f"the graph for {endpoint}: {bad_edges[:10]}"
+                )
+            edges = edges.drop(columns=impedance_endpoint)
+
+        for column in (
+            "physical_distance_km",
+            "effective_distance_km",
+            "cost_distance_multiplier",
+        ):
+            edges[column] = pd.to_numeric(edges[column], errors="coerce")
+            values = edges[column].to_numpy(dtype=float)
+            if edges[column].isna().any() or not np.isfinite(values).all():
+                raise ValueError(
+                    f"Silver pipeline edge impedance {column} must be finite."
+                )
+        if (
+            (edges["physical_distance_km"] <= 0).any()
+            or (edges["effective_distance_km"] <= 0).any()
+            or (edges["cost_distance_multiplier"] <= 0).any()
+        ):
+            raise ValueError(
+                "Silver pipeline edge impedance distances and multipliers "
+                "must be positive."
+            )
+        if not np.allclose(
+            physical_distance.to_numpy(dtype=float),
+            edges["physical_distance_km"].to_numpy(dtype=float),
+        ):
+            raise ValueError(
+                "Silver pipeline physical distances do not match graph distances."
+            )
+        expected_effective = (
+            physical_distance.to_numpy(dtype=float)
+            * edges["cost_distance_multiplier"].to_numpy(dtype=float)
+        )
+        if not np.allclose(
+            expected_effective,
+            edges["effective_distance_km"].to_numpy(dtype=float),
+        ):
+            raise ValueError(
+                "Silver pipeline effective distances are inconsistent with "
+                "distance_km * cost_distance_multiplier."
+            )
+
+    edges["pipeline_capex_distance_km"] = physical_distance
+    edges["pipeline_opex_distance_km"] = physical_distance
+    if impedance_scope in {"etl_capex_only", "all_km_dependent"}:
+        edges["pipeline_capex_distance_km"] = edges["effective_distance_km"]
+    if impedance_scope == "all_km_dependent":
+        edges["pipeline_opex_distance_km"] = edges["effective_distance_km"]
+
+    return edges
 
 
 def build_canonical_links(
@@ -1543,6 +1743,7 @@ def build_canonical_links(
     graph_edges: pd.DataFrame,
     road_edge_connections: pd.DataFrame,
     config: ResolvedSchemaConfig,
+    pipeline_edge_impedance: pd.DataFrame | None = None,
 ) -> CanonicalLinks:
     """Build canonical node and edge regions for schema encoding.
 
@@ -1617,7 +1818,11 @@ def build_canonical_links(
     road_links["canoe_region"] = road_links["edge_region"]
     road_links["road_layer"] = config.road_layer
 
-    pipeline_links = graph_edges.copy()
+    pipeline_links = attach_pipeline_cost_distances(
+        graph_edges,
+        pipeline_edge_impedance,
+        config.pipeline_impedance_scope,
+    )
     pipeline_links["canoe_region"] = pipeline_links["edge_region"]
 
     canonical = CanonicalLinks(
@@ -1634,6 +1839,16 @@ def build_canonical_links(
     print("\nCanonical topology:")
     print(f"Node regions: {len(region_table):,}")
     print(f"Candidate pipeline/transmission links: {len(pipeline_links):,}")
+    print(
+        "Pipeline physical/effective distance totals: "
+        f"{pipeline_links['distance_km'].sum():,.2f} / "
+        f"{pipeline_links['effective_distance_km'].sum():,.2f} km"
+    )
+    print(
+        "Pipeline CAPEX/OPEX cost-distance totals: "
+        f"{pipeline_links['pipeline_capex_distance_km'].sum():,.2f} / "
+        f"{pipeline_links['pipeline_opex_distance_km'].sum():,.2f} km"
+    )
     print(
         f"Road links "
         f"({config.road_layer}, {config.connection_method}): "
@@ -1688,6 +1903,8 @@ def validate_canonical_links(
     assert pipeline_links["distance_km"].notna().all()
     assert road_links["distance_km"].notna().all()
     assert (pipeline_links["distance_km"] > 0).all()
+    assert (pipeline_links["pipeline_capex_distance_km"] > 0).all()
+    assert (pipeline_links["pipeline_opex_distance_km"] > 0).all()
     assert (road_links["distance_km"] > 0).all()
     assert pipeline_links["canoe_region"].str.contains("-", regex=False).all()
     assert road_links["canoe_region"].str.contains("-", regex=False).all()
@@ -3750,8 +3967,8 @@ def build_generalized_pipeline_etl_segments(
     Parameters
     ----------
     pipeline_links : pd.DataFrame
-        Canonical pipeline-link table containing ``canoe_region`` and
-        ``distance_km`` columns.
+        Canonical pipeline-link table containing ``canoe_region`` and the
+        scope-selected ``pipeline_capex_distance_km`` column.
     pipeline_tech_specs : pd.DataFrame
         Pipeline technology specifications containing the canonical ``tech``
         identifiers to which the generalized cost curve will be applied.
@@ -3774,7 +3991,7 @@ def build_generalized_pipeline_etl_segments(
     """
 
     edge_frame = (
-        pipeline_links[["canoe_region", "distance_km"]]
+        pipeline_links[["canoe_region", "pipeline_capex_distance_km"]]
         .rename(columns={"canoe_region": "region"})
         .copy()
     )
@@ -3804,10 +4021,12 @@ def build_generalized_pipeline_etl_segments(
             .drop(columns="_join_key")
         )
         mapped["cost_lower"] = (
-            mapped["cost_lower_per_km"] * mapped["distance_km"]
+            mapped["cost_lower_per_km"]
+            * mapped["pipeline_capex_distance_km"]
         )
         mapped["cost_upper"] = (
-            mapped["cost_upper_per_km"] * mapped["distance_km"]
+            mapped["cost_upper_per_km"]
+            * mapped["pipeline_capex_distance_km"]
         )
         mapped_rows.append(
             mapped[[
@@ -4339,6 +4558,7 @@ def build_generalized_pipeline_opex_rows(
     pipeline_tech_specs: pd.DataFrame,
     opex_coefficients: pd.DataFrame,
     model_period: int,
+    impedance_scope: str = "none",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Build generalized fixed- and variable-OPEX rows for pipeline links.
 
@@ -4355,7 +4575,7 @@ def build_generalized_pipeline_opex_rows(
     ----------
     pipeline_links : pd.DataFrame
         Canonical pipeline-link table containing ``canoe_region`` identifiers and
-        positive ``distance_km`` values.
+        positive ``pipeline_opex_distance_km`` values.
     pipeline_tech_specs : pd.DataFrame
         Pipeline technology specifications containing the canonical ``tech``
         identifiers to which the generalized OPEX coefficients are applied.
@@ -4389,7 +4609,7 @@ def build_generalized_pipeline_opex_rows(
 
     edge_regions = pipeline_links["canoe_region"].reset_index(drop=True)
     edge_distances = pd.to_numeric(
-        pipeline_links["distance_km"], errors="coerce"
+        pipeline_links["pipeline_opex_distance_km"], errors="coerce"
     ).reset_index(drop=True)
     if edge_distances.isna().any() or (edge_distances <= 0).any():
         raise ValueError("Cannot build pipeline OPEX rows from invalid distances.")
@@ -4410,7 +4630,8 @@ def build_generalized_pipeline_opex_rows(
                 f"{GENERALIZED_PIPELINE_COST_NOTE} Applied to {tech}. "
                 f"The regression intercept ({fixed_intercept:.12g}) is "
                 "retained in the source layer but omitted because TEMOA "
-                "CostFixed is multiplied by capacity."
+                "CostFixed is multiplied by capacity. "
+                f"Pipeline impedance scope: {impedance_scope}."
             ),
             "data_source": fixed_row.get("data_source", None),
             "dq_cred": fixed_row.get("dq_cred", None),
@@ -4431,7 +4652,8 @@ def build_generalized_pipeline_opex_rows(
                 f"{GENERALIZED_PIPELINE_COST_NOTE} Applied to {tech}. "
                 f"The regression intercept ({variable_intercept:.12g}) is "
                 "retained in the source layer but omitted because TEMOA "
-                "CostVariable is multiplied by activity."
+                "CostVariable is multiplied by activity. "
+                f"Pipeline impedance scope: {impedance_scope}."
             ),
             "data_source": variable_row.get("data_source", None),
             "dq_cred": variable_row.get("dq_cred", None),
@@ -4454,6 +4676,7 @@ def rebuild_generalized_pipeline_opex(
     pipeline_tech_specs: pd.DataFrame,
     opex_coefficients: pd.DataFrame,
     model_period: int,
+    impedance_scope: str = "none",
 ) -> None:
     """Replace pipeline fixed and variable OPEX with generalized H2-derived rows.
 
@@ -4490,6 +4713,7 @@ def rebuild_generalized_pipeline_opex(
             pipeline_tech_specs=pipeline_tech_specs,
             opex_coefficients=opex_coefficients,
             model_period=model_period,
+            impedance_scope=impedance_scope,
         )
     )
     pipeline_techs = set(pipeline_tech_specs["tech"].astype(str))
@@ -4878,10 +5102,15 @@ def validate_generalized_pipeline_cost_layer(
     expected_regions = canonical.valid_pipeline_edge_regions
     expected_edges = len(canonical.pipeline_links)
     expected_segments = len(h2_etlsegment_template)
-    distance_lookup = (
-        canonical.pipeline_links[["canoe_region", "distance_km"]]
+    capex_distance_lookup = (
+        canonical.pipeline_links[["canoe_region", "pipeline_capex_distance_km"]]
         .rename(columns={"canoe_region": "region"})
-        .set_index("region")["distance_km"]
+        .set_index("region")["pipeline_capex_distance_km"]
+    )
+    opex_distance_lookup = (
+        canonical.pipeline_links[["canoe_region", "pipeline_opex_distance_km"]]
+        .rename(columns={"canoe_region": "region"})
+        .set_index("region")["pipeline_opex_distance_km"]
     )
     fixed_coefficient = float(
         h2_opex_coefficients.loc[
@@ -4926,8 +5155,8 @@ def validate_generalized_pipeline_cost_layer(
         assert len(fixed) == expected_edges
         assert len(variable) == expected_edges
 
-        fixed_distances = fixed["region"].map(distance_lookup)
-        variable_distances = variable["region"].map(distance_lookup)
+        fixed_distances = fixed["region"].map(opex_distance_lookup)
+        variable_distances = variable["region"].map(opex_distance_lookup)
         assert np.allclose(
             fixed["cost"].to_numpy(dtype=float)
             / fixed_distances.to_numpy(dtype=float),
@@ -4939,7 +5168,7 @@ def validate_generalized_pipeline_cost_layer(
             variable_coefficient,
         )
 
-        etl_distances = etl["region"].map(distance_lookup)
+        etl_distances = etl["region"].map(capex_distance_lookup)
         expected_lower = (
             etl["segment"].map(template_lookup["cost_lower_per_km"])
             .to_numpy(dtype=float)
@@ -5326,6 +5555,7 @@ def run_schema_build(
         "Legacy gasoline years of demand: "
         f"{config.legacy_gasoline_years_of_demand:g}"
     )
+    print(f"Pipeline impedance scope: {config.pipeline_impedance_scope}")
     print(f"Output SQLite: {config.output_sqlite_path.name}")
 
     inputs = load_inputs(config)
@@ -5335,6 +5565,7 @@ def run_schema_build(
         graph_edges=inputs.graph_edges,
         road_edge_connections=inputs.road_edge_connections,
         config=config,
+        pipeline_edge_impedance=inputs.pipeline_edge_impedance,
     )
     specs = build_tech_specs(inputs.transport_techs_raw)
 
@@ -5428,6 +5659,7 @@ def run_schema_build(
         pipeline_tech_specs=specs.pipeline_tech_specs,
         opex_coefficients=inputs.h2_opex_coefficients,
         model_period=config.model_start_year,
+        impedance_scope=config.pipeline_impedance_scope,
     )
     rebuild_truck_costinvest(
         db_encoded=db_encoded,

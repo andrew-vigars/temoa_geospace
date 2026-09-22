@@ -11,8 +11,11 @@ from geocanoe.config import load_geospatial_build_config, load_model_config
 from geocanoe.schema.build import (
     ResolvedSchemaConfig,
     assign_etl_curve_to_regions,
+    attach_pipeline_cost_distances,
     build_canonical_links,
     build_etl_curve,
+    build_generalized_pipeline_etl_segments,
+    build_generalized_pipeline_opex_rows,
     build_transport_costvariable,
     build_transport_efficiency,
     build_schema_fingerprint,
@@ -67,6 +70,20 @@ minimum_cumulative_activity = 7_500_000_000
         PROJECT_ROOT / "registry" / "model.toml",
         alternate_path,
     )
+    weighted_path = tmp_path / "weighted-pipeline.toml"
+    weighted_path.write_text(
+        """[scenario]
+id = "weighted-pipeline"
+
+[pipeline_costs]
+impedance_scope = "etl_capex_only"
+""",
+        encoding="utf-8",
+    )
+    weighted = load_model_config(
+        PROJECT_ROOT / "registry" / "model.toml",
+        weighted_path,
+    )
 
     baseline_hash = build_schema_fingerprint(
         build_config,
@@ -82,6 +99,11 @@ minimum_cumulative_activity = 7_500_000_000
     assert baseline_hash != build_schema_fingerprint(
         build_config,
         alternate,
+        "sample_basemap_25km_centroid",
+    )
+    assert baseline_hash != build_schema_fingerprint(
+        build_config,
+        weighted,
         "sample_basemap_25km_centroid",
     )
 
@@ -218,6 +240,127 @@ def test_transport_costs_reject_nonpositive_distance() -> None:
 
     with pytest.raises(AssertionError):
         build_transport_costvariable(links, specs, "test", 2025)
+
+
+def _pipeline_graph_edges() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "edge_region": ["R0-R1", "R1-R0"],
+            "region_from": ["R0", "R1"],
+            "region_to": ["R1", "R0"],
+            "distance_km": [10.0, 10.0],
+        }
+    )
+
+
+def _pipeline_impedance() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "edge_region": ["R0-R1", "R1-R0"],
+            "region_from": ["R0", "R1"],
+            "region_to": ["R1", "R0"],
+            "physical_distance_km": [10.0, 10.0],
+            "effective_distance_km": [15.0, 15.0],
+            "cost_distance_multiplier": [1.5, 1.5],
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("scope", "expected_capex", "expected_opex"),
+    [
+        ("none", 10.0, 10.0),
+        ("etl_capex_only", 15.0, 10.0),
+        ("all_km_dependent", 15.0, 15.0),
+    ],
+)
+def test_pipeline_impedance_scope_selects_cost_distances(
+    scope: str,
+    expected_capex: float,
+    expected_opex: float,
+) -> None:
+    impedance = None if scope == "none" else _pipeline_impedance()
+
+    links = attach_pipeline_cost_distances(
+        _pipeline_graph_edges(),
+        impedance,
+        scope,
+    )
+
+    assert links["distance_km"].eq(10.0).all()
+    assert links["pipeline_capex_distance_km"].eq(expected_capex).all()
+    assert links["pipeline_opex_distance_km"].eq(expected_opex).all()
+
+
+def test_pipeline_impedance_requires_exact_edge_coverage() -> None:
+    impedance = _pipeline_impedance().iloc[:1].copy()
+
+    with pytest.raises(ValueError, match="does not exactly cover"):
+        attach_pipeline_cost_distances(
+            _pipeline_graph_edges(),
+            impedance,
+            "etl_capex_only",
+        )
+
+
+def test_pipeline_etl_and_opex_use_separate_cost_distances() -> None:
+    links = attach_pipeline_cost_distances(
+        _pipeline_graph_edges(),
+        _pipeline_impedance(),
+        "etl_capex_only",
+    )
+    links["canoe_region"] = links["edge_region"]
+    tech_specs = pd.DataFrame({"tech": ["H2_PIPE"]})
+    etl_template = pd.DataFrame(
+        {
+            "tech_or_group": ["H2_PIPE"],
+            "segment": [0],
+            "cap_lower": [0.0],
+            "cap_upper": [100.0],
+            "cost_lower_per_km": [0.0],
+            "cost_upper_per_km": [2.0],
+            "data_id": ["GEO001"],
+        }
+    )
+    opex_coefficients = pd.DataFrame(
+        {
+            "technology": ["H2_PIPE", "H2_PIPE"],
+            "cost_type": ["fixed_opex", "variable_opex"],
+            "coefficient_per_km": [3.0, 4.0],
+            "intercept_cost": [0.0, 0.0],
+            "data_id": ["GEO001", "GEO001"],
+        }
+    )
+
+    etl = build_generalized_pipeline_etl_segments(
+        links,
+        tech_specs,
+        etl_template,
+    )
+    fixed, variable = build_generalized_pipeline_opex_rows(
+        links,
+        tech_specs,
+        opex_coefficients,
+        2025,
+        impedance_scope="etl_capex_only",
+    )
+    transmission = build_transport_costvariable(
+        links,
+        pd.DataFrame(
+            {
+                "tech": ["ELC_TRANS"],
+                "cost_per_km": [2.0],
+                "intercept_cost_per_km": [0.0],
+            }
+        ),
+        "physical transmission distance",
+        2025,
+    )
+
+    assert etl["cost_upper"].eq(30.0).all()
+    assert fixed["cost"].eq(30.0).all()
+    assert variable["cost"].eq(40.0).all()
+    assert transmission["cost"].eq(20.0).all()
 
 
 def test_canonical_links_separate_all_edges_from_road_edges() -> None:

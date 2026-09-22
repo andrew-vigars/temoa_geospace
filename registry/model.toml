@@ -73,3 +73,14 @@ grid_type = "projected"
 # generated, construction fails with a ValueError listing what is available
 # instead of falling back to an interactive prompt.
 resolution = 25
+
+[pipeline_costs]
+
+# Control whether the Silver pipeline cost-distance multiplier is applied to
+# pipeline costs. Physical graph distance is always retained unchanged.
+# Supported values:
+#   "none"             - use physical distance for all pipeline costs;
+#   "etl_capex_only"   - weight pipeline ETLSegment CAPEX only;
+#   "all_km_dependent" - weight pipeline ETLSegment CAPEX plus fixed and
+#                        variable OPEX.
+impedance_scope = "none"

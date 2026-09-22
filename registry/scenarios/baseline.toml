@@ -1,6 +1,15 @@
+## =============================================================================
+# GeoCANOE Gold-model scenario template — COMMITTED SAMPLE
 # =============================================================================
-# GeoCANOE Gold-model scenario template
-# =============================================================================
+#
+# This file is the committed, always-resolvable sample scenario. It is a copy
+# of the baseline scenario, kept here under a stable "sample_*" name so it is
+# never overwritten by edits to the real, policy-specific scenarios.
+#
+# registry/scenarios/*.toml (other than this file) are local, policy-specific
+# and are gitignored: they are not committed. To create your own scenario,
+# copy this file, assign a unique scenario ID, and uncomment only the
+# settings that should differ.
 #
 # Scenario files are overlays on registry/model.toml:
 #
@@ -9,12 +18,9 @@
 #   3. the merged configuration is validated and encoded into Gold;
 #   4. Silver evidence layers are never modified or rebuilt by a scenario.
 #
-# The committed baseline intentionally declares no overrides, so it inherits all
-# current global defaults. To create another scenario, copy this file, assign a
-# unique scenario ID, and uncomment only the settings that should differ.
-#
 # Supported override sections are [time], [finance], [emissions], [storage],
-# and [basemap]. Unknown sections, unknown keys, invalid values, and
+# [legacy_gasoline], [basemap], and [pipeline_costs]. Unknown sections,
+# unknown keys, invalid values, and
 # inconsistent combinations fail validation before schema construction.
 
 [scenario]
@@ -137,3 +143,20 @@ description = "Canonical baseline using all global model defaults"
 # [basemap]
 # grid_type = "projected"
 # resolution = 25
+
+
+# -----------------------------------------------------------------------------
+# Optional pipeline geographic-cost bias override
+# -----------------------------------------------------------------------------
+#
+# The selected Silver edge product supplies a cost-distance multiplier for each
+# directed Ri-Rj edge. Physical graph distance is never overwritten.
+#
+# Supported scopes:
+#   "none"             - physical distance for all pipeline costs;
+#   "etl_capex_only"   - weighted distance for ETLSegment CAPEX only;
+#   "all_km_dependent" - weighted distance for ETLSegment CAPEX, fixed OPEX,
+#                        and variable OPEX.
+#
+# [pipeline_costs]
+# impedance_scope = "all_km_dependent"

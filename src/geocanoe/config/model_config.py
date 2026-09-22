@@ -17,6 +17,11 @@ SUPPORTED_STORAGE_REQUIREMENTS = {
 }
 SUPPORTED_EMISSIONS_PROJECTION_METHODS = {"constant"}
 SUPPORTED_BASEMAP_GRID_TYPES = {"geographic", "projected"}
+SUPPORTED_PIPELINE_IMPEDANCE_SCOPES = {
+    "none",
+    "etl_capex_only",
+    "all_km_dependent",
+}
 MODEL_SECTIONS = {
     "time",
     "finance",
@@ -24,6 +29,7 @@ MODEL_SECTIONS = {
     "storage",
     "legacy_gasoline",
     "basemap",
+    "pipeline_costs",
 }
 SCENARIO_ID_PATTERN = re.compile(
     r"^[a-z0-9](?:[a-z0-9-]{0,18}[a-z0-9])?$"
@@ -101,6 +107,13 @@ class ModelBasemapConfig:
 
 
 @dataclass(frozen=True)
+class ModelPipelineCostsConfig:
+    """Application scope for Silver pipeline cost-distance impedance."""
+
+    impedance_scope: str
+
+
+@dataclass(frozen=True)
 class ModelScenarioConfig:
     """Identity and source of one scenario applied over global defaults."""
 
@@ -119,6 +132,7 @@ class ModelConfig:
     storage: ModelStorageConfig
     legacy_gasoline: ModelLegacyGasolineConfig
     basemap: ModelBasemapConfig
+    pipeline_costs: ModelPipelineCostsConfig
     scenario: ModelScenarioConfig
     source_path: Path
 
@@ -236,6 +250,7 @@ def load_model_config(
     emissions_raw = require_table(raw, "emissions")
     storage_raw = require_table(raw, "storage")
     basemap_raw = require_table(raw, "basemap")
+    pipeline_costs_raw = require_table(raw, "pipeline_costs")
 
     start_year = require_int(time_raw, "start_year", "time")
     end_year = require_int(time_raw, "end_year", "time")
@@ -308,6 +323,13 @@ def load_model_config(
         "basemap",
     )
 
+    impedance_scope = pipeline_costs_raw.get("impedance_scope")
+    if impedance_scope not in SUPPORTED_PIPELINE_IMPEDANCE_SCOPES:
+        raise ValueError(
+            "[pipeline_costs].impedance_scope must be one of "
+            f"{sorted(SUPPORTED_PIPELINE_IMPEDANCE_SCOPES)}."
+        )
+
     return ModelConfig(
         time=ModelTimeConfig(start_year=start_year, end_year=end_year),
         finance=ModelFinanceConfig(
@@ -336,6 +358,9 @@ def load_model_config(
         basemap=ModelBasemapConfig(
             grid_type=basemap_grid_type,
             resolution=basemap_resolution,
+        ),
+        pipeline_costs=ModelPipelineCostsConfig(
+            impedance_scope=impedance_scope,
         ),
         scenario=scenario,
         source_path=config_path,

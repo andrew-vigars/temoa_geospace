@@ -24,13 +24,6 @@ retry_failed = false
 # Sample run (disabled) — replace with real solver configs before executing
 # =============================================================================
 
-[[runs]]
-config = "temoa/data_files/my_configs/provinces_baseline_25km_population.toml"
-enabled = true
-
-[[runs]]
-config = "temoa/data_files/my_configs/provinces_baseline_25km_supplyorbit.toml"
-enabled = true
 
 [[runs]]
 config = "temoa/data_files/my_configs/provinces_net_zero_25km_population.toml"
@@ -38,4 +31,12 @@ enabled = true
 
 [[runs]]
 config = "temoa/data_files/my_configs/provinces_net_zero_25km_supplyorbit.toml"
+enabled = true
+
+[[runs]]
+config = "temoa/data_files/my_configs/provinces_baseline_25km_population.toml"
+enabled = true
+
+[[runs]]
+config = "temoa/data_files/my_configs/provinces_baseline_25km_supplyorbit.toml"
 enabled = true
