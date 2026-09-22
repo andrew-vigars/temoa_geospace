@@ -31,6 +31,13 @@ def test_gasoline_basemap_stage_follows_both_inputs() -> None:
     assert positions["basemaps"] < positions["gasoline_basemap"]
 
 
+def test_aboriginal_lands_stage_follows_basemaps() -> None:
+    positions = {stage: index for index, stage in enumerate(SILVER_STAGE_ORDER)}
+
+    assert SILVER_STAGE_DEPENDENCIES["aboriginal_lands"] == ("basemaps",)
+    assert positions["basemaps"] < positions["aboriginal_lands"]
+
+
 def _config() -> SimpleNamespace:
     return SimpleNamespace(
         source_path=Path("profile.toml"),

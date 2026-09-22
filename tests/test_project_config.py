@@ -35,6 +35,8 @@ def test_committed_sample_build_profile_loads() -> None:
         "intermittent",
     )
     assert config.hydrography.lines.enabled is False
+    assert config.pipeline_impedance.enabled is True
+    assert config.pipeline_impedance.penalty_profile == "legacy_reference_v1"
     assert config.gasoline_demand.sales_year == 2024
     assert config.gasoline_demand.proxies.strategy == "population_threshold"
     assert config.gasoline_demand.proxies.minimum_population == 100_000
@@ -179,6 +181,12 @@ max_snap_distance_factor = 2.0
 [storage]
 eligibility = "all_mapped"
 use_capacity_bound = false
+
+[pipeline_impedance]
+enabled = true
+penalty_registry = "registry/pipeline_impedance_penalties.yaml"
+penalty_profile = "legacy_reference_v1"
+output_crs = "EPSG:3347"
 
 [gasoline_demand]
 sales_year = 2024

@@ -258,6 +258,21 @@ anchor_registry = "registry/gasoline_supply_anchors.csv"
 
 
 # -----------------------------------------------------------------------------
+# Pipeline-routing impedance
+# -----------------------------------------------------------------------------
+
+[pipeline_impedance]
+
+# Master switch for all spatial pipeline penalties in this build.
+enabled = true
+# Named assumptions are versioned separately from source metadata so sensitivity
+# cases can change weights without changing the Silver source lineage.
+penalty_registry = "registry/pipeline_impedance_penalties.yaml"
+penalty_profile = "legacy_reference_v1"
+output_crs = "EPSG:3347"
+
+
+# -----------------------------------------------------------------------------
 # Hydrography evidence
 # -----------------------------------------------------------------------------
 

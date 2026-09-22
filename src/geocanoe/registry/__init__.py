@@ -24,6 +24,12 @@ from geocanoe.registry.geospatial_sources import (
     GeospatialSourceRegistry,
     load_geospatial_source_registry,
 )
+from geocanoe.registry.pipeline_impedance import (
+    PIPELINE_IMPEDANCE_PENALTY_REGISTRY,
+    PipelinePenaltyLayer,
+    PipelinePenaltyProfile,
+    PipelinePenaltyRegistry,
+)
 
 
 try:
@@ -264,7 +270,11 @@ class Registry:
 
 __all__ = [
     "GEOSPATIAL_SOURCE_REGISTRY",
+    "PIPELINE_IMPEDANCE_PENALTY_REGISTRY",
     "GeospatialSourceRegistry",
+    "PipelinePenaltyLayer",
+    "PipelinePenaltyProfile",
+    "PipelinePenaltyRegistry",
     "Registry",
     "load_geospatial_source_registry",
     "load_registry",

@@ -1,0 +1,41 @@
+schema_version: 1
+purpose: >-
+  Versioned modelling assumptions that translate Silver geospatial evidence into
+  additive equivalent-distance penalties for candidate pipeline routes. Source
+  dataset metadata remains in geospatial_sources.yaml.
+
+profiles:
+  no_penalties:
+    description: Control profile that preserves physical pipeline distance.
+    layers:
+      aboriginal_lands:
+        enabled: false
+        source_id: nrcan_aboriginal_lands_national_en
+        penalty_method: additional_distance_factor
+        scalar: 0.0
+        evidence:
+          status: control_case
+          citation: No spatial penalty applied
+          publication_year: null
+          url: null
+          note: Use this profile for a physical-distance-only comparison.
+
+  legacy_reference_v1:
+    description: >-
+      Reproducible starting point based on the legacy Hydrogen_Project_Final
+      assumption. It is not yet a literature-validated Canadian estimate.
+    layers:
+      aboriginal_lands:
+        enabled: true
+        source_id: nrcan_aboriginal_lands_national_en
+        penalty_method: additional_distance_factor
+        scalar: 9.0
+        evidence:
+          status: legacy_model_assumption_unvalidated
+          citation: Hydrogen_Project_Final legacy routing model
+          publication_year: null
+          url: null
+          note: >-
+            One kilometre intersecting the layer adds nine equivalent kilometres,
+            for a total cost-distance contribution of ten kilometres. Replace or
+            add a named profile when a defensible literature estimate is adopted.

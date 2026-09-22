@@ -64,6 +64,7 @@ from typing import Any, Literal, TypedDict, cast
 from geocanoe.config import GeospatialBuildConfig
 from geocanoe.paths import find_project_root
 from geocanoe.registry.geospatial_sources import GeospatialSourceRegistry
+from geocanoe.registry.pipeline_impedance import PipelinePenaltyRegistry
 
 # =============================================================================
 # Project discovery and import path
@@ -252,6 +253,7 @@ STAGE_MODULE_NAMES = {
     "h2_pipeline_costs": "geocanoe.costs.pipelines.h2.capacity_costs",
     "h2_pipeline_cost_models": "geocanoe.costs.pipelines.h2.cost_models",
     "basemaps": "geocanoe.geospatial.basemaps",
+    "aboriginal_lands": "geocanoe.geospatial.aboriginal_lands",
     "hydrography": "geocanoe.geospatial.hydrography",
     "co2_storage": "geocanoe.geospatial.co2_storage",
     "adjacency": "geocanoe.geospatial.adjacency",
@@ -268,6 +270,7 @@ SILVER_STAGE_ORDER = (
     "h2_pipeline_cost_models",
     "basemaps",
     "gasoline_basemap",
+    "aboriginal_lands",
     "hydrography",
     "co2_storage",
     "adjacency",
@@ -284,6 +287,7 @@ SILVER_STAGE_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "h2_pipeline_costs": (),
     "h2_pipeline_cost_models": ("h2_pipeline_costs",),
     "basemaps": (),
+    "aboriginal_lands": ("basemaps",),
     "hydrography": ("basemaps",),
     "co2_storage": ("basemaps",),
     "adjacency": ("basemaps",),
@@ -303,6 +307,13 @@ EXTERNAL_INPUT_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "h2_pipeline_costs": ("H2 pipeline master cost workbook",),
     "h2_pipeline_cost_models": (),
     "basemaps": ("raw provincial boundary shapefile",),
+    "aboriginal_lands": (
+        "pipeline penalty registry",
+        "geospatial source registry",
+        "registered Bronze Aboriginal Lands shapefile",
+        "registered Aboriginal Lands metadata XML",
+        "registered Aboriginal Lands acquisition manifest",
+    ),
     "hydrography": (
         "geospatial source registry",
         "registered Bronze NHN GeoPackage",
@@ -542,6 +553,13 @@ def build_stage_executors(
                 stage_modules["gasoline_basemap"],
                 "run_gasoline_basemap_build",
                 "gasoline_basemap",
+            )
+        ),
+        "aboriginal_lands": FunctionExecutor(
+            require_stage_callable(
+                stage_modules["aboriginal_lands"],
+                "run_aboriginal_lands_build",
+                "aboriginal_lands",
             )
         ),
         "hydrography": FunctionExecutor(
@@ -1019,6 +1037,50 @@ def validate_external_inputs(
             ),
         )
 
+    if config.pipeline_impedance.enabled:
+        penalty_registry_path = Path(
+            config.pipeline_impedance.penalty_registry
+        ).expanduser()
+        if not penalty_registry_path.is_absolute():
+            penalty_registry_path = PROJECT_ROOT / penalty_registry_path
+        check_required_file(
+            checks,
+            stage_name="aboriginal_lands",
+            input_name="pipeline penalty registry",
+            path=penalty_registry_path.resolve(),
+        )
+        penalty_registry = PipelinePenaltyRegistry(penalty_registry_path)
+        penalty = penalty_registry.get_layer(
+            config.pipeline_impedance.penalty_profile,
+            "aboriginal_lands",
+        )
+        source_registry = GeospatialSourceRegistry()
+        check_required_file(
+            checks,
+            stage_name="aboriginal_lands",
+            input_name="geospatial source registry",
+            path=source_registry.path,
+        )
+        check_required_file(
+            checks,
+            stage_name="aboriginal_lands",
+            input_name="registered Bronze Aboriginal Lands shapefile",
+            path=source_registry.resolve_bronze_path(penalty.source_id),
+        )
+        check_required_file(
+            checks,
+            stage_name="aboriginal_lands",
+            input_name="registered Aboriginal Lands metadata XML",
+            path=source_registry.resolve_metadata_path(penalty.source_id),
+        )
+        check_required_file(
+            checks,
+            stage_name="aboriginal_lands",
+            input_name="registered Aboriginal Lands acquisition manifest",
+            path=source_registry.resolve_acquisition_manifest_path(
+                penalty.source_id
+            ),
+        )
     raw_nrn_dir = DATA_FILES / "raw" / "nrn"
     for province in config.study_area.provinces:
         province_directory = raw_nrn_dir / province
@@ -1483,6 +1545,10 @@ def verify_silver_build(
     }
     if config.hydrography.enabled and "hydrography" in expected:
         processed_directories["hydrography"] = processed_root / "nhn"
+    if config.pipeline_impedance.enabled and "aboriginal_lands" in expected:
+        processed_directories["pipeline impedance"] = (
+            processed_root / "pipeline_impedance" / config.build_id / "evidence"
+        )
     if expected.intersection(
         {"gasoline_proxies", "gasoline_demand", "gasoline_basemap"}
     ):

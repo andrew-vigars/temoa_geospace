@@ -363,6 +363,16 @@ class HydrographyConfig:
 
 
 @dataclass(frozen=True)
+class PipelineImpedanceConfig:
+    """Selection of a versioned spatial-penalty profile for pipelines."""
+
+    enabled: bool
+    penalty_registry: str
+    penalty_profile: str
+    output_crs: str
+
+
+@dataclass(frozen=True)
 class GasolineProxyConfig:
     """Population-centre proxy selection and jurisdiction fallback settings."""
 
@@ -409,6 +419,8 @@ class GeospatialBuildConfig:
         Geological storage eligibility and capacity-bound settings.
     hydrography : HydrographyConfig
         Registered source and feature-selection rules for Silver hydrography.
+    pipeline_impedance : PipelineImpedanceConfig
+        Versioned penalty registry and profile used by pipeline-routing layers.
     gasoline_demand : GasolineDemandConfig
         Provincial sales year and configurable spatial proxy strategy.
     source_path : Path
@@ -424,6 +436,7 @@ class GeospatialBuildConfig:
     schema: SchemaConfig
     storage: StorageConfig
     hydrography: HydrographyConfig
+    pipeline_impedance: PipelineImpedanceConfig
     gasoline_demand: GasolineDemandConfig
     source_path: Path
 
@@ -908,6 +921,7 @@ def load_geospatial_build_config(
     schema_raw = require_table(raw, "schema")
     storage_raw = require_table(raw, "storage")
     hydrography_raw = require_table(raw, "hydrography")
+    pipeline_impedance_raw = require_table(raw, "pipeline_impedance")
     gasoline_demand_raw = require_table(raw, "gasoline_demand")
 
     geographic_raw = require_table(
@@ -1235,6 +1249,29 @@ def load_geospatial_build_config(
         ),
     )
 
+    pipeline_impedance = PipelineImpedanceConfig(
+        enabled=require_bool(
+            pipeline_impedance_raw,
+            "enabled",
+            "pipeline_impedance",
+        ),
+        penalty_registry=require_string(
+            pipeline_impedance_raw,
+            "penalty_registry",
+            "pipeline_impedance",
+        ),
+        penalty_profile=require_string(
+            pipeline_impedance_raw,
+            "penalty_profile",
+            "pipeline_impedance",
+        ),
+        output_crs=require_string(
+            pipeline_impedance_raw,
+            "output_crs",
+            "pipeline_impedance",
+        ),
+    )
+
     minimum_population = require_int(
         gasoline_proxies_raw,
         "minimum_population",
@@ -1380,6 +1417,7 @@ def load_geospatial_build_config(
         schema=schema,
         storage=storage,
         hydrography=hydrography,
+        pipeline_impedance=pipeline_impedance,
         gasoline_demand=gasoline_demand,
         source_path=config_path,
     )
@@ -1458,6 +1496,8 @@ def print_build_config(
         "Hydrography lines:       "
         + ", ".join(config.hydrography.lines.classes)
     )
+    print(f"Pipeline impedance:      {config.pipeline_impedance.enabled}")
+    print(f"Penalty profile:         {config.pipeline_impedance.penalty_profile}")
     print(
         "Point boundary buffer:  "
         f"{config.schema.boundary_buffer_km:g} km"
