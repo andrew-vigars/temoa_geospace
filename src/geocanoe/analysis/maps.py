@@ -13,6 +13,7 @@ solved database or upstream geospatial products.
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 from pathlib import Path
 import json
@@ -24,7 +25,6 @@ from collections.abc import Sequence
 from typing import TypeAlias
 from urllib.error import URLError
 
-import contextily as ctx
 import folium
 from branca.element import Figure
 from folium.plugins import Fullscreen, MeasureControl
@@ -2647,6 +2647,8 @@ def save_basemap_overlay_figure(
 
     if PLOT_WEB_TILES:
         try:
+            import contextily as ctx
+
             osm_provider = providers.query_name(
                 "OpenStreetMap.Mapnik"
             )
@@ -3285,8 +3287,13 @@ def save_folium_map(
     return output_path
 
 
-def main() -> None:
+def main(argv: Sequence[str] | None = None) -> None:
     """Run the interactive CANOE/TEMOA Folium map-generation workflow."""
+
+    parser = argparse.ArgumentParser(
+        description="Generate an interactive map from a solved CANOE/TEMOA run."
+    )
+    parser.parse_args(argv)
 
     project_paths = resolve_project_paths()
     selected_run = select_run_and_database(project_paths.output_root)

@@ -13,10 +13,10 @@ construction, onshore CO2 storage integration, regional adjacency, processed
 road networks, and road-to-region connectivity.
 
 Individual scientific and geospatial transformations remain implemented in
-their stage-specific modules. This module is responsible for orchestration:
-stage registration, execution-target construction, dependency validation,
-external-input validation, stage execution, workflow state, timing, and final
-build verification.
+their stage-specific modules. This module owns the Silver command-line
+interface and orchestration: build-profile loading, stage registration,
+execution-target construction, dependency validation, external-input
+validation, stage execution, workflow state, timing, and final verification.
 
 During the staged ``scripts/`` to ``src/geocanoe/`` refactor, some stage
 implementations remain under ``scripts/``. Those modules are temporarily
@@ -41,16 +41,13 @@ data_files/processed/
 
 Notes
 -----
-This module does not parse command-line arguments and does not load a build
-profile from disk. Those responsibilities remain with
-``scripts/build_silver.py``.
-
 The silver layer does not encode the final CANOE/TEMOA SQLite database. Schema
 construction remains a downstream gold-layer transformation.
 """
 
 from __future__ import annotations
 
+import argparse
 import importlib
 import subprocess
 import sys
@@ -61,7 +58,11 @@ from time import perf_counter
 from types import ModuleType
 from typing import Any, Literal, TypedDict, cast
 
-from geocanoe.config import GeospatialBuildConfig
+from geocanoe.config import (
+    GeospatialBuildConfig,
+    load_geospatial_build_config,
+    print_build_config,
+)
 from geocanoe.paths import find_project_root
 from geocanoe.registry.geospatial_sources import GeospatialSourceRegistry
 from geocanoe.registry.pipeline_impedance import PipelinePenaltyRegistry
@@ -73,6 +74,7 @@ from geocanoe.registry.pipeline_impedance import PipelinePenaltyRegistry
 PROJECT_ROOT = find_project_root()
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 DATA_FILES = PROJECT_ROOT / "data_files"
+CONFIG_DIR = PROJECT_ROOT / "config"
 
 
 # =============================================================================
@@ -1733,3 +1735,109 @@ def verify_silver_build(
         raise RuntimeError("Silver build verification failed:\n  - " + "\n  - ".join(errors))
 
     print("\nSilver build verification passed.")
+
+
+# =============================================================================
+# Command-line interface
+# =============================================================================
+
+
+def default_config_path() -> Path:
+    """Return the committed sample build profile, with legacy fallbacks."""
+
+    candidates = (
+        CONFIG_DIR / "build_profiles" / "sample_build_profile.toml",
+        CONFIG_DIR / "provinces_only.toml",
+        CONFIG_DIR / "build_profiles" / "provinces_only.toml",
+    )
+    return next((path for path in candidates if path.is_file()), candidates[0])
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """Parse Silver-layer command-line options."""
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "Validate and build the Geospatial-CANOE silver preprocessing layer."
+        )
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=default_config_path(),
+        help=(
+            "Path to the shared geospatial TOML build profile. Defaults to "
+            "config/build_profiles/sample_build_profile.toml."
+        ),
+    )
+    parser.add_argument(
+        "--stages",
+        nargs="+",
+        choices=SILVER_STAGE_ORDER,
+        help=(
+            "Ordered subset of Silver stages to run. Omit to execute the "
+            "complete workflow."
+        ),
+    )
+    parser.add_argument(
+        "--validate-only",
+        action="store_true",
+        help=(
+            "Validate modules, workflow registration, and external inputs "
+            "without executing processing stages."
+        ),
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    """Validate and execute the configured Silver workflow."""
+
+    args = parse_args(argv)
+    config_path = args.config.resolve()
+    if not config_path.is_file():
+        raise FileNotFoundError(f"Build-profile TOML file not found: {config_path}")
+
+    print_header("Geospatial-CANOE silver build")
+    print(f"Project root: {PROJECT_ROOT}")
+    print(f"Scripts:      {SCRIPTS_DIR}")
+    print(f"Data files:   {DATA_FILES}")
+    print(f"Config:       {config_path}")
+
+    build_config = load_geospatial_build_config(config_path)
+    print_build_config(build_config)
+    stage_modules = import_stage_modules(STAGE_MODULE_NAMES)
+    definition = SilverWorkflowDefinition(
+        stage_order=SILVER_STAGE_ORDER,
+        stage_modules=STAGE_MODULE_NAMES,
+        dependencies=SILVER_STAGE_DEPENDENCIES,
+        external_dependencies=EXTERNAL_INPUT_DEPENDENCIES,
+        executors=build_stage_executors(stage_modules),
+    )
+
+    validate_workflow_definition(definition)
+    print_workflow_summary(definition)
+    validate_external_inputs(build_config, stage_modules)
+
+    if args.validate_only:
+        print("\nSilver workflow validation passed. No stages were executed.")
+        return
+
+    selected_stages = tuple(args.stages) if args.stages else definition.stage_order
+    state = SilverWorkflowState.empty()
+    run_silver_workflow(
+        config=build_config,
+        definition=definition,
+        state=state,
+        stages=selected_stages,
+    )
+    verify_silver_build(
+        config=build_config,
+        definition=definition,
+        state=state,
+        expected_stages=selected_stages,
+    )
+
+
+if __name__ == "__main__":
+    main()

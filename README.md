@@ -49,6 +49,8 @@ The workflow currently supports:
 - filtered National Road Network backbone, primary-freight, and freight-access layers;
 - registered NHN waterbody and watercourse filtering, clipping, provenance,
   summaries, and previews;
+- Silver impedance evidence derived from Aboriginal Lands, population density,
+  and NHN hydrography, with resolution-matched edge cost multipliers;
 - weak and strong road-connectivity mapping;
 - province assignment and graph-node snapping for legacy point inputs;
 - preprocessing of 2024 large-facility greenhouse-gas emissions;
@@ -110,6 +112,7 @@ Geospatial-CANOE/
 │   │   ├── basemaps/
 │   │   ├── co2_storage/              GeoCANOE storage crosswalk and regional evidence
 │   │   ├── nhn/                      Filtered hydrography, manifests, summaries, and previews
+│   │   ├── pipeline_impedance/       Polygon evidence and edge cost multipliers
 │   │   ├── costs/
 │   │   ├── emissions/
 │   │   ├── graph/
@@ -134,7 +137,7 @@ Geospatial-CANOE/
 │
 ├── src/
 │   └── geocanoe/
-│       ├── acquisition/           Seven Bronze source-acquisition modules
+│       ├── acquisition/           Eight Bronze source-acquisition modules
 │       │   └── co2_storage.py     Local CanCO₂ release acquisition
 │       ├── analysis/              Folium maps and output-table exports
 │       ├── config/                Build-profile parsing and validation
@@ -143,7 +146,7 @@ Geospatial-CANOE/
 │       │       └── h2/            H2 pipeline capacity and cost models
 │       ├── emissions/             Facility-emissions preprocessing
 │       ├── execution/             Silver orchestration, single runs, and batches
-│       ├── geospatial/            Basemaps, hydrography, adjacency, roads, connectivity
+│       ├── geospatial/            Basemaps, impedance, adjacency, roads, connectivity
 │       │   └── co2_storage.py     Storage-to-basemap integration and previews
 │       ├── preprocessing/         Legacy input harmonization
 │       ├── registry/              Dataset/stage metadata
@@ -161,9 +164,7 @@ Geospatial-CANOE/
 │
 ├── diagnostics/                  Input, balance, and run-audit utilities
 ├── notebooks/                    Exploratory and development notebooks
-├── figures/                      Generated maps and diagnostic figures
 ├── output_files/                 Timestamped optimization runs
-├── legacy_files/                 Retained legacy data and references
 ├── legacy_workflow/              Superseded workflow implementations
 └── temoa/                        CANOE/TEMOA optimization backend
 ```
@@ -207,6 +208,23 @@ python -c "import geocanoe; print(geocanoe.__version__)"
 ```
 
 At the current development head, the command prints `0.7.0`.
+
+Installation also provides the canonical workflow commands:
+
+| Command | Purpose |
+| --- | --- |
+| `geocanoe-build-bronze` | Acquire Bronze source data |
+| `geocanoe-build-silver` | Validate and build Silver products |
+| `geocanoe-build-schema` | Encode a Gold CANOE/TEMOA database |
+| `geocanoe-run` | Execute one encoded model scenario |
+| `geocanoe-batch` | Execute an ordered scenario batch |
+| `geocanoe-diagnostics` | Audit model inputs or solved outputs |
+| `geocanoe-export` | Export solved output tables |
+| `geocanoe-map` | Generate an interactive solved-output map |
+
+The files under `scripts/` and `diagnostics/check.py` remain compatibility
+wrappers for existing notebooks and automation. Package-module invocation with
+`python -m` is also supported by the corresponding implementation modules.
 
 ### Development installation
 
@@ -270,7 +288,7 @@ Geospatial preprocessing stages use a shared TOML build profile loaded through `
 Example profile path:
 
 ```text
-config/build_profiles/provinces_only.toml
+config/build_profiles/sample_build_profile.toml
 ```
 
 The same profile should be used consistently across the basemap, hydrography,
@@ -484,16 +502,12 @@ contains several releases. Running acquisition again updates the selection.
 
 ## Workflow
 
-The preferred preprocessing entry point is the silver-layer orchestrator:
+The preferred preprocessing entry point is the silver-layer orchestrator. The
+committed sample profile makes this command resolvable in a clean checkout:
 
 ```bash
-python scripts/build_silver.py     --config config/build_profiles/provinces_only.toml
-```
-
-The package-native equivalent is:
-
-```bash
-python -m geocanoe.execution.silver     --config config/build_profiles/provinces_only.toml
+geocanoe-build-silver \
+    --config config/build_profiles/sample_build_profile.toml
 ```
 
 The silver workflow validates dependencies and executes the configured preprocessing stages in dependency order.
@@ -517,11 +531,11 @@ data_files/processed/nhn/preview/*.png
 The preferred entry point coordinates all eight registered Bronze stages:
 
 ```bash
-python scripts/build_bronze.py
+geocanoe-build-bronze
 ```
 
 Use `--stages` to run a subset, such as
-`python scripts/build_bronze.py --stages aboriginal_lands nhn`. Acquisition
+`geocanoe-build-bronze --stages aboriginal_lands nhn`. Acquisition
 modules may also be run independently when one source needs to be refreshed:
 
 ```bash
@@ -574,7 +588,7 @@ density selection, and impedance-factor derivation belong in Silver.
 Run only this Bronze stage with:
 
 ```bash
-python scripts/build_bronze.py --stages residential
+geocanoe-build-bronze --stages residential
 ```
 
 #### Gasoline-demand acquisition
@@ -597,7 +611,7 @@ folder.
 Run only this Bronze stage with:
 
 ```bash
-python scripts/build_bronze.py --stages gasoline_demand
+geocanoe-build-bronze --stages gasoline_demand
 ```
 
 #### National Hydro Network acquisition
@@ -620,7 +634,7 @@ ZIP is deleted by default; pass `--keep-nhn-archive` to retain it.
 Run only this Bronze stage with:
 
 ```bash
-python scripts/build_bronze.py --stages nhn
+geocanoe-build-bronze --stages nhn
 ```
 
 Use `--overwrite` only when the national archive should be downloaded and
@@ -639,29 +653,37 @@ validation unless `--keep-aboriginal-lands-archive` is supplied.
 Run only this Bronze stage with:
 
 ```bash
-python scripts/build_bronze.py --stages aboriginal_lands
+geocanoe-build-bronze --stages aboriginal_lands
 ```
 
-This stage currently stops at validated Bronze preservation. Aboriginal Lands
-are not yet transformed into a Silver impedance or siting layer.
+The Silver `aboriginal_lands` stage normalizes the registered source polygons,
+clips them to the study area, and converts the configured classes into pipeline-
+impedance evidence. That evidence is combined with population and NHN evidence
+by the later `pipeline_edge_impedance` stage; it is not currently a general
+technology-siting exclusion layer.
 
 ### Silver preprocessing stages
 
-The current Silver workflow includes thirteen stages:
+The current Silver workflow includes seventeen stages in canonical dependency
+order:
 
 1. legacy site province mapping for the existing LCOE/electricity workflow;
-2. emissions preprocessing;
-3. hydrogen-pipeline capacity-cost preprocessing;
-4. hydrogen-pipeline cost-model fitting;
-5. study-area basemap construction;
-6. registered NHN hydrography filtering and clipping;
-7. onshore CO₂ storage-to-basemap integration;
-8. regional adjacency construction;
-9. processed road-network construction;
-10. road-connectivity mapping;
-11. gasoline-demand proxy selection and DA-to-proxy assignment;
-12. provincial gasoline-sales allocation to the selected proxies;
-13. proxy-demand mapping onto every configured basemap resolution.
+2. gasoline-demand proxy selection and DA-to-proxy assignment;
+3. provincial gasoline-sales allocation to the selected proxies;
+4. emissions preprocessing;
+5. hydrogen-pipeline capacity-cost preprocessing;
+6. hydrogen-pipeline cost-model fitting;
+7. study-area basemap construction;
+8. proxy-demand mapping onto every configured basemap resolution;
+9. Aboriginal Lands pipeline-impedance preprocessing;
+10. population-density pipeline-impedance preprocessing;
+11. registered NHN hydrography filtering and clipping;
+12. NHN pipeline-impedance preprocessing;
+13. onshore CO₂ storage-to-basemap integration;
+14. regional adjacency construction;
+15. aggregation of polygon evidence onto graph-edge cost multipliers;
+16. processed road-network construction;
+17. road-connectivity mapping.
 
 These stages are implemented under `src/geocanoe/` and orchestrated by `geocanoe.execution.silver`.
 
@@ -673,6 +695,7 @@ data_files/processed/emissions/
 data_files/processed/costs/
 data_files/processed/basemaps/
 data_files/processed/nhn/
+data_files/processed/pipeline_impedance/<build-id>/
 data_files/processed/co2_storage/
 data_files/processed/graph/
 data_files/processed/nrn/
@@ -748,7 +771,7 @@ The storage stage can also be run independently after basemap construction:
 
 ```bash
 python -m geocanoe.geospatial.co2_storage \
-    --config config/build_profiles/provinces_only.toml
+    --config config/build_profiles/sample_build_profile.toml
 ```
 
 For each compatible basemap, the stage writes one GeoPackage containing
@@ -768,8 +791,8 @@ boundary and offshore regionalization are available.
 Encode a selected geospatial configuration into a CANOE/TEMOA database:
 
 ```bash
-python scripts/build_schema.py \
-    --config config/build_profiles/on-qc.toml \
+geocanoe-build-schema \
+    --config config/build_profiles/sample_build_profile.toml \
     --scenario registry/scenarios/baseline.toml
 ```
 
@@ -777,7 +800,7 @@ or:
 
 ```bash
 python -m geocanoe.schema.build \
-    --config config/build_profiles/on-qc.toml \
+    --config config/build_profiles/sample_build_profile.toml \
     --scenario registry/scenarios/baseline.toml
 ```
 
@@ -831,7 +854,7 @@ investment components. The current generated pipeline layer uses
 Run CANOE/TEMOA from an encoded SQLite database:
 
 ```bash
-python scripts/main_run.py
+geocanoe-run
 ```
 
 or:
@@ -860,7 +883,7 @@ output_files/<timestamped_run>/
 Run an ordered set of solver configurations:
 
 ```bash
-python scripts/batch_run.py     --config config/batch_profiles/batch_run.toml
+geocanoe-batch --config config/batch_profiles/batch_run.toml
 ```
 
 or:
@@ -883,7 +906,7 @@ output_files/batches/<batch_name>_<timestamp>/
 Run the central diagnostics command and choose one of two workflows:
 
 ```powershell
-python diagnostics/check.py
+geocanoe-diagnostics
 ```
 
 Choose `inputs` to select a Silver build profile and its processed basemap. The
@@ -898,8 +921,8 @@ by default.
 For a scripted run, selections can be provided directly:
 
 ```powershell
-python diagnostics/check.py inputs --config config/build_profiles/on-qc.toml --basemap on_qc_basemap_25km_centroid --scenario registry/scenarios/baseline.toml
-python diagnostics/check.py outputs output_files/<run>
+geocanoe-diagnostics inputs --config config/build_profiles/sample_build_profile.toml --basemap provinces_only_basemap_25km_centroid --scenario registry/scenarios/baseline.toml
+geocanoe-diagnostics outputs output_files/<run>
 ```
 
 Unit findings remain warnings because legacy schemas contain incomplete unit
@@ -917,7 +940,7 @@ postmortem diagnostics that can still be evaluated.
 Export available `Output*` tables from a solved SQLite database:
 
 ```bash
-python scripts/export_output_tables.py
+geocanoe-export
 ```
 
 or:
@@ -935,7 +958,7 @@ flows are present, and validates worksheet dimensions against Excel limits.
 Generate an interactive Folium map from a solved scenario:
 
 ```bash
-python scripts/create_map_folium.py
+geocanoe-map
 ```
 
 or:
@@ -955,8 +978,12 @@ Leaflet/Folium HTML map with layer controls, tooltips, and popups. Solved
 ```text
 raw acquisition
     ├── basemaps
+    ├── residential and gasoline-demand sources
+    ├── Aboriginal Lands
     ├── NRN
-    └── emissions
+    ├── NHN
+    ├── emissions
+    └── CanCO₂ storage evidence
         │
         ▼
 silver preprocessing
@@ -965,6 +992,10 @@ silver preprocessing
     ├── H2 pipeline capacity-cost processing
     ├── H2 pipeline cost models
     ├── basemaps
+    ├── gasoline proxy allocation and basemap mapping
+    ├── Aboriginal Lands, population, and NHN impedance evidence
+    ├── pipeline edge impedance
+    ├── hydrography and CO₂ storage evidence
     ├── adjacency
     ├── roads
     └── road connectivity
@@ -1007,6 +1038,7 @@ data_files/processed/basemaps/
 data_files/processed/co2_storage/
 data_files/processed/graph/
 data_files/processed/nhn/
+data_files/processed/pipeline_impedance/
 data_files/processed/nrn/
 data_files/processed/road_connectivity/
 data_files/processed/gasoline_demand/
@@ -1028,7 +1060,9 @@ The current transport infrastructure formulation uses piecewise capacity-cost se
 
 - centroid retention and rook adjacency are the primary implemented basemap and neighbourhood methods;
 - rail, marine, and existing natural-gas infrastructure are not yet encoded as dedicated transport layers;
-- pipeline routing follows candidate graph corridors rather than a terrain-aware routing model;
+- pipeline routing follows candidate graph corridors with configurable
+  Aboriginal Lands, population-density, and hydrography cost impedance rather
+  than least-cost pathfinding over a continuous routing surface;
 - the current generalized pipeline cost layer is based on hydrogen-pipeline data;
 - the schema workflow remains tied to the current CANOE/TEMOA database structure;
 - multi-period scenario logic and uncertainty analysis are still under development;

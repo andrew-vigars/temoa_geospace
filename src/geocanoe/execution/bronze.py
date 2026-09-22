@@ -17,8 +17,9 @@ mutually independent: none of them reads another stage's output, so this
 module runs them without a dependency graph or a build profile.
 
 Individual acquisition logic remains implemented in ``geocanoe.acquisition``.
-This module is responsible only for orchestration: stage registration, module
-import, stage execution, timing, and a final summary.
+This module owns the Bronze command-line interface and reusable orchestration:
+argument parsing, stage registration, module import, stage execution, timing,
+and final reporting.
 
 Inputs
 ------
@@ -33,9 +34,6 @@ data_files/raw/
 
 Notes
 -----
-This module does not parse command-line arguments. That responsibility
-remains with ``scripts/build_bronze.py``.
-
 The bronze layer does not build any silver or gold product. Preprocessing
 these raw inputs into standardized intermediate products is a downstream
 silver-layer transformation handled by ``geocanoe.execution.silver``.
@@ -43,6 +41,7 @@ silver-layer transformation handled by ``geocanoe.execution.silver``.
 
 from __future__ import annotations
 
+import argparse
 import importlib
 from dataclasses import dataclass
 from pathlib import Path
@@ -428,3 +427,131 @@ def run_bronze_workflow(
         )
 
     return history
+
+
+# =============================================================================
+# Command-line interface
+# =============================================================================
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """Parse Bronze-layer command-line options."""
+
+    parser = argparse.ArgumentParser(
+        description="Acquire the Geospatial-CANOE bronze-layer raw inputs."
+    )
+    parser.add_argument(
+        "--stages",
+        nargs="+",
+        choices=BRONZE_STAGE_ORDER,
+        help="Subset of Bronze stages to run. Omit to acquire every stage.",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Redownload or recopy outputs even when they already exist.",
+    )
+    parser.add_argument(
+        "--continue-on-failure",
+        action="store_true",
+        help=(
+            "Attempt every requested stage after a failure, then raise one "
+            "error summarizing all failures."
+        ),
+    )
+    parser.add_argument(
+        "--raw-basemap-dir",
+        type=Path,
+        help="Output directory for basemaps; defaults to data_files/raw/basemaps.",
+    )
+    parser.add_argument(
+        "--raw-residential-dir",
+        type=Path,
+        help=(
+            "Output directory for residential inputs; defaults to "
+            "data_files/raw/residential."
+        ),
+    )
+    parser.add_argument(
+        "--raw-gasoline-demand-dir",
+        type=Path,
+        help=(
+            "Output directory for gasoline-demand inputs; defaults to "
+            "data_files/raw/gasoline_demand."
+        ),
+    )
+    parser.add_argument(
+        "--raw-aboriginal-lands-dir",
+        type=Path,
+        help=(
+            "Output directory for Aboriginal Lands; defaults to "
+            "data_files/raw/aboriginal_lands."
+        ),
+    )
+    parser.add_argument(
+        "--keep-aboriginal-lands-archive",
+        action="store_true",
+        help="Retain the Aboriginal Lands source ZIP after validation.",
+    )
+    parser.add_argument(
+        "--raw-nrn-dir",
+        type=Path,
+        help="Output directory for NRN data; defaults to data_files/raw/nrn.",
+    )
+    parser.add_argument(
+        "--raw-nhn-dir",
+        type=Path,
+        help="Output directory for NHN data; defaults to data_files/raw/nhn.",
+    )
+    parser.add_argument(
+        "--keep-nhn-archive",
+        action="store_true",
+        help="Retain the approximately 15 GB NHN source ZIP after validation.",
+    )
+    parser.add_argument(
+        "--co2-source-gpkg",
+        type=Path,
+        help="Exact CanCO2 unified-storage GeoPackage for the co2_storage stage.",
+    )
+    parser.add_argument(
+        "--co2-source-repo",
+        type=Path,
+        help="CanCO2 repository root for the co2_storage stage.",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    """Acquire the selected Geospatial-CANOE Bronze inputs."""
+
+    args = parse_args(argv)
+    stages = validate_requested_stages(args.stages or BRONZE_STAGE_ORDER)
+
+    print_header("Geospatial-CANOE bronze build")
+    print(f"Project root: {PROJECT_ROOT}")
+    print(f"Scripts:      {SCRIPTS_DIR}")
+    print(f"Data files:   {DATA_FILES}")
+    print(f"Stages:       {', '.join(stages)}")
+
+    options = BronzeStageOptions(
+        overwrite=args.overwrite,
+        raw_basemap_dir=args.raw_basemap_dir,
+        raw_residential_dir=args.raw_residential_dir,
+        raw_gasoline_demand_dir=args.raw_gasoline_demand_dir,
+        raw_aboriginal_lands_dir=args.raw_aboriginal_lands_dir,
+        keep_aboriginal_lands_archive=args.keep_aboriginal_lands_archive,
+        raw_nrn_dir=args.raw_nrn_dir,
+        raw_nhn_dir=args.raw_nhn_dir,
+        keep_nhn_archive=args.keep_nhn_archive,
+        co2_source_gpkg=args.co2_source_gpkg,
+        co2_source_repo=args.co2_source_repo,
+    )
+    run_bronze_workflow(
+        stages,
+        options,
+        continue_on_failure=args.continue_on_failure,
+    )
+
+
+if __name__ == "__main__":
+    main()

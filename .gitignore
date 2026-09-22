@@ -136,9 +136,9 @@ Thumbs.db
 
 # -----------------------
 
-# Study-area build profiles and scenario overlays are local, system-boundary
-# and policy-specific configuration. Only the committed sample_*.toml in each
-# directory is tracked as a template.
+# Study-area build profiles and scenario overlays are generally local,
+# system-boundary and policy-specific configuration. Keep the committed sample
+# templates and canonical baseline scenario available in a clean checkout.
 
 # -----------------------
 
@@ -146,6 +146,7 @@ config/build_profiles/*.toml
 !config/build_profiles/sample_build_profile.toml
 
 registry/scenarios/*.toml
+!registry/scenarios/baseline.toml
 !registry/scenarios/sample_scenario.toml
 
 

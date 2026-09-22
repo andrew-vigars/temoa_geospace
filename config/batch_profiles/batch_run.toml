@@ -7,15 +7,13 @@
 # config TOML like temoa/data_files/my_configs/*.toml; that file in turn names
 # the scenario and the input/output SQLite database it runs against.
 #
-# The entry below is a committed, always-resolvable sample: it points at
-# temoa/data_files/my_configs/config_sample.toml, which is kept in the repo
-# for exactly this purpose. It is disabled by default so this file can be run
-# as-is without executing a solve. Copy this block, point "config" at your own
-# solver TOML (e.g. one generated for a build profile + scenario pair), and
-# set enabled = true to add a real run to the batch.
+# The entry below is a committed, always-resolvable disabled example using one
+# of TEMOA's test configurations. Running this batch file as committed performs
+# no solve. Copy the block, point "config" at a solver TOML created for a
+# GeoCANOE build-profile/scenario pair, and set enabled = true for a real run.
 
 [batch]
-name = "provinces_sweep"
+name = "sample_batch"
 continue_on_failure = true
 skip_completed = true
 retry_failed = false
@@ -26,17 +24,5 @@ retry_failed = false
 
 
 [[runs]]
-config = "temoa/data_files/my_configs/provinces_net_zero_25km_population.toml"
-enabled = true
-
-[[runs]]
-config = "temoa/data_files/my_configs/provinces_net_zero_25km_supplyorbit.toml"
-enabled = true
-
-[[runs]]
-config = "temoa/data_files/my_configs/provinces_baseline_25km_population.toml"
-enabled = true
-
-[[runs]]
-config = "temoa/data_files/my_configs/provinces_baseline_25km_supplyorbit.toml"
-enabled = true
+config = "temoa/tests/testing_configs/config_utopia.toml"
+enabled = false

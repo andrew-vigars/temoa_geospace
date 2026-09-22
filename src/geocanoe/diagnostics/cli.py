@@ -14,7 +14,7 @@ def print_help() -> None:
     """Print central diagnostic commands and their purposes."""
 
     print(
-        """usage: check.py [inputs | outputs] [selection]
+        """usage: geocanoe-diagnostics [inputs | outputs] [selection]
 
 commands:
   inputs   Choose a silver configuration and validate all associated inputs
@@ -54,3 +54,7 @@ def main(argv: list[str] | None = None) -> int:
         print_help()
         return 2
     return handler(arguments)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

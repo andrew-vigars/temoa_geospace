@@ -18,6 +18,7 @@ flowchart TD
 
     TOML["config/build_profiles/*.toml<br/>Study area, grids, hydrography, roads, connectivity, schema selection"]
     REG["registry/geospatial_sources.yaml v2<br/>Bronze roots and named artifacts; optional layers and domains"]
+    PREG["registry/pipeline_impedance_*.yaml<br/>Impedance sources and penalty assumptions"]
     CFG["geocanoe.config<br/>Load and validate geospatial build profile"]
     TOML --> CFG
 
@@ -84,9 +85,13 @@ flowchart TD
         C1["geocanoe.costs.pipelines.h2.capacity_costs<br/>Normalize H2 pipeline capacity-cost data"]
         C2["geocanoe.costs.pipelines.h2.cost_models<br/>Fit/select H2 pipeline cost models"]
         B1["geocanoe.geospatial.basemaps<br/>Build regular study-area grids"]
+        A0["geocanoe.geospatial.aboriginal_lands<br/>Build Aboriginal Lands impedance evidence"]
+        P0["geocanoe.geospatial.population_impedance<br/>Build population-density impedance evidence"]
         H1["geocanoe.geospatial.hydrography<br/>Select and clip registered NHN features"]
+        H2["geocanoe.geospatial.nhn_impedance<br/>Build hydrography impedance evidence"]
         S0["geocanoe.geospatial.co2_storage<br/>Map storage evidence onto onshore regions"]
         G1["geocanoe.geospatial.adjacency<br/>Build rook-adjacency graph"]
+        I1["geocanoe.geospatial.pipeline_edge_impedance<br/>Aggregate evidence onto graph edges"]
         N1["geocanoe.geospatial.roads<br/>Build processed road networks"]
         M1["geocanoe.geospatial.road_connectivity<br/>Map roads onto graph edges"]
     end
@@ -96,10 +101,18 @@ flowchart TD
     CFG --> D2
     CFG --> D3
     CFG --> B1
+    CFG --> A0
+    CFG --> P0
     CFG --> H1
     REG --> H1
+    REG --> A0
+    REG --> P0
+    PREG --> A0
+    PREG --> P0
+    PREG --> H2
     CFG --> S0
     CFG --> G1
+    CFG --> I1
     CFG --> N1
     CFG --> M1
 
@@ -117,14 +130,27 @@ flowchart TD
     R1 --> B1
     B1 --> BP["Processed basemaps<br/>data_files/processed/basemaps/"]
     BP --> D3
+    BP --> A0
+    BP --> P0
     BP --> H1
+    R2 --> P0
+    R3 --> A0
+    A0 --> IP["Pipeline-impedance polygon evidence and edge multipliers<br/>data_files/processed/pipeline_impedance/{build-id}/"]
+    P0 --> IP
     R5 --> H1
     H1 --> HP["Filtered hydrography, summary, manifest, and PNG previews<br/>data_files/processed/nhn/"]
+    H1 --> H2
+    H2 --> IP
     BP --> S0
     R11 --> S0
     S0 --> SP["Storage evidence, crosswalks, and previews<br/>data_files/processed/co2_storage/"]
     BP --> G1
     G1 --> GP["Graph nodes and edges<br/>data_files/processed/graph/"]
+    GP --> I1
+    A0 --> I1
+    P0 --> I1
+    H2 --> I1
+    I1 --> IP
 
     R4 --> N1
     N1 --> NP["Processed road networks<br/>data_files/processed/nrn/"]
@@ -156,6 +182,7 @@ flowchart TD
     BP --> S1
     SP --> S1
     GP --> S1
+    IP --> S1
     MP --> S1
     DP --> S1
     LP --> S3
@@ -207,7 +234,21 @@ flowchart TD
 
 ## CLI entry points
 
-The following files remain in `scripts/` as thin command-line wrappers:
+Editable or regular installation through `pyproject.toml` provides eight
+canonical commands:
+
+```text
+geocanoe-build-bronze   → geocanoe.execution.bronze:main
+geocanoe-build-silver   → geocanoe.execution.silver:main
+geocanoe-build-schema   → geocanoe.schema.build:main
+geocanoe-run            → geocanoe.execution.run:main
+geocanoe-batch          → geocanoe.execution.batch:main
+geocanoe-diagnostics    → geocanoe.diagnostics.cli:main
+geocanoe-export         → geocanoe.analysis.exports:main
+geocanoe-map            → geocanoe.analysis.maps:main
+```
+
+The following files remain as thin compatibility wrappers:
 
 ```text
 scripts/
@@ -248,10 +289,14 @@ scripts/create_map_folium.py
 
 ## Execution dependencies
 
-- `geocanoe.execution.bronze` orchestrates seven independent acquisition stages and supports stage subsets, overwrite behavior, output-directory overrides, and archive-retention options.
+- `geocanoe.execution.bronze` orchestrates eight independent acquisition stages and supports stage subsets, overwrite behavior, output-directory overrides, and archive-retention options.
 - `registry/geospatial_sources.yaml` schema v2 inventories every Bronze stage using named fixed or globbed artifacts; source layers and coded domains are optional.
-- Aboriginal Lands currently terminate at the validated Bronze artifact; no Silver transformation consumes them yet.
-- `geocanoe.execution.silver` orchestrates the thirteen current Silver preprocessing stages and validates their upstream dependencies.
+- `geocanoe.execution.silver` orchestrates seventeen Silver preprocessing stages and validates their upstream dependencies.
+- `geocanoe.geospatial.aboriginal_lands`, `population_impedance`, and
+  `nhn_impedance` produce normalized polygon evidence for pipeline routing.
+- `geocanoe.geospatial.pipeline_edge_impedance` requires adjacency plus all
+  three polygon-evidence stages and writes one multiplier for every directed
+  graph edge.
 - `geocanoe.geospatial.co2_storage` requires an acquired CanCO₂ release and processed basemaps; it currently maps only onto the onshore model-region domain.
 - `geocanoe.geospatial.adjacency` requires processed basemaps.
 - `geocanoe.geospatial.hydrography` requires processed basemaps plus the
@@ -268,13 +313,13 @@ scripts/create_map_folium.py
 ### Bronze acquisition
 
 ```bash
-python scripts/build_bronze.py
+geocanoe-build-bronze
 ```
 
 Run a subset with `--stages`, for example:
 
 ```bash
-python scripts/build_bronze.py --stages aboriginal_lands nhn
+geocanoe-build-bronze --stages aboriginal_lands nhn
 ```
 
 ### CanCO₂ storage acquisition
@@ -286,10 +331,10 @@ python -m geocanoe.acquisition.co2_storage
 ### Silver preprocessing
 
 ```bash
-python scripts/build_silver.py --config config/build_profiles/sample_build_profile.toml
+geocanoe-build-silver --config config/build_profiles/sample_build_profile.toml
 ```
 
-Package-native equivalent:
+Package-module equivalent:
 
 ```bash
 python -m geocanoe.execution.silver --config config/build_profiles/sample_build_profile.toml
@@ -298,7 +343,7 @@ python -m geocanoe.execution.silver --config config/build_profiles/sample_build_
 ### Schema encoding
 
 ```bash
-python scripts/build_schema.py --config config/build_profiles/sample_build_profile.toml
+geocanoe-build-schema --config config/build_profiles/sample_build_profile.toml
 ```
 
 Package-native equivalent:
@@ -310,7 +355,7 @@ python -m geocanoe.schema.build --config config/build_profiles/sample_build_prof
 ### Single model run
 
 ```bash
-python scripts/main_run.py
+geocanoe-run
 ```
 
 Package-native equivalent:
@@ -322,7 +367,7 @@ python -m geocanoe.execution.run
 ### Batch execution
 
 ```bash
-python scripts/batch_run.py --config config/batch_profiles/batch_run.toml
+geocanoe-batch --config config/batch_profiles/batch_run.toml
 ```
 
 Package-native equivalent:
@@ -334,7 +379,7 @@ python -m geocanoe.execution.batch --config config/batch_profiles/batch_run.toml
 ### Output export
 
 ```bash
-python scripts/export_output_tables.py
+geocanoe-export
 ```
 
 Package-native equivalent:
@@ -346,7 +391,7 @@ python -m geocanoe.analysis.exports
 ### Interactive map
 
 ```bash
-python scripts/create_map_folium.py
+geocanoe-map
 ```
 
 Package-native equivalent:
@@ -380,6 +425,7 @@ data_files/processed/basemaps/
 data_files/processed/co2_storage/
 data_files/processed/graph/
 data_files/processed/nhn/
+data_files/processed/pipeline_impedance/
 data_files/processed/nrn/
 data_files/processed/road_connectivity/
 data_files/processed/gasoline_demand/

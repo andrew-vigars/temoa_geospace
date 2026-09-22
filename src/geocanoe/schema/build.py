@@ -112,7 +112,7 @@ GEN_EFFICIENCIES_PATH = REGISTRY_DIR / "generation_efficiency.csv"
 TECHNOLOGIES_PATH = REGISTRY_DIR / "techs.csv"
 COMMODITIES_PATH = REGISTRY_DIR / "commodities.csv"
 MODEL_CONFIG_PATH = REGISTRY_DIR / "model.toml"
-BASELINE_SCENARIO_PATH = REGISTRY_DIR / "scenarios" / "sample_scenario.toml"
+BASELINE_SCENARIO_PATH = REGISTRY_DIR / "scenarios" / "baseline.toml"
 
 PROCESSED_COSTS = DATA_FILES / "processed" / "costs"
 H2_PIPELINE_COST_DIR = (
@@ -5601,7 +5601,7 @@ def parse_args() -> argparse.Namespace:
         default=BASELINE_SCENARIO_PATH,
         help=(
             "Path to a registry scenario TOML overlay. Defaults to "
-            "registry/scenarios/sample_scenario.toml."
+            "registry/scenarios/baseline.toml."
         ),
     )
     return parser.parse_args()

@@ -10,6 +10,16 @@ readme = "README.md"
 requires-python = ">=3.12"
 dynamic = ["dependencies", "optional-dependencies"]
 
+[project.scripts]
+geocanoe-build-bronze = "geocanoe.execution.bronze:main"
+geocanoe-build-silver = "geocanoe.execution.silver:main"
+geocanoe-build-schema = "geocanoe.schema.build:main"
+geocanoe-run = "geocanoe.execution.run:main"
+geocanoe-batch = "geocanoe.execution.batch:main"
+geocanoe-diagnostics = "geocanoe.diagnostics.cli:main"
+geocanoe-export = "geocanoe.analysis.exports:main"
+geocanoe-map = "geocanoe.analysis.maps:main"
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 
