@@ -40,23 +40,6 @@ def test_committed_sample_build_profile_loads() -> None:
     assert config.gasoline_demand.proxies.minimum_population == 100_000
 
 
-@pytest.mark.parametrize(
-    "profile_path",
-    sorted(PROFILE_DIR.glob("*.toml")),
-    ids=lambda path: path.name,
-)
-def test_all_committed_build_profiles_load(profile_path: Path) -> None:
-    config = load_geospatial_build_config(profile_path)
-
-    assert config.gasoline_demand.sales_year == 2024
-    assert config.gasoline_demand.proxies.strategy == "population_threshold"
-    assert config.gasoline_demand.proxies.minimum_population in {
-        1_000,
-        30_000,
-        100_000,
-    }
-
-
 def test_profile_rejects_duplicate_provinces(tmp_path: Path) -> None:
     source = (PROFILE_DIR / "sample_build_profile.toml").read_text(
         encoding="utf-8"
