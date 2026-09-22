@@ -232,6 +232,31 @@ flowchart TD
     X2 --> F2["Interactive Folium HTML map"]
 ```
 
+## Environment and installation
+
+The root `pyproject.toml` is the canonical installation interface. A normal
+installation provides the complete research environment: GeoCANOE's scientific
+and geospatial stack, the bundled CANOE/TEMOA runtime, and everything required
+to execute the Bronze-to-analysis workflow shown above.
+
+```bash
+python -m pip install -e .
+```
+
+The `dev` extra extends that environment for deeper contributor work. It adds
+the test, coverage, lint, type-checking, pre-commit, Jupyter, and interactive
+notebook tooling used to develop and validate the project:
+
+```bash
+python -m pip install -e ".[dev]"
+```
+
+Use the normal installation for research runs and the `dev` installation when
+changing code, running project checks, or working with development notebooks.
+Neither installation requires separately installing the requirement fragments:
+setuptools combines the root and bundled TEMOA dependency files through
+`pyproject.toml`.
+
 ## CLI entry points
 
 Editable or regular installation through `pyproject.toml` provides eight

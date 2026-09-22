@@ -178,10 +178,14 @@ for Geospatial-CANOE. Setuptools dynamically combines the root requirement
 fragments with the corresponding files from the bundled TEMOA backend, so no
 separate requirements-file installation is needed.
 
-Runtime installation reads `requirements.txt` and `temoa/requirements.txt`.
-The `dev` extra additionally reads `requirements-dev.txt` and
-`temoa/requirements-dev.txt`. Updating the bundled TEMOA checkout therefore
-updates the backend dependency set used by the next installation.
+The normal installation reads `requirements.txt` and `temoa/requirements.txt`.
+Together, these provide the complete research environment for acquiring and
+processing data, building and solving CANOE/TEMOA models, and analysing model
+outputs. The `dev` extra additionally reads `requirements-dev.txt` and
+`temoa/requirements-dev.txt`, extending that research environment with the
+deeper contributor, testing, and notebook toolchain. Updating the bundled TEMOA
+checkout therefore updates the backend dependency set used by the next
+installation.
 
 Dependencies imported directly by `geocanoe` are declared in the root runtime
 fragment even when TEMOA currently requires the same package. This keeps the
@@ -190,12 +194,15 @@ change from silently removing a package that GeoCANOE still uses. Direct and
 transitive versions for the reproducible development environment are captured
 in `requirements-lock.txt`.
 
-### Standard runtime installation
+### Standard research installation
 
-Use this option if you only need to run the Geospatial-CANOE workflow and CANOE/TEMOA model.
+This is the normal installation for research use. It supports the complete
+Geospatial-CANOE workflow and bundled CANOE/TEMOA model, including data
+acquisition, preprocessing, schema construction, optimization, diagnostics,
+exports, and maps. It intentionally excludes contributor-only tools.
 
-From the repository root, install Geospatial-CANOE and its runtime dependencies
-in editable mode:
+From the repository root, install the complete research environment in editable
+mode:
 
 ```bash
 python -m pip install -e .
@@ -226,9 +233,11 @@ The files under `scripts/` and `diagnostics/check.py` remain compatibility
 wrappers for existing notebooks and automation. Package-module invocation with
 `python -m` is also supported by the corresponding implementation modules.
 
-### Development installation
+### Contributor, testing, and notebook installation
 
-Use this option if you plan to modify the codebase, run tests, use linting or type checking, or work interactively with Jupyter.
+Use this deeper environment when modifying the codebase, running the test suite,
+checking or formatting code, using pre-commit hooks, or working interactively
+with the development notebooks and Jupyter.
 
 Install Geospatial-CANOE with its development extra:
 
@@ -236,8 +245,10 @@ Install Geospatial-CANOE with its development extra:
 python -m pip install -e ".[dev]"
 ```
 
-The `dev` extra adds testing, coverage, linting, type-checking, pre-commit, and
-interactive Jupyter tooling to the complete runtime environment.
+The `dev` extra preserves the complete research environment and adds testing,
+coverage, linting, type-checking, pre-commit, interactive Jupyter tooling, and
+notebook-oriented geospatial exploration packages. It is not required to run
+the canonical research workflow.
 
 Mypy is the canonical static type checker. Its project policy is stored in
 `pyproject.toml` and covers the importable package plus the compatibility CLI
@@ -273,8 +284,9 @@ Verify the installation with:
 python -c "import geocanoe; print(geocanoe.__version__)"
 ```
 
-In general, use `-e .` for runtime work, `-e ".[dev]"` for development, and
-add `-c requirements-lock.txt` when reproducing the currently pinned environment.
+In general, use `-e .` for the complete research environment and
+`-e ".[dev]"` for contributor, testing, or notebook work. Add
+`-c requirements-lock.txt` when reproducing the currently pinned environment.
 
 When a direct dependency changes, update the appropriate root or TEMOA
 requirement fragment, regenerate `requirements-lock.txt`, install with the lock
