@@ -267,17 +267,18 @@ def _pipeline_impedance() -> pd.DataFrame:
 
 
 @pytest.mark.parametrize(
-    ("scope", "expected_capex", "expected_opex"),
+    ("scope", "expected_capex", "expected_fixed_opex", "expected_variable_opex"),
     [
-        ("none", 10.0, 10.0),
-        ("etl_capex_only", 15.0, 10.0),
-        ("all_km_dependent", 15.0, 15.0),
+        ("none", 10.0, 10.0, 10.0),
+        ("etl_capex_only", 15.0, 10.0, 10.0),
+        ("all_km_dependent", 15.0, 15.0, 15.0),
     ],
 )
 def test_pipeline_impedance_scope_selects_cost_distances(
     scope: str,
     expected_capex: float,
-    expected_opex: float,
+    expected_fixed_opex: float,
+    expected_variable_opex: float,
 ) -> None:
     impedance = None if scope == "none" else _pipeline_impedance()
 
@@ -289,7 +290,10 @@ def test_pipeline_impedance_scope_selects_cost_distances(
 
     assert links["distance_km"].eq(10.0).all()
     assert links["pipeline_capex_distance_km"].eq(expected_capex).all()
-    assert links["pipeline_opex_distance_km"].eq(expected_opex).all()
+    assert links["pipeline_fixed_opex_distance_km"].eq(expected_fixed_opex).all()
+    assert links["pipeline_variable_opex_distance_km"].eq(
+        expected_variable_opex
+    ).all()
 
 
 def test_pipeline_impedance_requires_exact_edge_coverage() -> None:
@@ -307,7 +311,7 @@ def test_pipeline_etl_and_opex_use_separate_cost_distances() -> None:
     links = attach_pipeline_cost_distances(
         _pipeline_graph_edges(),
         _pipeline_impedance(),
-        "etl_capex_only",
+        "all_km_dependent",
     )
     links["canoe_region"] = links["edge_region"]
     tech_specs = pd.DataFrame({"tech": ["H2_PIPE"]})
@@ -342,7 +346,7 @@ def test_pipeline_etl_and_opex_use_separate_cost_distances() -> None:
         tech_specs,
         opex_coefficients,
         2025,
-        impedance_scope="etl_capex_only",
+        impedance_scope="all_km_dependent",
     )
     transmission = build_transport_costvariable(
         links,
@@ -358,8 +362,8 @@ def test_pipeline_etl_and_opex_use_separate_cost_distances() -> None:
     )
 
     assert etl["cost_upper"].eq(30.0).all()
-    assert fixed["cost"].eq(30.0).all()
-    assert variable["cost"].eq(40.0).all()
+    assert fixed["cost"].eq(45.0).all()
+    assert variable["cost"].eq(60.0).all()
     assert transmission["cost"].eq(20.0).all()
 
 

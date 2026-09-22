@@ -80,7 +80,8 @@ resolution = 25
 # pipeline costs. Physical graph distance is always retained unchanged.
 # Supported values:
 #   "none"             - use physical distance for all pipeline costs;
-#   "etl_capex_only"   - weight pipeline ETLSegment CAPEX only;
-#   "all_km_dependent" - weight pipeline ETLSegment CAPEX plus fixed and
-#                        variable OPEX.
+#   "etl_capex_only"   - weight pipeline CAPEX tables (CostInvest and/or
+#                        ETLSegment) only;
+#   "all_km_dependent" - weight pipeline CAPEX tables plus fixed and variable
+#                        OPEX.
 impedance_scope = "none"

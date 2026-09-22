@@ -154,9 +154,10 @@ description = "Canonical baseline using all global model defaults"
 #
 # Supported scopes:
 #   "none"             - physical distance for all pipeline costs;
-#   "etl_capex_only"   - weighted distance for ETLSegment CAPEX only;
-#   "all_km_dependent" - weighted distance for ETLSegment CAPEX, fixed OPEX,
-#                        and variable OPEX.
+#   "etl_capex_only"   - weighted distance for pipeline CAPEX tables
+#                        (CostInvest and/or ETLSegment) only;
+#   "all_km_dependent" - weighted distance for pipeline CAPEX tables, fixed
+#                        OPEX, and variable OPEX.
 #
 # [pipeline_costs]
 # impedance_scope = "all_km_dependent"

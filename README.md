@@ -363,10 +363,10 @@ with every directed ``Ri-Rj`` edge without changing the graph's physical
 ``distance_km``. The supported ``[pipeline_costs].impedance_scope`` values are:
 
 - ``none``: use physical distance for all pipeline costs;
-- ``etl_capex_only``: use weighted distance only for pipeline ``ETLSegment``
-  CAPEX; and
-- ``all_km_dependent``: use weighted distance for pipeline ``ETLSegment``
-  CAPEX, fixed OPEX, and variable OPEX.
+- ``etl_capex_only``: use weighted distance only for pipeline CAPEX tables
+  (``CostInvest`` and/or ``ETLSegment``); and
+- ``all_km_dependent``: use weighted distance for pipeline CAPEX tables, fixed
+  OPEX, and variable OPEX.
 
 For example, a scenario that applies the geographic bias only to pipeline CAPEX
 contains:
@@ -819,8 +819,12 @@ the full resolved paths and values needed to interpret or reproduce the artifact
 The current generalized pipeline assumption applies the processed
 hydrogen-pipeline capacity and cost representation to all pipeline technologies
 until commodity-specific pipeline cost layers are available. A scenario may
-apply the matching Silver edge-impedance multiplier to CAPEX only or to all
-kilometre-dependent pipeline costs; physical graph distances remain unchanged.
+apply the matching Silver edge-impedance multiplier to CAPEX only or to every
+kilometre-dependent pipeline cost table; physical graph distances remain
+unchanged. ``CostInvest`` and ``ETLSegment`` are commonly used as alternative
+CAPEX representations, but they may coexist when they encode different
+investment components. The current generated pipeline layer uses
+``ETLSegment`` for its piecewise economies-of-scale CAPEX curve.
 
 ### Single-scenario execution
 

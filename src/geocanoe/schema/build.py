@@ -1584,8 +1584,8 @@ def attach_pipeline_cost_distances(
     """Join Silver edge weights and derive pipeline-specific cost distances.
 
     The graph's physical ``distance_km`` is never modified. Depending on the
-    configured scope, the Silver effective distance is assigned to the CAPEX
-    distance, both CAPEX and OPEX distances, or neither.
+    configured scope, the Silver effective distance is assigned to CAPEX alone,
+    all pipeline cost distances, or neither.
     """
 
     supported_scopes = {"none", "etl_capex_only", "all_km_dependent"}
@@ -1729,11 +1729,13 @@ def attach_pipeline_cost_distances(
             )
 
     edges["pipeline_capex_distance_km"] = physical_distance
-    edges["pipeline_opex_distance_km"] = physical_distance
+    edges["pipeline_fixed_opex_distance_km"] = physical_distance
+    edges["pipeline_variable_opex_distance_km"] = physical_distance
     if impedance_scope in {"etl_capex_only", "all_km_dependent"}:
         edges["pipeline_capex_distance_km"] = edges["effective_distance_km"]
     if impedance_scope == "all_km_dependent":
-        edges["pipeline_opex_distance_km"] = edges["effective_distance_km"]
+        edges["pipeline_fixed_opex_distance_km"] = edges["effective_distance_km"]
+        edges["pipeline_variable_opex_distance_km"] = edges["effective_distance_km"]
 
     return edges
 
@@ -1845,9 +1847,10 @@ def build_canonical_links(
         f"{pipeline_links['effective_distance_km'].sum():,.2f} km"
     )
     print(
-        "Pipeline CAPEX/OPEX cost-distance totals: "
+        "Pipeline CAPEX/fixed-OPEX/variable-OPEX cost-distance totals: "
         f"{pipeline_links['pipeline_capex_distance_km'].sum():,.2f} / "
-        f"{pipeline_links['pipeline_opex_distance_km'].sum():,.2f} km"
+        f"{pipeline_links['pipeline_fixed_opex_distance_km'].sum():,.2f} / "
+        f"{pipeline_links['pipeline_variable_opex_distance_km'].sum():,.2f} km"
     )
     print(
         f"Road links "
@@ -1904,7 +1907,8 @@ def validate_canonical_links(
     assert road_links["distance_km"].notna().all()
     assert (pipeline_links["distance_km"] > 0).all()
     assert (pipeline_links["pipeline_capex_distance_km"] > 0).all()
-    assert (pipeline_links["pipeline_opex_distance_km"] > 0).all()
+    assert (pipeline_links["pipeline_fixed_opex_distance_km"] > 0).all()
+    assert (pipeline_links["pipeline_variable_opex_distance_km"] > 0).all()
     assert (road_links["distance_km"] > 0).all()
     assert pipeline_links["canoe_region"].str.contains("-", regex=False).all()
     assert road_links["canoe_region"].str.contains("-", regex=False).all()
@@ -4564,7 +4568,7 @@ def build_generalized_pipeline_opex_rows(
 
     The validated H2-derived OPEX slopes are applied to every configured pipeline
     technology and canonical pipeline edge. Per-kilometre fixed and variable cost
-    coefficients are multiplied by each link's distance to produce link-specific
+    coefficients use their scope-selected cost distances to produce link-specific
     ``CostFixed`` and ``CostVariable`` values.
 
     Regression intercepts are retained in the source metadata and recorded in the
@@ -4575,7 +4579,7 @@ def build_generalized_pipeline_opex_rows(
     ----------
     pipeline_links : pd.DataFrame
         Canonical pipeline-link table containing ``canoe_region`` identifiers and
-        positive ``pipeline_opex_distance_km`` values.
+        positive fixed- and variable-OPEX distance columns.
     pipeline_tech_specs : pd.DataFrame
         Pipeline technology specifications containing the canonical ``tech``
         identifiers to which the generalized OPEX coefficients are applied.
@@ -4608,10 +4612,18 @@ def build_generalized_pipeline_opex_rows(
     variable_intercept = float(variable_row["intercept_cost"])
 
     edge_regions = pipeline_links["canoe_region"].reset_index(drop=True)
-    edge_distances = pd.to_numeric(
-        pipeline_links["pipeline_opex_distance_km"], errors="coerce"
+    fixed_distances = pd.to_numeric(
+        pipeline_links["pipeline_fixed_opex_distance_km"], errors="coerce"
     ).reset_index(drop=True)
-    if edge_distances.isna().any() or (edge_distances <= 0).any():
+    variable_distances = pd.to_numeric(
+        pipeline_links["pipeline_variable_opex_distance_km"], errors="coerce"
+    ).reset_index(drop=True)
+    if (
+        fixed_distances.isna().any()
+        or (fixed_distances <= 0).any()
+        or variable_distances.isna().any()
+        or (variable_distances <= 0).any()
+    ):
         raise ValueError("Cannot build pipeline OPEX rows from invalid distances.")
 
     fixed_rows: list[pd.DataFrame] = []
@@ -4624,7 +4636,7 @@ def build_generalized_pipeline_opex_rows(
             "period": model_period,
             "tech": tech,
             "vintage": model_period,
-            "cost": fixed_coefficient * edge_distances,
+            "cost": fixed_coefficient * fixed_distances,
             "units": "CAD2020/(t capacity/year)",
             "notes": (
                 f"{GENERALIZED_PIPELINE_COST_NOTE} Applied to {tech}. "
@@ -4646,7 +4658,7 @@ def build_generalized_pipeline_opex_rows(
             "period": model_period,
             "tech": tech,
             "vintage": model_period,
-            "cost": variable_coefficient * edge_distances,
+            "cost": variable_coefficient * variable_distances,
             "units": "CAD2020/t",
             "notes": (
                 f"{GENERALIZED_PIPELINE_COST_NOTE} Applied to {tech}. "
@@ -4827,10 +4839,11 @@ def remove_pipeline_ordinary_costinvest(
 ) -> None:
     """Remove ordinary pipeline investment-cost rows from the encoded schema.
 
-    Pipeline capital costs are represented exclusively through the piecewise
-    ``ETLSegment`` formulation. Any conventional ``CostInvest`` rows assigned to
-    configured pipeline technologies are therefore removed to prevent duplicate
-    capital-cost accounting.
+    In the current generalized pipeline build, the modeled capital-cost component
+    is represented through the piecewise ``ETLSegment`` formulation. Conventional
+    ``CostInvest`` rows inherited for those technologies are therefore removed to
+    prevent duplicate accounting of that same component. This is a build-specific
+    choice, not a general restriction against using both tables for distinct costs.
 
     All non-pipeline investment-cost rows are preserved unchanged.
 
@@ -5063,8 +5076,9 @@ def validate_generalized_pipeline_cost_layer(
     For every configured pipeline technology, this function verifies that the
     encoded ``Efficiency``, ``ETLSegment``, ``CostFixed``, and ``CostVariable``
     rows cover the complete canonical pipeline-edge set with the expected number of
-    records. It also confirms that no ordinary ``CostInvest`` rows remain because
-    pipeline CAPEX is represented exclusively through ``ETLSegment``.
+    records. It also confirms that no inherited ordinary ``CostInvest`` rows remain
+    because this build represents its generalized pipeline CAPEX component through
+    ``ETLSegment``.
 
     Distance-normalized fixed and variable costs are compared against the processed
     H2-derived OPEX coefficients. Link-specific ETLSegment cost bounds are likewise
@@ -5107,10 +5121,19 @@ def validate_generalized_pipeline_cost_layer(
         .rename(columns={"canoe_region": "region"})
         .set_index("region")["pipeline_capex_distance_km"]
     )
-    opex_distance_lookup = (
-        canonical.pipeline_links[["canoe_region", "pipeline_opex_distance_km"]]
+    fixed_opex_distance_lookup = (
+        canonical.pipeline_links[
+            ["canoe_region", "pipeline_fixed_opex_distance_km"]
+        ]
         .rename(columns={"canoe_region": "region"})
-        .set_index("region")["pipeline_opex_distance_km"]
+        .set_index("region")["pipeline_fixed_opex_distance_km"]
+    )
+    variable_opex_distance_lookup = (
+        canonical.pipeline_links[
+            ["canoe_region", "pipeline_variable_opex_distance_km"]
+        ]
+        .rename(columns={"canoe_region": "region"})
+        .set_index("region")["pipeline_variable_opex_distance_km"]
     )
     fixed_coefficient = float(
         h2_opex_coefficients.loc[
@@ -5155,8 +5178,8 @@ def validate_generalized_pipeline_cost_layer(
         assert len(fixed) == expected_edges
         assert len(variable) == expected_edges
 
-        fixed_distances = fixed["region"].map(opex_distance_lookup)
-        variable_distances = variable["region"].map(opex_distance_lookup)
+        fixed_distances = fixed["region"].map(fixed_opex_distance_lookup)
+        variable_distances = variable["region"].map(variable_opex_distance_lookup)
         assert np.allclose(
             fixed["cost"].to_numpy(dtype=float)
             / fixed_distances.to_numpy(dtype=float),
