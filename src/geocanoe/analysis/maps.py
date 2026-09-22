@@ -220,12 +220,21 @@ class GeospatialData:
     road_edge_layer : gpd.GeoDataFrame | None
         Optional road-enabled graph-edge geometries used to show available
         road-connected corridors.
+    lakes : gpd.GeoDataFrame | None
+        Optional processed lake polygons associated with the active build.
+    aboriginal_lands : gpd.GeoDataFrame | None
+        Optional processed Aboriginal Lands polygons associated with the build.
+    urban_centres : gpd.GeoDataFrame | None
+        Optional processed population-centre footprints associated with the build.
     """
 
     sites: gpd.GeoDataFrame
     edges: pd.DataFrame
     basemap: gpd.GeoDataFrame
     road_edge_layer: gpd.GeoDataFrame | None
+    lakes: gpd.GeoDataFrame | None = None
+    aboriginal_lands: gpd.GeoDataFrame | None = None
+    urban_centres: gpd.GeoDataFrame | None = None
 
 
 @dataclass
@@ -787,6 +796,117 @@ def load_model_tables(db_path: Path) -> ModelTables:
     )
 
 
+def _load_processed_context_layers(
+    paths: GeospatialPaths,
+) -> tuple[
+    gpd.GeoDataFrame | None,
+    gpd.GeoDataFrame | None,
+    gpd.GeoDataFrame | None,
+]:
+    """Load compact display layers from the active build's Silver evidence.
+
+    The pipeline-impedance evidence directory is build-profile specific, so a
+    ``prov-orbits`` result cannot accidentally be decorated with context from
+    ``prov-popfuel``. Urban footprints come from the population-centre source
+    but are restricted to centre IDs present in that build's processed evidence.
+    """
+
+    if paths.build_id is None:
+        print(
+            "Processed lake, Aboriginal Lands, and urban-centre context skipped: "
+            "the selected run has no build_id manifest metadata."
+        )
+        return None, None, None
+
+    processed_root = paths.basemap_path.parent.parent
+    evidence_dir = processed_root / "pipeline_impedance" / paths.build_id / "evidence"
+    lake_path = evidence_dir / "nhn_waterbodies.gpkg"
+    lakes = None
+    if lake_path.exists():
+        lakes = gpd.read_file(lake_path, layer="nhn_waterbody_features")
+        if lakes.crs is None:
+            raise ValueError(f"Processed lakes context has no assigned CRS: {lake_path}")
+        lake_columns = [
+            column
+            for column in (
+                "hydro_feature_id",
+                "lakename_1",
+                "feature_class",
+                "permanency_class",
+                lakes.geometry.name,
+            )
+            if column in lakes.columns
+        ]
+        lakes = lakes[lake_columns].copy()
+    else:
+        print(f"Processed lakes context unavailable: {lake_path}")
+
+    lands_evidence_path = evidence_dir / "aboriginal_lands.gpkg"
+    lands_source_path = (
+        processed_root.parent
+        / "raw"
+        / "aboriginal_lands"
+        / "AL_TA_CA_2_188_eng.shp"
+    )
+    aboriginal_lands = None
+    if lands_evidence_path.exists() and lands_source_path.exists():
+        land_ids = gpd.read_file(
+            lands_evidence_path,
+            layer="aboriginal_lands_features",
+            columns=["source_feature_id"],
+            ignore_geometry=True,
+        )["source_feature_id"].dropna().astype(str).unique()
+        aboriginal_lands = gpd.read_file(lands_source_path)
+        aboriginal_lands["NID"] = aboriginal_lands["NID"].astype(str)
+        aboriginal_lands = aboriginal_lands.loc[
+            aboriginal_lands["NID"].isin(land_ids),
+            [
+                column
+                for column in ("NID", "NAME1", "JUR1", "ALTYPE", "geometry")
+                if column in aboriginal_lands.columns
+            ],
+        ].copy()
+    else:
+        print(
+            "Processed Aboriginal Lands context unavailable: expected both "
+            f"{lands_evidence_path} and {lands_source_path}"
+        )
+
+    urban_evidence_path = evidence_dir / "population_exposure.gpkg"
+    urban_source_path = (
+        processed_root.parent
+        / "raw"
+        / "gasoline_demand"
+        / "population_centres"
+        / "lpc_000b21a_e.shp"
+    )
+    urban_centres = None
+    if urban_evidence_path.exists() and urban_source_path.exists():
+        centre_ids = gpd.read_file(
+            urban_evidence_path,
+            layer="population_exposure_features",
+            columns=["PCUID"],
+            ignore_geometry=True,
+        )["PCUID"].dropna().astype(str).unique()
+        urban_centres = gpd.read_file(urban_source_path)
+        urban_centres["PCUID"] = urban_centres["PCUID"].astype(str)
+        urban_centres = urban_centres.loc[
+            urban_centres["PCUID"].isin(centre_ids),
+            [
+                column
+                for column in ("PCUID", "PCNAME", "PCTYPE", "PCCLASS", "geometry")
+                if column in urban_centres.columns
+            ],
+        ].copy()
+    else:
+        print(
+            "Processed urban-centre context unavailable: expected both "
+            f"{urban_evidence_path} and {urban_source_path}"
+        )
+
+    return lakes, aboriginal_lands, urban_centres
+
+
 def load_geospatial_data(paths: GeospatialPaths) -> GeospatialData:
     """Load and normalize geospatial layers for mapping.
 
@@ -865,11 +985,16 @@ def load_geospatial_data(paths: GeospatialPaths) -> GeospatialData:
     ):
         road_edge_layer = road_edge_layer.to_crs(target_crs)
 
+    lakes, aboriginal_lands, urban_centres = _load_processed_context_layers(paths)
+
     return GeospatialData(
         sites=sites,
         edges=edges,
         basemap=basemap,
         road_edge_layer=road_edge_layer,
+        lakes=lakes,
+        aboriginal_lands=aboriginal_lands,
+        urban_centres=urban_centres,
     )
 
 
@@ -2624,6 +2749,7 @@ def save_basemap_overlay_figure(
 FOLIUM_BASEMAP_PATH: Path | None = PROJECT_ROOT / "data_files/raw/basemaps/lpr_000b21a_e.shp"
 FOLIUM_SHOW_GRID = True
 FOLIUM_SHOW_ROAD_EDGES = False
+FOLIUM_SHOW_PROCESSED_CONTEXT = True
 FOLIUM_OPEN_BROWSER = False
 FOLIUM_MAX_GRID_FEATURES = 25_000
 
@@ -2662,7 +2788,11 @@ def format_map_value(value: float, layer: str) -> str:
     return f"{number} {units[scale]}{suffix}"
 
 
-def add_map_legend(model_map: folium.Map, layers: PlotLayers) -> None:
+def add_map_legend(
+    model_map: folium.Map,
+    layers: PlotLayers,
+    geodata: GeospatialData | None = None,
+) -> None:
     """Explain categorical colour and symbol encodings, including hidden layers."""
     rows = []
     for name, (points, color) in layers.tech_points.items():
@@ -2675,11 +2805,20 @@ def add_map_legend(model_map: folium.Map, layers: PlotLayers) -> None:
             rows.append(f'<div><span style="display:inline-block;width:24px;border-top:3px {border} {color}"></span> {_html_escape(name)}</div>')
     if not layers.demand_pts.empty:
         rows.append('<div>○ Gasoline demand</div>')
+    context_rows = []
+    if geodata is not None:
+        if geodata.lakes is not None and not geodata.lakes.empty:
+            context_rows.append('<div><span style="color:#6baed6">■</span> Lakes</div>')
+        if geodata.aboriginal_lands is not None and not geodata.aboriginal_lands.empty:
+            context_rows.append('<div><span style="color:#8c6bb1">■</span> Aboriginal Lands</div>')
+        if geodata.urban_centres is not None and not geodata.urban_centres.empty:
+            context_rows.append('<div><span style="color:#d89000">■</span> Urban centres</div>')
     model_map.get_root().html.add_child(folium.Element(
         '<aside aria-label="Map legend" style="position:fixed;bottom:25px;left:12px;'
         'z-index:1000;background:white;padding:12px;border:1px solid #777;'
         'font:12px Arial;max-height:45vh;overflow:auto;max-width:280px">'
         '<b>Legend · all available layers</b>' + ''.join(rows) +
+        ('<hr><b>Geographic context</b>' + ''.join(context_rows) if context_rows else '') +
         '<hr>Colour identifies technology (Okabe–Ito palette).<br>'
         'Marker radius: square-root scale within each layer.<br>'
         'Line width: square-root scale across links, weighted by mode.<br>'
@@ -2737,6 +2876,7 @@ def create_folium_base_map(geodata: GeospatialData) -> folium.Map:
     )
 
     folium.map.CustomPane('land', z_index=200, pointer_events=False).add_to(model_map)
+    folium.map.CustomPane('reference', z_index=225, pointer_events=False).add_to(model_map)
     folium.map.CustomPane('context', z_index=250, pointer_events=False).add_to(model_map)
 
     model_map.fit_bounds(bounds, padding=(12, 12))
@@ -2774,6 +2914,63 @@ def add_context_layers_folium(
         ).add_to(model_map)
     else:
         print("Local geographic context unavailable; using embedded model grid only.")
+
+    if FOLIUM_SHOW_PROCESSED_CONTEXT:
+        processed_context = (
+            (
+                "Lakes",
+                geodata.lakes,
+                500.0,
+                {
+                    "color": "#6baed6", "weight": 0.65, "opacity": 0.9,
+                    "fillColor": "#9ecae1", "fillOpacity": 0.72,
+                },
+            ),
+            (
+                "Aboriginal Lands",
+                geodata.aboriginal_lands,
+                500.0,
+                {
+                    "color": "#8c6bb1", "weight": 0.55, "opacity": 0.75,
+                    "fillColor": "#b39ac8", "fillOpacity": 0.24,
+                },
+            ),
+            (
+                "Urban centres",
+                geodata.urban_centres,
+                250.0,
+                {
+                    "color": "#d89000", "weight": 0.55, "opacity": 0.8,
+                    "fillColor": "#f6c85f", "fillOpacity": 0.28,
+                },
+            ),
+        )
+        for display_name, frame, tolerance, style in processed_context:
+            if frame is None or frame.empty:
+                continue
+            display = frame[[frame.geometry.name]].copy()
+            # Evidence is stored in a metric CRS. Simplifying before WGS84
+            # conversion keeps the standalone HTML compact without changing
+            # any source or model geometry.
+            if display.crs is not None:
+                if not display.crs.is_projected:
+                    display = display.to_crs(epsg=3347)
+                display.geometry = display.geometry.simplify(
+                    tolerance, preserve_topology=False
+                )
+            display = display.to_crs(epsg=4326)
+            group = folium.FeatureGroup(
+                name=f"{display_name} ({len(display):,})",
+                show=True,
+            )
+            folium.GeoJson(
+                data=display.to_json(drop_id=True),
+                pane="reference",
+                interactive=False,
+                style_function=lambda _feature, layer_style=style: layer_style,
+                smooth_factor=1.0,
+            ).add_to(group)
+            group.add_to(model_map)
 
     if FOLIUM_SHOW_GRID and len(basemap_wgs84) <= FOLIUM_MAX_GRID_FEATURES:
         grid_group = folium.FeatureGroup(
@@ -3065,7 +3262,7 @@ def save_folium_map(
     add_transport_layers_folium(model_map, layers, spacing)
     add_process_layers_folium(model_map, layers, spacing)
     add_demand_layer_folium(model_map, layers)
-    add_map_legend(model_map, layers)
+    add_map_legend(model_map, layers, geodata)
     add_map_title(model_map, paths.fig_stem.replace("_", " "))
 
     folium.LayerControl(

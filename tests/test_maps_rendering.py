@@ -40,3 +40,30 @@ def test_export_embeds_grid_below_hoverable_outputs(monkeypatch):
     assert '2.5 Mt' in html
     assert 'Map legend' in html
     assert 'Model grid (1 regions)' in html
+
+
+def test_export_embeds_processed_context_as_toggleable_reference_layers(monkeypatch):
+    monkeypatch.setattr(maps, "FOLIUM_BASEMAP_PATH", None)
+    grid = gpd.GeoDataFrame(geometry=[box(-80, 45, -79, 46)], crs=4326)
+    lake = gpd.GeoDataFrame(geometry=[box(-79.9, 45.1, -79.7, 45.3)], crs=4326)
+    lands = gpd.GeoDataFrame(geometry=[box(-79.6, 45.3, -79.4, 45.5)], crs=4326)
+    urban = gpd.GeoDataFrame(geometry=[box(-79.3, 45.6, -79.1, 45.8)], crs=4326)
+    geo = maps.GeospatialData(
+        grid,
+        pd.DataFrame(),
+        grid,
+        None,
+        lakes=lake,
+        aboriginal_lands=lands,
+        urban_centres=urban,
+    )
+    model_map = maps.create_folium_base_map(geo)
+    maps.add_context_layers_folium(model_map, geo)
+    maps.folium.LayerControl().add_to(model_map)
+    html = model_map.get_root().render()
+
+    assert 'Lakes (1)' in html
+    assert 'Aboriginal Lands (1)' in html
+    assert 'Urban centres (1)' in html
+    assert '"pane": "reference"' in html
+    assert '#9ecae1' in html
