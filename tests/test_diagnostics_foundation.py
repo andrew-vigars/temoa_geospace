@@ -8,7 +8,10 @@ import pandas as pd
 from geocanoe.diagnostics.models import DiagnosticReport, DiagnosticResult
 from geocanoe.diagnostics.renderers import render_console_result, write_json_report
 from geocanoe.diagnostics.runner import run_checks
-from geocanoe.schema.artifacts import resolve_schema_artifact_paths
+from geocanoe.schema.artifacts import (
+    resolve_gasoline_demand_artifact_path,
+    resolve_schema_artifact_paths,
+)
 
 
 def test_diagnostic_report_exit_codes_and_runner_order() -> None:
@@ -96,3 +99,18 @@ def test_schema_artifact_paths_include_road_layer() -> None:
         fingerprint="a1b2c3d4",
     )
     assert identified.schema.name == "gold_onqc_baseline_a1b2c3d4.sqlite"
+
+    gasoline = resolve_gasoline_demand_artifact_path(
+        Path("C:/example/geocanoe"),
+        "onqc",
+        "on_qc_basemap_25km_centroid",
+    )
+    assert gasoline == (
+        Path("C:/example/geocanoe")
+        / "data_files"
+        / "processed"
+        / "gasoline_demand"
+        / "onqc"
+        / "basemaps"
+        / "on_qc_basemap_25km_centroid_gasoline_demand.gpkg"
+    )

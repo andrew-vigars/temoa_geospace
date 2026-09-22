@@ -20,6 +20,8 @@ Processed geospatial products:
     data_files/processed/road_connectivity/*_road_edge_connections.csv
     data_files/processed/road_connectivity/*_road_edges.gpkg
     data_files/processed/co2_storage/*_co2_storage.gpkg
+    data_files/processed/gasoline_demand/{build_id}/basemaps/
+        *_gasoline_demand.gpkg
 
 Schema and baseline database:
     data_files/canoe_dataset_schema.sql
@@ -27,7 +29,6 @@ Schema and baseline database:
 
 Processed model inputs:
     data_files/processed/legacy_inputs/sites_full_with_province.csv
-    data_files/processed/legacy_inputs/demand_with_province.csv
     data_files/processed/emissions/co2_large_facilities_2024/
         co2_large_facilities_2024_clean.gpkg
 
@@ -71,7 +72,10 @@ from geocanoe.config import (
 )
 from geocanoe.paths import find_project_root
 from geocanoe.schema import database
-from geocanoe.schema.artifacts import resolve_schema_artifact_paths
+from geocanoe.schema.artifacts import (
+    resolve_gasoline_demand_artifact_path,
+    resolve_schema_artifact_paths,
+)
 
 # =============================================================================
 # Project paths
@@ -93,7 +97,6 @@ BASELINE_SQLITE_PATH = DATA_FILES / "CANOE_geospatial.sqlite"
 
 PROCESSED_LEGACY_INPUTS = DATA_FILES / "processed" / "legacy_inputs"
 SITES_PATH = PROCESSED_LEGACY_INPUTS / "sites_full_with_province.csv"
-DEMAND_PATH = PROCESSED_LEGACY_INPUTS / "demand_with_province.csv"
 
 PROCESSED_EMISSIONS_DIR = (
     DATA_FILES
@@ -221,6 +224,9 @@ class ResolvedSchemaConfig:
         road layer.
     co2_storage_path : Path
         Path to the Silver CO2-storage GeoPackage matching the selected basemap.
+    gasoline_demand_path : Path
+        Path to the Silver regional gasoline-demand GeoPackage matching the
+        selected build profile and basemap.
     storage_eligibility : str
         Configured Silver evidence rule for ``CO2_INJECT`` availability.
     storage_use_capacity_bound : bool
@@ -269,6 +275,7 @@ class ResolvedSchemaConfig:
     road_edges_gpkg_path: Path
     road_region_overlay_path: Path
     co2_storage_path: Path
+    gasoline_demand_path: Path
     storage_eligibility: str
     storage_use_capacity_bound: bool
     model_config_path: Path
@@ -313,8 +320,8 @@ class LoadedInputs:
         Baseline CANOE/TEMOA SQLite database loaded as table DataFrames.
     sites_raw : pd.DataFrame
         Raw site attribute table used for electricity and other node attributes.
-    demand_raw : pd.DataFrame
-        Raw demand table to be snapped to selected graph nodes.
+    gasoline_regions : gpd.GeoDataFrame
+        Silver gasoline demand already mapped to the selected basemap regions.
     co2_raw : gpd.GeoDataFrame
         Clean spatial CO2 facility dataset from the emissions preprocessing stage.
     transport_techs_raw : pd.DataFrame
@@ -339,7 +346,7 @@ class LoadedInputs:
     storage_regions: gpd.GeoDataFrame
     db: dict[str, pd.DataFrame]
     sites_raw: pd.DataFrame
-    demand_raw: pd.DataFrame
+    gasoline_regions: gpd.GeoDataFrame
     co2_raw: gpd.GeoDataFrame
     transport_techs_raw: pd.DataFrame
     gen_efficiencies_raw: pd.DataFrame
@@ -728,6 +735,11 @@ def resolve_schema_configuration(
         scenario_id=model_config.scenario.scenario_id,
         fingerprint=fingerprint,
     )
+    gasoline_demand_path = resolve_gasoline_demand_artifact_path(
+        project_root=PROJECT_ROOT,
+        build_id=build_config.build_id,
+        basemap_stem=basemap_stem,
+    )
 
     config = ResolvedSchemaConfig(
         build_id=build_config.build_id,
@@ -744,6 +756,7 @@ def resolve_schema_configuration(
         road_edges_gpkg_path=artifacts.road_edges,
         road_region_overlay_path=artifacts.road_region_overlay,
         co2_storage_path=artifacts.co2_storage,
+        gasoline_demand_path=gasoline_demand_path,
         storage_eligibility=build_config.storage.eligibility,
         storage_use_capacity_bound=build_config.storage.use_capacity_bound,
         model_config_path=model_config.source_path,
@@ -860,7 +873,7 @@ def validate_required_paths(config: ResolvedSchemaConfig) -> None:
         "raw_schema": RAW_SCHEMA_PATH,
         "baseline_sqlite": BASELINE_SQLITE_PATH,
         "sites": SITES_PATH,
-        "demand": DEMAND_PATH,
+        "gasoline_demand": config.gasoline_demand_path,
         "co2_source": CO2_SOURCE_PATH,
         "transport_techs": TRANSPORT_TECHS_PATH,
         "generation_efficiency": GEN_EFFICIENCIES_PATH,
@@ -997,6 +1010,82 @@ def validate_storage_region_coverage(
         )
 
     print("Regional storage evidence coverage validated.")
+
+
+def validate_gasoline_demand_region_coverage(
+    gasoline_regions: pd.DataFrame,
+    graph_nodes: pd.DataFrame,
+) -> None:
+    """Validate the Silver gasoline-demand contract for the selected graph."""
+
+    required_columns = {
+        "region",
+        "demand",
+        "demand_units",
+        "has_gasoline_demand",
+    }
+    missing_columns = required_columns - set(gasoline_regions.columns)
+    if missing_columns:
+        raise ValueError(
+            "Regional gasoline demand is missing required columns: "
+            f"{sorted(missing_columns)}"
+        )
+    if "region" not in graph_nodes.columns:
+        raise ValueError("Graph nodes are missing required column: 'region'.")
+    if gasoline_regions["region"].isna().any():
+        raise ValueError("Regional gasoline demand contains null region IDs.")
+
+    duplicate_regions = sorted(
+        gasoline_regions.loc[
+            gasoline_regions["region"].duplicated(keep=False),
+            "region",
+        ].astype(str).unique()
+    )
+    if duplicate_regions:
+        raise ValueError(
+            "Regional gasoline demand contains duplicate region IDs: "
+            f"{duplicate_regions[:10]}"
+        )
+
+    gasoline_region_ids = set(gasoline_regions["region"].astype(str))
+    graph_region_ids = set(graph_nodes["region"].astype(str))
+    missing_regions = sorted(graph_region_ids - gasoline_region_ids)
+    extra_regions = sorted(gasoline_region_ids - graph_region_ids)
+    if missing_regions or extra_regions:
+        raise ValueError(
+            "Regional gasoline demand does not exactly cover selected graph "
+            f"regions. Missing: {missing_regions[:10]}; extra: {extra_regions[:10]}"
+        )
+
+    demand = pd.to_numeric(gasoline_regions["demand"], errors="coerce")
+    if demand.isna().any() or not np.isfinite(demand).all():
+        raise ValueError("Regional gasoline demand contains non-numeric values.")
+    if (demand < 0).any():
+        raise ValueError("Regional gasoline demand contains negative values.")
+    if float(demand.sum()) <= 0:
+        raise ValueError("Regional gasoline demand must have a positive total.")
+
+    units = gasoline_regions["demand_units"].astype(str).str.strip()
+    if not units.eq("t/year").all():
+        raise ValueError("Regional gasoline demand units must be 't/year'.")
+
+    declared = gasoline_regions["has_gasoline_demand"].map(
+        {
+            True: True,
+            False: False,
+            "true": True,
+            "false": False,
+            "True": True,
+            "False": False,
+        }
+    )
+    if declared.isna().any() or not declared.eq(demand.gt(0)).all():
+        raise ValueError(
+            "Regional gasoline demand has inconsistent "
+            "has_gasoline_demand values."
+        )
+
+    print("Regional gasoline-demand coverage validated.")
 
 
 def validate_storage_capacity_bound_setting(
@@ -1392,9 +1481,12 @@ def load_inputs(config: ResolvedSchemaConfig) -> LoadedInputs:
             config.co2_storage_path,
             layer="regional_storage_evidence",
         ),
+        gasoline_regions=gpd.read_file(
+            config.gasoline_demand_path,
+            layer="regional_gasoline_demand",
+        ),
         db=database.sqlite_to_dfs(BASELINE_SQLITE_PATH),
         sites_raw=pd.read_csv(SITES_PATH),
-        demand_raw=pd.read_csv(DEMAND_PATH),
         co2_raw=gpd.read_file(CO2_SOURCE_PATH),
         transport_techs_raw=pd.read_csv(TRANSPORT_TECHS_PATH),
         gen_efficiencies_raw=pd.read_csv(GEN_EFFICIENCIES_PATH),
@@ -1424,6 +1516,10 @@ def load_inputs(config: ResolvedSchemaConfig) -> LoadedInputs:
         inputs.graph_nodes,
         config.storage_eligibility,
     )
+    validate_gasoline_demand_region_coverage(
+        inputs.gasoline_regions,
+        inputs.graph_nodes,
+    )
     validate_h2_etlsegment_template(inputs.h2_etlsegment_template)
     validate_h2_opex_coefficients(inputs.h2_opex_coefficients)
 
@@ -1433,6 +1529,7 @@ def load_inputs(config: ResolvedSchemaConfig) -> LoadedInputs:
     print(f"Road edge connections: {len(inputs.road_edge_connections):,}")
     print(f"Road edge geometries: {len(inputs.road_edges_gdf):,}")
     print(f"Regional storage evidence rows: {len(inputs.storage_regions):,}")
+    print(f"Regional gasoline-demand rows: {len(inputs.gasoline_regions):,}")
     print(f"Baseline database tables: {len(inputs.db):,}")
     print(f"Clean spatial CO2 facilities: {len(inputs.co2_raw):,}")
     print(f"H2 ETLSegment template rows: {len(inputs.h2_etlsegment_template):,}")
@@ -2224,14 +2321,11 @@ def build_site_attributes(
     canonical: CanonicalLinks,
     build_config: GeospatialBuildConfig,
 ) -> SnappedInputs:
-    """Snap point inputs to graph nodes and build node-level attributes.
+    """Snap site and CO2 points and merge regional gasoline demand.
 
-    This function assigns raw demand, electricity, and CO2 facility inputs to
-    the selected geospatial graph nodes. Non-CO2 site and demand records are
-    combined, missing numeric values are filled with zero, and records are
-    snapped to graph regions. Clean CO2 facilities are converted from
-    kilotonnes to tonnes, filtered to positive-emissions records, snapped to
-    graph regions, and aggregated by region.
+    The existing site/LCOE workflow and CO2-facility workflow remain point
+    based. Gasoline demand is not snapped here: it is spatially assigned to the
+    selected basemap by the Silver gasoline-demand stage and joined by region.
 
     The resulting site-attribute table contains one row per canonical node
     region and includes demand, electricity potential, the annual CO2 emissions
@@ -2240,8 +2334,8 @@ def build_site_attributes(
     Parameters
     ----------
     inputs : LoadedInputs
-        Loaded geospatial, baseline database, emissions, demand, and site input
-        data for the selected schema configuration.
+        Loaded geospatial, baseline database, emissions, regional gasoline
+        demand, and site input data for the selected schema configuration.
     canonical : CanonicalLinks
         Canonical node and edge topology used to ensure every selected graph
         node receives a site-attribute row.
@@ -2252,7 +2346,7 @@ def build_site_attributes(
         Container holding the node-level site attributes, positive-emissions CO2
         facilities used for snapping, and the original clean CO2 facility layer.
     """
-    print("\nSnapping demand, electricity, and CO2 inputs to selected graph nodes...")
+    print("\nSnapping site and CO2 inputs to selected graph nodes...")
 
     assignment_context = build_point_assignment_context(
         graph_nodes=inputs.graph_nodes,
@@ -2261,10 +2355,7 @@ def build_site_attributes(
         ),
     )
 
-    raw_points_non_co2 = pd.concat(
-        [inputs.sites_raw, inputs.demand_raw],
-        ignore_index=True,
-    )
+    raw_points_non_co2 = inputs.sites_raw.copy()
 
     numeric_cols = raw_points_non_co2.select_dtypes(include="number").columns
     raw_points_non_co2[numeric_cols] = raw_points_non_co2[numeric_cols].fillna(0)
@@ -2273,14 +2364,14 @@ def build_site_attributes(
         filter_to_configured_provinces(
             data=raw_points_non_co2,
             configured_provinces=build_config.study_area.provinces,
-            dataset_label="sites_full + demand",
+            dataset_label="sites_full",
         )
     )
 
     snapped_non_co2 = snap_points_to_graph_nodes(
         points=raw_points_non_co2,
         context=assignment_context,
-        dataset_label="sites_full + demand",
+        dataset_label="sites_full",
     )
 
     co2_facilities = inputs.co2_raw.copy()
@@ -2333,13 +2424,29 @@ def build_site_attributes(
         .agg(
             LCOE=("LCOE", "mean"),
             max_elc=("max_elec", "sum"),
-            demand=("demand", "sum"),
         )
+    )
+
+    regional_gasoline_demand = inputs.gasoline_regions[
+        ["region", "demand"]
+    ].copy()
+    regional_gasoline_demand["region"] = (
+        regional_gasoline_demand["region"].astype(str)
+    )
+    regional_gasoline_demand["demand"] = pd.to_numeric(
+        regional_gasoline_demand["demand"],
+        errors="raise",
     )
 
     site_attributes = (
         canonical.region_table[["region"]]
         .merge(site_attributes_non_co2, on="region", how="left")
+        .merge(
+            regional_gasoline_demand,
+            on="region",
+            how="left",
+            validate="one_to_one",
+        )
         .merge(co2_region, on="region", how="left")
         .fillna(
             {
@@ -2365,7 +2472,7 @@ def build_site_attributes(
         f"{len(inputs.co2_raw) - len(co2_facilities):,}"
     )
     print(
-        "Non-CO2 point rows excluded outside configured provinces: "
+        "Site point rows excluded outside configured provinces: "
         f"{len(excluded_non_co2):,}"
     )
     print(
@@ -2394,14 +2501,14 @@ def rebuild_demand(
     site_attributes: pd.DataFrame,
     model_period: int,
 ) -> None:
-    """Rebuild the gasoline-demand table from snapped node attributes.
+    """Rebuild the gasoline-demand table from Silver regional demand.
 
     Rows with positive gasoline demand are selected from the node-level site
     attributes and encoded into the CANOE/TEMOA ``Demand`` table. Each retained
     graph region receives one annual representative-year demand record for
-    commodity ``d_gsl`` in the configured model period. The legacy source values
-    are encoded unchanged. The source values are annual gasoline tonnes derived
-    from annual litres using a density conversion of ``0.00074 t/L``.
+    commodity ``d_gsl`` in the configured model period. The values are annual
+    gasoline tonnes allocated to the selected basemap by the Silver gasoline
+    demand workflow.
 
     The rebuilt table is checked to confirm that each region appears only once and
     that all encoded demand values are strictly positive.
@@ -2412,8 +2519,8 @@ def rebuild_demand(
         Mutable mapping of CANOE/TEMOA table names to encoded DataFrames. The
         existing ``Demand`` table is replaced in place.
     site_attributes : pd.DataFrame
-        Snapped node-level attribute table containing ``region`` and ``demand``
-        columns.
+        Node-level attribute table containing the Silver ``region`` and
+        ``demand`` columns.
 
     Returns
     -------
@@ -2439,10 +2546,10 @@ def rebuild_demand(
             "demand": demand_sites["demand"],
             "units": "t/year",
             "notes": (
-                "Annual gasoline demand in tonnes, converted from litres using "
-                "0.00074 t/L and snapped to selected graph node"
+                "Annual gasoline demand in tonnes allocated by the Silver "
+                "gasoline-demand workflow to the selected basemap region"
             ),
-            "data_source": None,
+            "data_source": "Silver regional gasoline demand",
             "dq_cred": None,
             "dq_geog": None,
             "dq_struc": None,
@@ -3208,7 +3315,7 @@ def rebuild_node_efficiency(
             "vintage": model_period,
             "output_comm": "d_gsl",
             "efficiency": 1.0,
-            "notes": "Gasoline demand technology rebuilt from snapped demand regions",
+            "notes": "Gasoline demand technology rebuilt from Silver demand regions",
             "data_source": None,
             "dq_cred": None,
             "dq_geog": None,
@@ -5149,8 +5256,9 @@ def run_schema_build(
     loads all required model and cost inputs, constructs the canonical node and edge
     topology, and rebuilds the CANOE/TEMOA database tables in dependency order.
 
-    Node-level demand, generation potential, and CO2 supply are snapped to the
-    selected graph. Process definitions, technology costs, ETLSegment curves,
+    Site generation potential and CO2 supply are snapped to the selected graph;
+    Silver gasoline demand is joined by its preassigned basemap region. Process
+    definitions, technology costs, ETLSegment curves,
     capacity limits, and input-split constraints are then reconstructed. Pipeline
     CAPEX and OPEX are encoded using the temporary generalized H2-derived cost
     layer, while truck and electricity-transmission costs retain their legacy

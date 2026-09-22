@@ -1,87 +1,85 @@
-schema_version: 1
+schema_version: 2
+status: research_only_not_consumed
 purpose: >-
-  Candidate upstream sources for reconstructing the terrain and siting layers
-  found in the Hydrogen_Project_Final reference model. This registry records
-  source identity and lineage evidence only; it intentionally contains no scalar
-  penalty weights.
+  Document the national source datasets that may support a future pipeline
+  routing-impedance or siting layer. This file does not configure the current
+  Bronze, Silver, or Gold workflow and intentionally contains no scalar penalty
+  weights. Canonical acquisition metadata belongs in geospatial_sources.yaml.
 
-sources:
-  - id: ontario_ohn_waterbody
-    reference_file: lakes.shp
-    lineage_status: confirmed_schema_match
-    publisher: Ontario Ministry of Natural Resources
-    title: Ontario Hydro Network (OHN) - Waterbody
-    catalogue_url: https://data.ontario.ca/dataset/423655e0-2bb8-4dc2-a1ec-6d7b25915d18
-    service_url: https://ws.lioservices.lrc.gov.on.ca/arcgis2/rest/services/LIO_OPEN_DATA/LIO_Open01/MapServer/25
-    download_url: https://ws.gisetl.lrc.gov.on.ca/fmedatadownload/Packages/OHNWBDY.zip
-    licence: Open Government Licence - Ontario
-    geometry_type: polygon
-    source_crs: EPSG:4269
-    lineage_evidence:
-      - >-
-        Reference fields OGF_ID, WATERBODY_, OFFICIAL_N, GEL_NAME_I,
-        PERMANENCY, and LOCATION_A are shapefile-truncated forms of the official
-        OHN Waterbody service fields.
-      - The official layer is an Ontario-wide polygon waterbody dataset.
-    reference_fingerprints:
-      shp_sha256: aff95db88840ff554102ea79b3b4432d8da388b5e27c35e51b808c2bc21bfa0c
-      dbf_sha256: 34c8633952e0e7483a40ac8cb79670a5662e837f68e0b3dbd5cd670e11ebd681
+canonical_source_registry: registry/geospatial_sources.yaml
 
-  - id: ontario_first_nation_reserve
-    reference_file: indigenous_peoples_reserves.shp
-    lineage_status: confirmed_schema_match
-    publisher: Ontario Ministry of Natural Resources
-    title: First Nation Reserve
-    catalogue_url: https://data.ontario.ca/dataset/80e642cc-c153-4b6d-9b10-92f4d4aaff4e
-    service_url: https://ws.lioservices.lrc.gov.on.ca/arcgis2/rest/services/LIO_OPEN_DATA/LIO_Open03/MapServer/12
-    download_url: null
-    licence: Open Government Licence - Ontario
-    geometry_type: polygon
-    source_crs: EPSG:4269
-    lineage_evidence:
-      - >-
-        Reference fields OGF_ID, NAME, OTH_NAME, LAND_TYPE, ACCURACY, and LOC_DES
-        match the official First Nation Reserve data description and REST schema
-        after shapefile field-name truncation.
-      - >-
-        The official catalogue describes reserve boundaries defined by the Legal
-        Surveys Division of Natural Resources Canada.
-    reference_fingerprints:
-      shp_sha256: 31ff1b6bc7786e02fb36c3d7da186287cfb156a5542cafd74f25590ee5afc018
-      dbf_sha256: 90b9ce2e9cc1523e02cc687ac0afa925dc1d6652b6735639de1d8b59cc4494a1
+current_national_sources:
+  - role: hydrography
+    source_id: nrcan_nhn_hhyd_national_en
+    intended_evidence: >-
+      National waterbody and watercourse geometry for a future routing penalty
+      or exclusion layer.
+    workflow_status: silver_filtering_available_impedance_not_implemented
+    replaces_legacy_reference: ontario_ohn_waterbody
 
-  - id: statcan_2021_ontario_da_population_density
-    reference_file: residential_new.shp
-    lineage_status: derived_layer_sources_identified_transformation_unknown
-    publisher: Statistics Canada
-    title: 2021 Ontario dissemination areas with population density
-    boundary_reference_url: https://www150.statcan.gc.ca/n1/pub/92-160-g/2021001/tbl/tbl_4.12-eng.htm
-    boundary_download_url: https://www12.statcan.gc.ca/census-recensement/2021/geo/sip-pis/boundary-limites/files-fichiers/lda_000b21a_e.zip
-    population_table_url: https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=9810001501
-    population_table_download_url: https://www150.statcan.gc.ca/n1/tbl/csv/98100015-eng.zip
-    population_table_id: 98-10-0015-01
-    licence: Statistics Canada Open Licence
-    geometry_type: polygon
-    source_crs: EPSG:3347
-    lineage_evidence:
-      - >-
-        DAUID, DGUID, LANDAREA, and PRUID exactly match the official 2021
-        dissemination-area boundary record layout.
-      - Every reference DGUID begins with 2021 and every PRUID is 35 (Ontario).
-      - >-
-        The reference has 20,465 Ontario DAs, exactly matching the cartographic
-        boundary release after its three documented coastal-water exclusions;
-        all reference DGUIDs occur in the 2021 relationship file.
-      - >-
-        The official population table contains 2021 population density per square
-        kilometre at dissemination-area geography.
-      - >-
-        filtered16 behaves like population density and is used as such by the
-        reference model, but its creation and the other filtered fields are not
-        documented in the copied metadata.
-    unresolved_lineage:
-      - Exact population-table extract and join procedure.
-      - Meaning and derivation of every filtered field other than the model's use of filtered16.
-    reference_fingerprints:
-      shp_sha256: 8224aff5fd4c64921f1383f9f0714720eae3338548d474d4f763c80d0f32b06a
-      dbf_sha256: 2c0c430b2d478c43ae646dbb60eeb772ac87f9097b5618349d2246d7e422f54b
+  - role: aboriginal_lands
+    source_id: nrcan_aboriginal_lands_national_en
+    intended_evidence: >-
+      National Aboriginal Lands legislative boundaries for future siting or
+      routing treatment subject to documented modelling and consultation rules.
+    workflow_status: bronze_available_impedance_not_implemented
+    replaces_legacy_reference: ontario_first_nation_reserve
+
+  - role: population_exposure
+    source_id: statcan_2021_da_population_density_inputs
+    intended_evidence: >-
+      National dissemination-area population and land-area data from which a
+      transparent population-density or exposure layer may be derived.
+    workflow_status: bronze_available_impedance_not_implemented
+    replaces_legacy_reference: statcan_2021_ontario_da_population_density
+
+implementation_notes:
+  - >-
+    National datasets are acquired once and clipped or filtered to the study
+    area during Silver processing; province-specific source registrations are
+    not required.
+  - >-
+    The existing NHN Silver stage filters national hydrography but does not yet
+    translate it into pipeline impedance weights.
+  - >-
+    Aboriginal Lands and dissemination-area population inputs are preserved in
+    Bronze but are not currently encoded as pipeline penalties or exclusions.
+  - >-
+    Any future impedance implementation must define auditable transformations,
+    units, weights, combination rules, and treatment of missing evidence before
+    these sources affect routing.
+
+historical_reference_lineage:
+  status: inactive_reference_model_evidence
+  reference_model: Hydrogen_Project_Final
+  note: >-
+    These fingerprints identify copied Ontario-only layers used to investigate
+    the legacy reference model. They are retained for provenance only and are
+    neither acquisition targets nor active pipeline inputs.
+  sources:
+    - id: ontario_ohn_waterbody
+      reference_file: lakes.shp
+      lineage_status: confirmed_schema_match
+      replacement_source_id: nrcan_nhn_hhyd_national_en
+      reference_fingerprints:
+        shp_sha256: aff95db88840ff554102ea79b3b4432d8da388b5e27c35e51b808c2bc21bfa0c
+        dbf_sha256: 34c8633952e0e7483a40ac8cb79670a5662e837f68e0b3dbd5cd670e11ebd681
+
+    - id: ontario_first_nation_reserve
+      reference_file: indigenous_peoples_reserves.shp
+      lineage_status: confirmed_schema_match
+      replacement_source_id: nrcan_aboriginal_lands_national_en
+      reference_fingerprints:
+        shp_sha256: 31ff1b6bc7786e02fb36c3d7da186287cfb156a5542cafd74f25590ee5afc018
+        dbf_sha256: 90b9ce2e9cc1523e02cc687ac0afa925dc1d6652b6735639de1d8b59cc4494a1
+
+    - id: statcan_2021_ontario_da_population_density
+      reference_file: residential_new.shp
+      lineage_status: derived_layer_sources_identified_transformation_unknown
+      replacement_source_id: statcan_2021_da_population_density_inputs
+      unresolved_lineage:
+        - Exact legacy population-table extract and join procedure.
+        - Meaning and derivation of the legacy filtered fields.
+      reference_fingerprints:
+        shp_sha256: 8224aff5fd4c64921f1383f9f0714720eae3338548d474d4f763c80d0f32b06a
+        dbf_sha256: 2c0c430b2d478c43ae646dbb60eeb772ac87f9097b5618349d2246d7e422f54b

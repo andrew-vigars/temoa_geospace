@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 from geocanoe.registry import (
     GeospatialSourceRegistry,
@@ -13,6 +14,9 @@ from geocanoe.execution.bronze import BRONZE_STAGE_ORDER
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REGISTRY_PATH = PROJECT_ROOT / "registry" / "geospatial_sources.yaml"
+IMPEDANCE_REGISTRY_PATH = (
+    PROJECT_ROOT / "registry" / "pipeline_impedance_sources.yaml"
+)
 
 
 def test_committed_registry_covers_current_bronze_stages() -> None:
@@ -50,6 +54,25 @@ def test_committed_registry_resolves_nhn_source() -> None:
     assert registry.layer(source["id"], "waterbody_polygons")["source_layer"] == (
         "nhn_hhyd_Waterbody_2"
     )
+
+
+def test_impedance_research_registry_references_national_sources() -> None:
+    registry = GeospatialSourceRegistry(REGISTRY_PATH, repo_root=PROJECT_ROOT)
+    impedance = yaml.safe_load(
+        IMPEDANCE_REGISTRY_PATH.read_text(encoding="utf-8")
+    )
+
+    assert impedance["status"] == "research_only_not_consumed"
+    source_ids = {
+        source["source_id"]
+        for source in impedance["current_national_sources"]
+    }
+    assert source_ids == {
+        "nrcan_nhn_hhyd_national_en",
+        "nrcan_aboriginal_lands_national_en",
+        "statcan_2021_da_population_density_inputs",
+    }
+    assert source_ids <= set(registry.list_ids())
 
 
 def test_registry_resolves_fixed_and_globbed_artifacts(tmp_path: Path) -> None:

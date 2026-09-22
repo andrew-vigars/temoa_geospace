@@ -25,6 +25,7 @@ from geocanoe.schema.build import (
     select_basemap_stem_for_resolution,
     select_storage_eligible_regions,
     validate_storage_capacity_bound_setting,
+    validate_gasoline_demand_region_coverage,
     validate_storage_region_coverage,
 )
 
@@ -260,6 +261,7 @@ def test_canonical_links_separate_all_edges_from_road_edges() -> None:
         road_edges_gpkg_path=placeholder,
         road_region_overlay_path=placeholder,
         co2_storage_path=placeholder,
+        gasoline_demand_path=placeholder,
         storage_eligibility="all_mapped",
         storage_use_capacity_bound=False,
         model_config_path=placeholder,
@@ -302,6 +304,44 @@ def test_storage_region_coverage_must_exactly_match_graph_nodes() -> None:
         match="does not exactly cover selected graph regions",
     ):
         validate_storage_region_coverage(storage_regions, graph_nodes)
+
+
+def test_gasoline_demand_coverage_must_exactly_match_graph_nodes() -> None:
+    graph_nodes = pd.DataFrame({"region": ["R0", "R1", "R2"]})
+    gasoline_regions = pd.DataFrame(
+        {
+            "region": ["R0", "R1", "R3"],
+            "demand": [10.0, 20.0, 0.0],
+            "demand_units": ["t/year"] * 3,
+            "has_gasoline_demand": [True, True, False],
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="does not exactly cover selected graph regions",
+    ):
+        validate_gasoline_demand_region_coverage(
+            gasoline_regions,
+            graph_nodes,
+        )
+
+
+def test_gasoline_demand_contract_accepts_zero_demand_regions() -> None:
+    graph_nodes = pd.DataFrame({"region": ["R0", "R1", "R2"]})
+    gasoline_regions = pd.DataFrame(
+        {
+            "region": ["R0", "R1", "R2"],
+            "demand": [10.0, 20.0, 0.0],
+            "demand_units": ["t/year"] * 3,
+            "has_gasoline_demand": [True, True, False],
+        }
+    )
+
+    validate_gasoline_demand_region_coverage(
+        gasoline_regions,
+        graph_nodes,
+    )
 
 
 def test_storage_efficiency_exactly_covers_accessible_regions() -> None:
@@ -432,7 +472,9 @@ def test_demand_is_encoded_as_annual_tonnes() -> None:
             "units": "t/year",
         }
     ]
-    assert "0.00074 t/L" in db_encoded["Demand"].iloc[0]["notes"]
+    assert "Silver gasoline-demand workflow" in (
+        db_encoded["Demand"].iloc[0]["notes"]
+    )
 
 
 def test_storage_capacity_bound_is_rejected_without_numeric_silver_data() -> None:

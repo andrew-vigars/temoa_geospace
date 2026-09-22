@@ -89,3 +89,9 @@ jurisdictional collections, and companion metadata. Layer mappings and coded
 domains are optional and are currently used by the Silver hydrography stage to
 translate readable selections such as `lake`, `reservoir`, and `watercourse`
 into the source database query.
+
+`pipeline_impedance_sources.yaml` is a research-only cross-reference from
+potential impedance roles to those canonical national source IDs. It is not an
+active workflow registry and contains no routing weights. Its Ontario-only
+entries are retained solely as historical fingerprints from the legacy
+reference-model investigation.

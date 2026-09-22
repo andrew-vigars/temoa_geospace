@@ -295,7 +295,6 @@ EXTERNAL_INPUT_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "legacy_inputs": (
         "raw provincial boundary shapefile",
         "data_files/sites_full.csv",
-        "data_files/demand.csv",
     ),
     "emissions": (
         "raw emissions CSV",
@@ -837,7 +836,7 @@ def validate_external_inputs(
     """Validate raw and controlled inputs consumed by silver stages.
 
     The validation checks for exactly one raw province-boundary shapefile, the
-    legacy site and demand tables, both emissions source files, the controlled H2
+    legacy site table, both emissions source files, the controlled H2
     pipeline workbook, and exactly one English NRN GeoPackage for every province
     or territory selected by the build profile.
 
@@ -896,13 +895,6 @@ def validate_external_inputs(
         input_name="legacy site table",
         path=DATA_FILES / "sites_full.csv",
     )
-    check_required_file(
-        checks,
-        stage_name="legacy_inputs",
-        input_name="legacy demand table",
-        path=DATA_FILES / "demand.csv",
-    )
-
     gasoline_module = stage_modules["gasoline_proxies"]
     for input_name, attribute in (
         ("Bronze population-centre boundary", "POPULATION_CENTRES_PATH"),

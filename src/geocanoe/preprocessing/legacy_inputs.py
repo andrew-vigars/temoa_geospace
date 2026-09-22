@@ -2,20 +2,18 @@
 map_legacy_inputs.py
 
 Assign Canadian province or territory codes to the legacy latitude/longitude
-site and demand tables. This is a one-time preprocessing step so routine schema
+site table. This is a one-time preprocessing step so routine schema
 builds do not repeatedly dissolve or buffer Canada's detailed coastline.
 
 Inputs
 ------
 data_files/raw/basemaps/*.shp
 data_files/sites_full.csv
-data_files/demand.csv
 
 Outputs
 -------
 data_files/processed/legacy_inputs/
     sites_full_with_province.csv
-    demand_with_province.csv
     legacy_input_province_assignment_audit.csv
 """
 
@@ -46,7 +44,6 @@ PROJECT_ROOT = find_project_root()
 DATA_FILES = PROJECT_ROOT / "data_files"
 RAW_BASEMAPS = DATA_FILES / "raw" / "basemaps"
 SITES_PATH = DATA_FILES / "sites_full.csv"
-DEMAND_PATH = DATA_FILES / "demand.csv"
 OUTPUT_DIR = DATA_FILES / "processed" / "legacy_inputs"
 
 WGS84_CRS = "EPSG:4326"
@@ -383,14 +380,13 @@ def assign_provinces(
 
 def run_legacy_input_mapping(
     config: GeospatialBuildConfig,
-) -> tuple[Path, Path, Path]:
-    """Map legacy site and demand records to provinces and export the results.
+) -> tuple[Path, Path]:
+    """Map legacy site records to provinces and export the results.
 
     The raw province and territory boundary file is discovered and standardized,
-    then the legacy site and demand tables are loaded and assigned province codes
-    using ``assign_provinces``. Resolved records are written to reusable processed
-    CSV files, while unresolved records from both datasets are combined into a
-    single audit table.
+    then the legacy site table is loaded and assigned province codes using
+    ``assign_provinces``. Resolved records and unresolved assignments are
+    written to reusable processed CSV files.
 
     The supplied build configuration is used to report the intended study-area
     provinces, but province assignment is performed against the complete raw
@@ -404,14 +400,13 @@ def run_legacy_input_mapping(
 
     Returns
     -------
-    tuple[Path, Path, Path]
-        Paths to the processed site table, processed demand table, and combined
-        unresolved-assignment audit CSV.
+    tuple[Path, Path]
+        Paths to the processed site table and unresolved-assignment audit CSV.
 
     Raises
     ------
     FileNotFoundError
-        If a required boundary, site, or demand input file is missing.
+        If a required boundary or site input file is missing.
     ValueError
         If boundary discovery, boundary standardization, coordinate validation, or
         province assignment fails.
@@ -429,56 +424,33 @@ def run_legacy_input_mapping(
     )
 
     sites = pd.read_csv(SITES_PATH)
-    demand = pd.read_csv(DEMAND_PATH)
 
     sites_mapped, sites_audit = assign_provinces(
         sites,
         provinces,
         "sites_full",
     )
-    demand_mapped, demand_audit = assign_provinces(
-        demand,
-        provinces,
-        "demand",
-    )
-
     sites_output = OUTPUT_DIR / "sites_full_with_province.csv"
-    demand_output = OUTPUT_DIR / "demand_with_province.csv"
     audit_output = (
         OUTPUT_DIR / "legacy_input_province_assignment_audit.csv"
     )
 
     sites_mapped.to_csv(sites_output, index=False)
-    demand_mapped.to_csv(demand_output, index=False)
-
-    audit = pd.concat(
-        [sites_audit, demand_audit],
-        ignore_index=True,
-        sort=False,
-    )
-    audit.to_csv(audit_output, index=False)
+    sites_audit.to_csv(audit_output, index=False)
 
     print("\nLegacy input mapping complete.")
     print(f"Sites output:  {sites_output}")
-    print(f"Demand output: {demand_output}")
     print(f"Audit output:  {audit_output}")
     print(
         "Province assignment counts:\n"
-        + pd.concat(
-            [
-                sites_mapped.assign(dataset="sites_full"),
-                demand_mapped.assign(dataset="demand"),
-            ],
-            ignore_index=True,
-            sort=False,
-        )
+        + sites_mapped.assign(dataset="sites_full")
         .groupby(["dataset", "province"])
         .size()
         .rename("rows")
         .to_string()
     )
 
-    return sites_output, demand_output, audit_output
+    return sites_output, audit_output
 
 
 def parse_args() -> argparse.Namespace:
@@ -495,7 +467,7 @@ def parse_args() -> argparse.Namespace:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Assign province codes to legacy site and demand point inputs."
+            "Assign province codes to the legacy site point input."
         )
     )
     parser.add_argument(
@@ -512,7 +484,7 @@ def main() -> None:
 
     Command-line arguments are parsed to obtain the TOML build-profile path. The
     profile is then loaded, validated, printed to the console, and passed to the
-    legacy site-and-demand province-mapping workflow.
+    legacy site province-mapping workflow.
 
     Returns
     -------

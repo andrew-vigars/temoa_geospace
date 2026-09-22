@@ -11,13 +11,14 @@ Checks
 ------
 1. Required preprocessing files exist.
 2. Basemap, graph, road-connectivity, and road-edge products are internally sane.
-3. Raw point inputs can be snapped to graph regions within acceptable distances.
-4. Encoded SQLite schema exists and contains required non-empty set/parameter tables.
-5. Graph node regions match schema Region entries.
-6. Region, Commodity, and Technology references in parameter tables are valid.
-7. Primary-key-like rows are unique in key parameter tables.
-8. Numeric sanity checks hold for demand, costs, efficiencies, and ETL bounds.
-9. All declared checks executed; skipped checks are treated as gate failures.
+3. Site and CO2 point inputs can be snapped within acceptable distances.
+4. Silver regional gasoline demand exactly covers the selected graph regions.
+5. Encoded SQLite schema exists and contains required non-empty set/parameter tables.
+6. Graph node regions match schema Region entries.
+7. Region, Commodity, and Technology references in parameter tables are valid.
+8. Primary-key-like rows are unique in key parameter tables.
+9. Numeric sanity checks hold for demand, costs, efficiencies, and ETL bounds.
+10. All declared checks executed; skipped checks are treated as gate failures.
 
 Exit codes
 ----------
@@ -70,8 +71,14 @@ from geocanoe.diagnostics.renderers import render_console_result
 from geocanoe.diagnostics.selection import select_numbered
 from geocanoe.paths import find_project_root
 from geocanoe.preprocessing.legacy_inputs import PROVINCE_NAME_TO_CODE
-from geocanoe.schema.artifacts import resolve_schema_artifact_paths
-from geocanoe.schema.build import build_schema_fingerprint
+from geocanoe.schema.artifacts import (
+    resolve_gasoline_demand_artifact_path,
+    resolve_schema_artifact_paths,
+)
+from geocanoe.schema.build import (
+    build_schema_fingerprint,
+    validate_gasoline_demand_region_coverage,
+)
 
 
 # =============================================================================
@@ -93,7 +100,6 @@ BASELINE_SCENARIO_PATH = REGISTRY_DIR / "scenarios" / "sample_scenario.toml"
 
 PROCESSED_LEGACY_INPUTS = DATA_FILES / "processed" / "legacy_inputs"
 SITES_PATH = PROCESSED_LEGACY_INPUTS / "sites_full_with_province.csv"
-DEMAND_PATH = PROCESSED_LEGACY_INPUTS / "demand_with_province.csv"
 TRANSPORT_TECHS_PATH = REGISTRY_DIR / "transport_techs.csv"
 TECHNOLOGIES_PATH = REGISTRY_DIR / "techs.csv"
 
@@ -209,6 +215,7 @@ class AuditConfig:
     graph_edge_path: Path
     road_edge_connections_path: Path
     road_edges_gpkg_path: Path
+    gasoline_demand_path: Path
     schema_path: Path
     audit_dir: Path
 
@@ -356,6 +363,14 @@ def build_audit_config(
     if not schema_path.is_absolute():
         schema_path = PROJECT_ROOT / schema_path
 
+    if build_id is None:
+        raise ValueError("Input diagnostics require a Silver build ID.")
+    gasoline_demand_path = resolve_gasoline_demand_artifact_path(
+        PROJECT_ROOT,
+        build_id,
+        basemap_stem,
+    )
+
     audit_tag = (
         f"{datetime.today().strftime('%Y-%m-%d_%H%M%S')}"
         f"_{basemap_stem}_{connection_method}"
@@ -370,6 +385,7 @@ def build_audit_config(
         graph_edge_path=artifacts.graph_edges,
         road_edge_connections_path=artifacts.road_edge_connections,
         road_edges_gpkg_path=artifacts.road_edges,
+        gasoline_demand_path=gasoline_demand_path,
         schema_path=schema_path,
         audit_dir=PROCESSED_AUDITS / audit_tag,
     )
@@ -385,7 +401,7 @@ def check_required_paths(config: AuditConfig) -> CheckResult:
         "road_edge_connections": config.road_edge_connections_path,
         "road_edges_gpkg": config.road_edges_gpkg_path,
         "sites_full": SITES_PATH,
-        "demand": DEMAND_PATH,
+        "gasoline_demand": config.gasoline_demand_path,
         "clean_emissions_gpkg": CO2_CLEAN_GPKG_PATH,
         "transport_techs": TRANSPORT_TECHS_PATH,
         "techs": TECHNOLOGIES_PATH,
@@ -547,41 +563,6 @@ def prepare_sites_points(provinces: tuple[str, ...]) -> pd.DataFrame:
     return out.dropna(subset=["lon", "lat"]).copy()
 
 
-def prepare_demand_points(provinces: tuple[str, ...]) -> pd.DataFrame:
-    """Load demand coordinates into the common point-audit representation."""
-
-    demand = filter_profile_provinces(
-        pd.read_csv(DEMAND_PATH),
-        provinces,
-        "demand input",
-    )
-
-    lon_col = get_first_existing_column(demand, ["lon", "longitude", "Longitude"])
-    lat_col = get_first_existing_column(demand, ["lat", "latitude", "Latitude"])
-
-    if lon_col is None or lat_col is None:
-        raise ValueError("demand.csv must contain lon/lat columns.")
-
-    attribute_value = (
-        safe_numeric(demand["demand"])
-        if "demand" in demand.columns
-        else pd.Series([pd.NA] * len(demand))
-    )
-
-    out = pd.DataFrame(
-        {
-            "source_type": "demand",
-            "source_id": [f"demand_{i:06d}" for i in range(len(demand))],
-            "lon": safe_numeric(demand[lon_col]),
-            "lat": safe_numeric(demand[lat_col]),
-            "attribute_name": "demand",
-            "attribute_value": attribute_value,
-        }
-    )
-
-    return out.dropna(subset=["lon", "lat"]).copy()
-
-
 def prepare_co2_points(provinces: tuple[str, ...]) -> pd.DataFrame:
     """Load positive-emission facilities into the point-audit representation."""
 
@@ -626,6 +607,64 @@ def prepare_co2_points(provinces: tuple[str, ...]) -> pd.DataFrame:
     out = out.loc[out["attribute_value"].fillna(0) > 0].copy()
 
     return out
+
+
+def check_gasoline_demand_conservation(
+    gasoline_regions: pd.DataFrame,
+    schema_tables: dict[str, pd.DataFrame],
+) -> CheckResult:
+    """Check that Gold encodes positive Silver regional demand unchanged."""
+
+    silver = gasoline_regions.loc[
+        pd.to_numeric(gasoline_regions["demand"], errors="coerce") > 0,
+        ["region", "demand"],
+    ].copy()
+    gold = schema_tables.get("Demand", pd.DataFrame()).copy()
+    if "commodity" in gold.columns:
+        gold = gold.loc[gold["commodity"].eq("d_gsl")].copy()
+
+    silver_regions = set(silver["region"].astype(str))
+    gold_regions = (
+        set(gold["region"].astype(str))
+        if "region" in gold.columns
+        else set()
+    )
+    silver_total = float(pd.to_numeric(silver["demand"], errors="coerce").sum())
+    gold_total = (
+        float(pd.to_numeric(gold["demand"], errors="coerce").sum())
+        if "demand" in gold.columns
+        else 0.0
+    )
+    passed = (
+        silver_regions == gold_regions
+        and abs(silver_total - gold_total) <= 1e-6
+    )
+    failures = None
+    if not passed:
+        failures = pd.DataFrame(
+            [
+                {
+                    "silver_total_t_per_year": silver_total,
+                    "gold_total_t_per_year": gold_total,
+                    "missing_gold_regions": ",".join(
+                        sorted(silver_regions - gold_regions)
+                    ),
+                    "extra_gold_regions": ",".join(
+                        sorted(gold_regions - silver_regions)
+                    ),
+                }
+            ]
+        )
+    return CheckResult(
+        name="Gold gasoline demand conserves Silver regional demand",
+        passed=passed,
+        severity="ERROR",
+        detail=(
+            f"silver_total={silver_total:.6f}; "
+            f"gold_total={gold_total:.6f}"
+        ),
+        failures=failures,
+    )
 
 
 # =============================================================================
@@ -1522,6 +1561,14 @@ def main(argv: list[str] | None = None) -> int:
         graph_edges = pd.read_csv(config.graph_edge_path)
         road_connections = pd.read_csv(config.road_edge_connections_path)
         road_edges = gpd.read_file(config.road_edges_gpkg_path)
+        gasoline_regions = gpd.read_file(
+            config.gasoline_demand_path,
+            layer="regional_gasoline_demand",
+        )
+        validate_gasoline_demand_region_coverage(
+            gasoline_regions,
+            graph_nodes,
+        )
 
         topology_summary = audit_topology(
             config=config,
@@ -1537,13 +1584,12 @@ def main(argv: list[str] | None = None) -> int:
         print_banner("Preparing point inputs")
 
         sites_points = prepare_sites_points(provinces)
-        demand_points = prepare_demand_points(provinces)
         co2_points = prepare_co2_points(provinces)
 
-        all_points = pd.concat([sites_points, demand_points, co2_points], ignore_index=True)
+        all_points = pd.concat([sites_points, co2_points], ignore_index=True)
 
         print(f"sites_full points: {len(sites_points):,}")
-        print(f"demand points: {len(demand_points):,}")
+        print(f"regional gasoline-demand rows: {len(gasoline_regions):,}")
         print(f"positive CO2 facility points: {len(co2_points):,}")
         print(f"all audit points: {len(all_points):,}")
 
@@ -1577,6 +1623,12 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     results.extend(check_schema_tables(table_counts))
+    results.append(
+        check_gasoline_demand_conservation(
+            gasoline_regions,
+            schema_tables,
+        )
+    )
 
     reference_sets, set_results = build_reference_sets(schema_tables)
     results.extend(set_results)

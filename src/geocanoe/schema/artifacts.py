@@ -20,6 +20,24 @@ class SchemaArtifactPaths:
     schema: Path
 
 
+def resolve_gasoline_demand_artifact_path(
+    project_root: Path,
+    build_id: str,
+    basemap_stem: str,
+) -> Path:
+    """Return the resolution-specific Silver gasoline-demand artifact."""
+
+    return (
+        project_root
+        / "data_files"
+        / "processed"
+        / "gasoline_demand"
+        / build_id
+        / "basemaps"
+        / f"{basemap_stem}_gasoline_demand.gpkg"
+    )
+
+
 def resolve_schema_artifact_paths(
     project_root: Path,
     basemap_stem: str,

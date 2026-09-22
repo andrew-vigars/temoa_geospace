@@ -378,13 +378,15 @@ by the period length before encoding the `CO2_INJECT` lower bound. For example,
 configured target must be positive. With `requirement = "none"`, it must remain
 zero and geological storage is available but optional.
 
-Gasoline demand follows the same representative-year convention. Demand points
-are summed only when they snap to the same model region, then their values are
-written unchanged to Gold `Demand`; they are not multiplied by 25. The
-`demand.csv` values are annual tonnes of gasoline calculated from annual litres
-using `0.00074 t/L`, and Gold records their units as `t/year`. Solved annual
-gasoline flow can be multiplied by 25 for a cumulative single-period report, but
-the cumulative value must not be supplied as `Demand`.
+Gasoline demand follows the same representative-year convention. Silver maps
+population-centre proxy coordinates onto every configured basemap, aggregates
+annual tonnes by region, and preserves zero-demand regions. Gold selects the
+artifact matching its build ID and basemap, validates exact graph-region
+coverage, and writes positive regional values unchanged to `Demand` in
+`t/year`; it does not snap gasoline points again or multiply demand by 25.
+Solved annual gasoline flow can be multiplied by 25 for a cumulative
+single-period report, but the cumulative value must not be supplied as
+`Demand`.
 
 ### CanCO₂ storage repository layout
 
@@ -621,7 +623,7 @@ are not yet transformed into a Silver impedance or siting layer.
 
 The current Silver workflow includes thirteen stages:
 
-1. legacy site and demand province mapping (retained while Gold migration is in progress);
+1. legacy site province mapping for the existing LCOE/electricity workflow;
 2. emissions preprocessing;
 3. hydrogen-pipeline capacity-cost preprocessing;
 4. hydrogen-pipeline cost-model fitting;
@@ -692,8 +694,11 @@ distinguishes centres explicitly named in NRCan text from centres inferred from
 the map; these are modelling controls, not claims about physical terminal
 locations. Silver outputs include selected proxy geometry, the DA crosswalk,
 catchment diagnostics, demand by proxy, allocation audits, and a manifest. Gold
-continues to consume the legacy demand input until its input selector is switched
-to the new resolution-matched Silver products.
+consumes the resolution-matched `regional_gasoline_demand` layer directly by
+region. The legacy LCOE/electricity site workflow remains unchanged pending
+separate research. The former `data_files/demand.csv` input is retained only as
+`data_files/old_files/demand.csv` for provenance and is not consumed by Silver
+or Gold.
 
 The `gasoline_basemap` stage writes a source-point PNG before grid assignment,
 then maps every proxy to a cell in each compatible basemap. Point-in-cell matches
@@ -970,6 +975,7 @@ data_files/processed/graph/
 data_files/processed/nhn/
 data_files/processed/nrn/
 data_files/processed/road_connectivity/
+data_files/processed/gasoline_demand/
 data_files/processed/legacy_inputs/
 data_files/processed/emissions/
 data_files/processed/costs/

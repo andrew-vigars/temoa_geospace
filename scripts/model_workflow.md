@@ -55,7 +55,7 @@ flowchart TD
         R4["NRN GeoPackages<br/>data_files/raw/nrn/{PROVINCE}/"]
         R5["NHN hydrographic features, WMS metadata, and manifest<br/>data_files/raw/nhn/"]
         R6["Emissions CSV and GeoJSON<br/>data_files/raw/emissions/"]
-        R7["Legacy site and demand CSVs"]
+        R7["Legacy site CSV for LCOE and electricity attributes"]
         R8["Technology, commodity, efficiency, and transport CSVs"]
         R9["CANOE/TEMOA SQL schema and baseline SQLite"]
         R10["Controlled H2 pipeline cost workbook<br/>data_files/models/cost_models/"]
@@ -145,7 +145,7 @@ flowchart TD
     %% =====================================================================
 
     subgraph SCHEMA["Schema encoding — geocanoe.schema.build"]
-        S1["Resolve basemap, storage evidence, graph, road layer, and connectivity"]
+        S1["Resolve basemap, storage evidence, regional gasoline demand, graph, road layer, and connectivity"]
         S2["Build canonical node and edge regions"]
         S3["Snap and aggregate point inputs"]
         S4["Rebuild technology, efficiency, cost, capacity, and ETLSegment tables"]
@@ -157,6 +157,7 @@ flowchart TD
     SP --> S1
     GP --> S1
     MP --> S1
+    DP --> S1
     LP --> S3
     EP --> S3
     CP --> S4
@@ -381,6 +382,7 @@ data_files/processed/graph/
 data_files/processed/nhn/
 data_files/processed/nrn/
 data_files/processed/road_connectivity/
+data_files/processed/gasoline_demand/
 data_files/processed/legacy_inputs/
 data_files/processed/emissions/
 data_files/processed/costs/
