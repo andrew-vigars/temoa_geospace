@@ -255,6 +255,7 @@ STAGE_MODULE_NAMES = {
     "basemaps": "geocanoe.geospatial.basemaps",
     "aboriginal_lands": "geocanoe.geospatial.aboriginal_lands",
     "hydrography": "geocanoe.geospatial.hydrography",
+    "nhn_impedance": "geocanoe.geospatial.nhn_impedance",
     "co2_storage": "geocanoe.geospatial.co2_storage",
     "adjacency": "geocanoe.geospatial.adjacency",
     "roads": "geocanoe.geospatial.roads",
@@ -272,6 +273,7 @@ SILVER_STAGE_ORDER = (
     "gasoline_basemap",
     "aboriginal_lands",
     "hydrography",
+    "nhn_impedance",
     "co2_storage",
     "adjacency",
     "roads",
@@ -289,6 +291,7 @@ SILVER_STAGE_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "basemaps": (),
     "aboriginal_lands": ("basemaps",),
     "hydrography": ("basemaps",),
+    "nhn_impedance": ("hydrography",),
     "co2_storage": ("basemaps",),
     "adjacency": ("basemaps",),
     "roads": (),
@@ -320,6 +323,7 @@ EXTERNAL_INPUT_DEPENDENCIES: dict[str, tuple[str, ...]] = {
         "registered NHN metadata XML",
         "registered NHN acquisition manifest",
     ),
+    "nhn_impedance": ("pipeline penalty registry",),
     "gasoline_proxies": (
         "registered Bronze population-centre boundaries",
         "registered Bronze DA boundaries and population",
@@ -567,6 +571,13 @@ def build_stage_executors(
                 stage_modules["hydrography"],
                 "run_hydrography_build",
                 "hydrography",
+            )
+        ),
+        "nhn_impedance": FunctionExecutor(
+            require_stage_callable(
+                stage_modules["nhn_impedance"],
+                "run_nhn_impedance_build",
+                "nhn_impedance",
             )
         ),
         "co2_storage": FunctionExecutor(
@@ -1054,6 +1065,10 @@ def validate_external_inputs(
             config.pipeline_impedance.penalty_profile,
             "aboriginal_lands",
         )
+        nhn_penalty = penalty_registry.get_layer(
+            config.pipeline_impedance.penalty_profile,
+            "nhn_waterbodies",
+        )
         source_registry = GeospatialSourceRegistry()
         check_required_file(
             checks,
@@ -1081,6 +1096,17 @@ def validate_external_inputs(
                 penalty.source_id
             ),
         )
+        check_required_file(
+            checks,
+            stage_name="nhn_impedance",
+            input_name="pipeline penalty registry",
+            path=penalty_registry_path.resolve(),
+        )
+        if nhn_penalty.source_id != config.hydrography.source_id:
+            raise ValueError(
+                "NHN penalty source_id must match [hydrography].source_id: "
+                f"{nhn_penalty.source_id!r} != {config.hydrography.source_id!r}."
+            )
     raw_nrn_dir = DATA_FILES / "raw" / "nrn"
     for province in config.study_area.provinces:
         province_directory = raw_nrn_dir / province
@@ -1545,7 +1571,9 @@ def verify_silver_build(
     }
     if config.hydrography.enabled and "hydrography" in expected:
         processed_directories["hydrography"] = processed_root / "nhn"
-    if config.pipeline_impedance.enabled and "aboriginal_lands" in expected:
+    if config.pipeline_impedance.enabled and expected.intersection(
+        {"aboriginal_lands", "nhn_impedance"}
+    ):
         processed_directories["pipeline impedance"] = (
             processed_root / "pipeline_impedance" / config.build_id / "evidence"
         )

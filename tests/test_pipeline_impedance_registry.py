@@ -19,6 +19,8 @@ def test_committed_penalty_profiles_are_audited_and_sources_are_registered() -> 
 
     disabled = penalties.get_layer("no_penalties", "aboriginal_lands")
     legacy = penalties.get_layer("legacy_reference_v1", "aboriginal_lands")
+    disabled_nhn = penalties.get_layer("no_penalties", "nhn_waterbodies")
+    legacy_nhn = penalties.get_layer("legacy_reference_v1", "nhn_waterbodies")
 
     assert disabled.enabled is False
     assert disabled.applied_scalar == 0.0
@@ -27,3 +29,7 @@ def test_committed_penalty_profiles_are_audited_and_sources_are_registered() -> 
     assert legacy.applied_scalar == 9.0
     assert "unvalidated" in legacy.evidence_status
     assert legacy.source_id in sources.list_ids()
+    assert disabled_nhn.applied_scalar == 0.0
+    assert legacy_nhn.enabled is True
+    assert legacy_nhn.scalar == 9.0
+    assert legacy_nhn.source_id in sources.list_ids()

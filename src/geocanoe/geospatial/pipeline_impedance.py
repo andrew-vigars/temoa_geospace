@@ -65,6 +65,57 @@ class ScalarPenaltyLayer:
     factor_column: str | None = None
 
 
+def dissolve_area_overlaps(
+    features: gpd.GeoDataFrame,
+) -> tuple[list[object], list[int]]:
+    """Union only connected polygon features whose interiors overlap.
+
+    A national unary union is unnecessarily expensive for sparse polygon layers.
+    This helper uses the spatial index to identify actual area-overlap components,
+    unions each component independently, and leaves disjoint polygons untouched.
+    The returned source counts make the transformation auditable.
+    """
+
+    count = len(features)
+    parents = list(range(count))
+
+    def find(index: int) -> int:
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parents[right_root] = left_root
+
+    pairs = features.sindex.query(features.geometry, predicate="intersects")
+    for left, right in zip(pairs[0], pairs[1], strict=True):
+        left_index = int(left)
+        right_index = int(right)
+        if left_index >= right_index:
+            continue
+        overlap = features.geometry.iloc[left_index].intersection(
+            features.geometry.iloc[right_index]
+        )
+        if overlap.area > 0:
+            union(left_index, right_index)
+
+    groups: dict[int, list[int]] = {}
+    for index in range(count):
+        groups.setdefault(find(index), []).append(index)
+
+    geometries: list[object] = []
+    source_counts: list[int] = []
+    for indices in groups.values():
+        group = features.geometry.iloc[indices]
+        geometries.append(group.iloc[0] if len(group) == 1 else group.union_all())
+        source_counts.append(len(indices))
+    return geometries, source_counts
+
+
 def _validate_edges(
     edges: gpd.GeoDataFrame,
     edge_id_column: str,
@@ -266,9 +317,7 @@ def calculate_pipeline_effective_distance(
         "effective_distance_km",
     }
     for name in layer_names:
-        output_columns.update(
-            {f"{name}_intersection_km", f"{name}_penalty_km"}
-        )
+        output_columns.update({f"{name}_intersection_km", f"{name}_penalty_km"})
     conflicts = sorted(output_columns & set(edges.columns))
     if conflicts:
         raise ValueError(
@@ -308,9 +357,7 @@ def calculate_pipeline_effective_distance(
         if intersections.empty:
             continue
 
-        intersections["_intersection_km"] = (
-            intersections.geometry.length * unit_to_km
-        )
+        intersections["_intersection_km"] = intersections.geometry.length * unit_to_km
         intersections["_penalty_km"] = (
             intersections["_intersection_km"] * intersections["_factor"]
         )

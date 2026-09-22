@@ -19,6 +19,19 @@ profiles:
           publication_year: null
           url: null
           note: Use this profile for a physical-distance-only comparison.
+      nhn_waterbodies:
+        enabled: false
+        source_id: nrcan_nhn_hhyd_national_en
+        penalty_method: additional_distance_factor
+        scalar: 0.0
+        evidence:
+          status: control_case
+          citation: No spatial penalty applied
+          publication_year: null
+          url: null
+          note: >-
+            Polygonal NHN waterbodies remain available as Silver evidence but do
+            not modify pipeline cost distance in this control profile.
 
   legacy_reference_v1:
     description: >-
@@ -39,3 +52,18 @@ profiles:
             One kilometre intersecting the layer adds nine equivalent kilometres,
             for a total cost-distance contribution of ten kilometres. Replace or
             add a named profile when a defensible literature estimate is adopted.
+      nhn_waterbodies:
+        enabled: true
+        source_id: nrcan_nhn_hhyd_national_en
+        penalty_method: additional_distance_factor
+        scalar: 9.0
+        evidence:
+          status: legacy_model_assumption_unvalidated
+          citation: Hydrogen_Project_Final legacy routing model waterbody assumption
+          publication_year: null
+          url: null
+          note: >-
+            One kilometre through a selected NHN waterbody adds nine equivalent
+            kilometres, for ten total cost-distance kilometres. This applies only
+            to polygonal waterbodies selected by the Silver hydrography profile;
+            watercourse lines require a separate crossing or width model.

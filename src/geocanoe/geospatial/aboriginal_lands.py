@@ -14,6 +14,7 @@ from pyproj import CRS
 
 from geocanoe.config import GeospatialBuildConfig
 from geocanoe.geospatial.hydrography import find_study_area_boundary
+from geocanoe.geospatial.pipeline_impedance import dissolve_area_overlaps
 from geocanoe.paths import find_project_root
 from geocanoe.registry.geospatial_sources import GeospatialSourceRegistry
 from geocanoe.registry.pipeline_impedance import PipelinePenaltyRegistry
@@ -26,55 +27,6 @@ PROCESSED_PIPELINE_IMPEDANCE = (
 LAYER_NAME = "aboriginal_lands"
 FEATURE_LAYER = "aboriginal_lands_features"
 DISSOLVED_LAYER = "pipeline_impedance_polygons"
-
-
-def _dissolve_area_overlaps(
-    features: gpd.GeoDataFrame,
-) -> tuple[list[object], list[int]]:
-    """Union only connected features whose interiors overlap.
-
-    Avoiding a national unary union keeps the Silver stage fast while ensuring
-    that later line intersections cannot double-count overlapping source lands.
-    """
-
-    count = len(features)
-    parents = list(range(count))
-
-    def find(index: int) -> int:
-        while parents[index] != index:
-            parents[index] = parents[parents[index]]
-            index = parents[index]
-        return index
-
-    def union(left: int, right: int) -> None:
-        left_root = find(left)
-        right_root = find(right)
-        if left_root != right_root:
-            parents[right_root] = left_root
-
-    pairs = features.sindex.query(features.geometry, predicate="intersects")
-    for left, right in zip(pairs[0], pairs[1], strict=True):
-        left_index = int(left)
-        right_index = int(right)
-        if left_index >= right_index:
-            continue
-        overlap = features.geometry.iloc[left_index].intersection(
-            features.geometry.iloc[right_index]
-        )
-        if overlap.area > 0:
-            union(left_index, right_index)
-
-    groups: dict[int, list[int]] = {}
-    for index in range(count):
-        groups.setdefault(find(index), []).append(index)
-
-    geometries: list[object] = []
-    source_counts: list[int] = []
-    for indices in groups.values():
-        group = features.geometry.iloc[indices]
-        geometries.append(group.iloc[0] if len(group) == 1 else group.union_all())
-        source_counts.append(len(indices))
-    return geometries, source_counts
 
 
 def _resolve_profile_path(config: GeospatialBuildConfig) -> Path:
@@ -186,7 +138,7 @@ def normalize_aboriginal_lands(
             crs=target_crs,
         )
     else:
-        dissolved_geometries, source_counts = _dissolve_area_overlaps(selected)
+        dissolved_geometries, source_counts = dissolve_area_overlaps(selected)
         component_count = len(dissolved_geometries)
         dissolved = gpd.GeoDataFrame(
             {
