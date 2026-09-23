@@ -21,7 +21,7 @@ from geocanoe.acquisition.residential import POPULATION_DENSITY_FIELD
 from geocanoe.config import GeospatialBuildConfig
 from geocanoe.geospatial.hydrography import find_study_area_boundary
 from geocanoe.paths import find_project_root
-from geocanoe.preprocessing.gasoline_demand import PRUID_TO_CODE
+from geocanoe.regions import PRUID_TO_CODE
 from geocanoe.registry.geospatial_sources import GeospatialSourceRegistry
 from geocanoe.registry.pipeline_impedance import (
     PipelinePenaltyLayer,

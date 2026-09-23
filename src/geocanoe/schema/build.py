@@ -71,6 +71,9 @@ from geocanoe.config import (
     print_build_config,
 )
 from geocanoe.paths import find_project_root
+from geocanoe.regions import (
+    PROVINCE_NAME_CASEFOLD_TO_CODE as PROVINCE_NAME_TO_CODE,
+)
 from geocanoe.schema import database
 from geocanoe.schema.artifacts import (
     resolve_gasoline_demand_artifact_path,
@@ -2092,24 +2095,6 @@ def remove_disabled_transport_technologies(
         "Disabled transport technologies removed: "
         f"{', '.join(sorted(disabled_techs))} ({removed_rows:,} inherited rows)"
     )
-
-
-PROVINCE_NAME_TO_CODE = {
-    "newfoundland and labrador": "NL",
-    "prince edward island": "PE",
-    "nova scotia": "NS",
-    "new brunswick": "NB",
-    "quebec": "QC",
-    "québec": "QC",
-    "ontario": "ON",
-    "manitoba": "MB",
-    "saskatchewan": "SK",
-    "alberta": "AB",
-    "british columbia": "BC",
-    "yukon": "YT",
-    "northwest territories": "NT",
-    "nunavut": "NU",
-}
 
 
 def normalize_province_codes(values: pd.Series) -> pd.Series:

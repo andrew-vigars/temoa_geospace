@@ -70,7 +70,7 @@ from geocanoe.diagnostics.input.units import check_table_units
 from geocanoe.diagnostics.renderers import render_console_result
 from geocanoe.diagnostics.selection import select_numbered
 from geocanoe.paths import find_project_root
-from geocanoe.preprocessing.legacy_inputs import PROVINCE_NAME_TO_CODE
+from geocanoe.regions import PROVINCE_NAME_TO_CODE
 from geocanoe.schema.artifacts import (
     resolve_gasoline_demand_artifact_path,
     resolve_schema_artifact_paths,

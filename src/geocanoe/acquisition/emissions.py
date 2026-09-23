@@ -26,6 +26,7 @@ from pathlib import Path
 import requests
 
 from geocanoe import __version__
+from geocanoe.acquisition._download import download_restarting
 from geocanoe.paths import find_project_root
 
 
@@ -126,60 +127,20 @@ def download_file(
         If the file cannot be downloaded after all configured attempts.
     """
 
-    destination.parent.mkdir(parents=True, exist_ok=True)
-
-    if destination.exists() and not overwrite:
-        print(f"[Skip download] {destination.name} already exists.")
-        return destination
-
-    if destination.exists() and overwrite:
-        destination.unlink()
-
-    temp_path = destination.with_suffix(destination.suffix + ".part")
-    last_error: Exception | None = None
-
-    for attempt in range(1, max_retries + 1):
-        try:
-            print(
-                f"[Download] {destination.name} "
-                f"(attempt {attempt}/{max_retries})"
-            )
-
-            with requests.get(
-                url,
-                headers=HEADERS,
-                stream=True,
-                timeout=REQUEST_TIMEOUT,
-            ) as response:
-                response.raise_for_status()
-
-                with temp_path.open("wb") as file:
-                    for chunk in response.iter_content(CHUNK_SIZE):
-                        if chunk:
-                            file.write(chunk)
-
-            temp_path.replace(destination)
-
-            print(f"[Complete download] {destination.name}")
-            time.sleep(DOWNLOAD_DELAY)
-            return destination
-
-        except (requests.RequestException, OSError) as exc:
-            last_error = exc
-
-            try:
-                temp_path.unlink(missing_ok=True)
-            except OSError as cleanup_error:
-                print(
-                    f"[Cleanup warning] Could not remove partial file "
-                    f"{temp_path}: {cleanup_error}"
-                )
-
-            if attempt < max_retries:
-                print(f"[Retry] {destination.name}: {exc}")
-                time.sleep(DOWNLOAD_DELAY)
-
-    raise RuntimeError(f"Failed to download {url}") from last_error
+    return download_restarting(
+        url,
+        destination,
+        headers=HEADERS,
+        timeout=REQUEST_TIMEOUT,
+        max_retries=max_retries,
+        retry_delay=DOWNLOAD_DELAY,
+        chunk_size=CHUNK_SIZE,
+        overwrite=overwrite,
+        atomic=True,
+        post_download_delay=DOWNLOAD_DELAY,
+        request_get=requests.get,
+        sleep=time.sleep,
+    )
 
 
 def extract_geojson_archive(

@@ -36,6 +36,7 @@ from typing import Dict, Iterable
 import requests
 
 from geocanoe import __version__
+from geocanoe.acquisition._download import download_restarting
 from geocanoe.paths import find_project_root
 
 
@@ -194,54 +195,19 @@ def download_file(
         If the archive cannot be downloaded after all configured attempts.
     """
 
-    destination.parent.mkdir(parents=True, exist_ok=True)
-
-    if destination.exists() and not overwrite:
-        print(f"[Skip download] {destination.name} already exists.")
-        return destination
-
-    if destination.exists() and overwrite:
-        destination.unlink()
-
-    last_error: Exception | None = None
-
-    for attempt in range(1, max_retries + 1):
-        try:
-            print(f"[Download] {destination.name} (attempt {attempt}/{max_retries})")
-
-            with requests.get(
-                url,
-                headers=HEADERS,
-                stream=True,
-                timeout=REQUEST_TIMEOUT,
-            ) as response:
-                response.raise_for_status()
-
-                with open(destination, "wb") as file:
-                    for chunk in response.iter_content(CHUNK_SIZE):
-                        if chunk:
-                            file.write(chunk)
-
-            print(f"[Complete download] {destination.name}")
-            time.sleep(DOWNLOAD_DELAY)
-            return destination
-
-        except (requests.RequestException, OSError) as exc:
-            last_error = exc
-
-            try:
-                destination.unlink(missing_ok=True)
-            except OSError as cleanup_error:
-                print(
-                    f"[Cleanup warning] Could not remove partial file "
-                    f"{destination}: {cleanup_error}"
-                )
-
-            if attempt < max_retries:
-                print(f"[Retry] {destination.name}: {exc}")
-                time.sleep(RETRY_DELAY)
-
-    raise RuntimeError(f"Failed to download {url}") from last_error
+    return download_restarting(
+        url,
+        destination,
+        headers=HEADERS,
+        timeout=REQUEST_TIMEOUT,
+        max_retries=max_retries,
+        retry_delay=RETRY_DELAY,
+        chunk_size=CHUNK_SIZE,
+        overwrite=overwrite,
+        post_download_delay=DOWNLOAD_DELAY,
+        request_get=requests.get,
+        sleep=time.sleep,
+    )
 
 
 def extract_flatten_and_clean(

@@ -32,6 +32,7 @@ from geocanoe.config import (
     print_build_config,
 )
 from geocanoe.paths import find_project_root
+from geocanoe.regions import PROVINCE_NAME_TO_CODE
 
 
 # =============================================================================
@@ -49,24 +50,6 @@ OUTPUT_DIR = DATA_FILES / "processed" / "legacy_inputs"
 WGS84_CRS = "EPSG:4326"
 METRIC_CRS = "EPSG:3347"
 MAX_NEAREST_PROVINCE_DISTANCE_KM = 50.0
-
-PROVINCE_NAME_TO_CODE = {
-    "Newfoundland and Labrador": "NL",
-    "Prince Edward Island": "PE",
-    "Nova Scotia": "NS",
-    "New Brunswick": "NB",
-    "Quebec": "QC",
-    "Québec": "QC",
-    "Ontario": "ON",
-    "Manitoba": "MB",
-    "Saskatchewan": "SK",
-    "Alberta": "AB",
-    "British Columbia": "BC",
-    "Yukon": "YT",
-    "Northwest Territories": "NT",
-    "Nunavut": "NU",
-}
-
 
 def discover_boundary_path() -> Path:
     """Discover the raw province and territory boundary shapefile.

@@ -32,6 +32,7 @@ from geocanoe.geospatial.basemaps import (
     load_province_boundaries,
 )
 from geocanoe.paths import find_project_root
+from geocanoe.regions import PROVINCE_NAME_TO_CODE, PRUID_TO_CODE
 
 
 PROJECT_ROOT = find_project_root()
@@ -56,36 +57,6 @@ NET_GASOLINE_LABEL = "Net sales of gasoline"
 METRIC_CRS = "EPSG:3347"
 WGS84_CRS = "EPSG:4326"
 
-PRUID_TO_CODE = {
-    "10": "NL",
-    "11": "PE",
-    "12": "NS",
-    "13": "NB",
-    "24": "QC",
-    "35": "ON",
-    "46": "MB",
-    "47": "SK",
-    "48": "AB",
-    "59": "BC",
-    "60": "YT",
-    "61": "NT",
-    "62": "NU",
-}
-PROVINCE_NAME_TO_CODE = {
-    "Newfoundland and Labrador": "NL",
-    "Prince Edward Island": "PE",
-    "Nova Scotia": "NS",
-    "New Brunswick": "NB",
-    "Quebec": "QC",
-    "Ontario": "ON",
-    "Manitoba": "MB",
-    "Saskatchewan": "SK",
-    "Alberta": "AB",
-    "British Columbia": "BC",
-    "Yukon": "YT",
-    "Northwest Territories": "NT",
-    "Nunavut": "NU",
-}
 MINIMUM_CLASS_BY_POPULATION = {1_000: 2, 30_000: 3, 100_000: 4}
 
 

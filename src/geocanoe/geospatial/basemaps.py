@@ -53,6 +53,7 @@ from geocanoe.config import (
     print_build_config,
 )
 from geocanoe.paths import find_project_root
+from geocanoe.regions import PROVINCE_NAME_TO_CODE
 
 
 # =============================================================================
@@ -71,24 +72,6 @@ PROCESSED_BASEMAP = PROJECT_ROOT / "data_files" / "processed" / "basemaps"
 
 WGS84_CRS = "EPSG:4326"
 STAT_CANADA_LAMBERT_CRS = "EPSG:3347"
-
-# Statistics Canada province and territory identifiers. These are source-schema
-# mappings and remain implementation constants rather than build-profile values.
-PROVINCE_NAME_TO_CODE = {
-    "Newfoundland and Labrador": "NL",
-    "Prince Edward Island": "PE",
-    "Nova Scotia": "NS",
-    "New Brunswick": "NB",
-    "Quebec": "QC",
-    "Ontario": "ON",
-    "Manitoba": "MB",
-    "Saskatchewan": "SK",
-    "Alberta": "AB",
-    "British Columbia": "BC",
-    "Yukon": "YT",
-    "Northwest Territories": "NT",
-    "Nunavut": "NU",
-}
 
 # Stable grid-family definitions. The TOML profile selects grid types,
 # resolutions, retention method, and coordinate precision.

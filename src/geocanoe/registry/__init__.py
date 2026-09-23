@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from geocanoe.paths import find_project_root
 from geocanoe.registry.geospatial_sources import (
     GEOSPATIAL_SOURCE_REGISTRY,
     GeospatialSourceRegistry,
@@ -39,54 +40,6 @@ except ImportError as exc:
         "PyYAML is required to use the registry. "
         "Install it with: pip install pyyaml"
     ) from exc
-
-
-# =============================================================================
-# Project discovery
-# =============================================================================
-
-def find_project_root(start_path: Path | None = None) -> Path:
-    """Locate the Geospatial-CANOE repository root.
-
-    The search begins from ``start_path`` when supplied. Otherwise, it begins
-    from this module's location. Parent directories are inspected until a
-    directory containing both ``registry/`` and ``data_files/`` is found.
-
-    Parameters
-    ----------
-    start_path : Path | None, optional
-        File or directory from which to begin searching.
-
-    Returns
-    -------
-    Path
-        Resolved repository root.
-
-    Raises
-    ------
-    FileNotFoundError
-        If the repository root cannot be located.
-    """
-
-    start = (
-        start_path.resolve()
-        if start_path is not None
-        else Path(__file__).resolve()
-    )
-
-    candidate_start = start if start.is_dir() else start.parent
-
-    for candidate in (candidate_start, *candidate_start.parents):
-        if (
-            (candidate / "registry").is_dir()
-            and (candidate / "data_files").is_dir()
-        ):
-            return candidate
-
-    raise FileNotFoundError(
-        "Could not locate the Geospatial-CANOE repository root. "
-        "Expected to find both registry/ and data_files/."
-    )
 
 
 PROJECT_ROOT = find_project_root()
@@ -276,6 +229,7 @@ __all__ = [
     "PipelinePenaltyProfile",
     "PipelinePenaltyRegistry",
     "Registry",
+    "find_project_root",
     "load_geospatial_source_registry",
     "load_registry",
 ]

@@ -23,6 +23,7 @@ import requests
 from tqdm.auto import tqdm
 
 from geocanoe import __version__
+from geocanoe.acquisition._download import download_resumable
 from geocanoe.paths import find_project_root
 
 
@@ -76,19 +77,6 @@ class ResidentialAcquisitionResult(TypedDict):
     population_table: Path
 
 
-def _content_length(response: requests.Response, offset: int) -> int | None:
-    """Return the expected final byte count for a streamed response."""
-
-    header = response.headers.get("Content-Length")
-    if header is None:
-        return None
-    try:
-        length = int(header)
-    except ValueError:
-        return None
-    return offset + length if response.status_code == 206 else length
-
-
 def download_file(
     url: str,
     destination: Path,
@@ -98,81 +86,19 @@ def download_file(
 ) -> Path:
     """Download a Census archive atomically with resume and ``tqdm`` progress."""
 
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    partial = destination.with_suffix(destination.suffix + ".part")
-
-    if destination.exists() and not overwrite:
-        print(f"[Skip download] {destination.name} already exists.")
-        return destination
-    if overwrite:
-        destination.unlink(missing_ok=True)
-        partial.unlink(missing_ok=True)
-
-    last_error: Exception | None = None
-    for attempt in range(1, max_retries + 1):
-        offset = partial.stat().st_size if partial.exists() else 0
-        request_headers = dict(HEADERS)
-        if offset:
-            request_headers["Range"] = f"bytes={offset}-"
-        try:
-            print(
-                f"[Download] {destination.name} "
-                f"(attempt {attempt}/{max_retries}, offset {offset:,})"
-            )
-            response = requests.get(
-                url,
-                headers=request_headers,
-                stream=True,
-                timeout=REQUEST_TIMEOUT,
-            )
-            if offset and response.status_code != 206:
-                response.close()
-                partial.unlink(missing_ok=True)
-                offset = 0
-                response = requests.get(
-                    url,
-                    headers=HEADERS,
-                    stream=True,
-                    timeout=REQUEST_TIMEOUT,
-                )
-
-            with response:
-                response.raise_for_status()
-                expected_size = _content_length(response, offset)
-                mode = "ab" if offset and response.status_code == 206 else "wb"
-                with (
-                    partial.open(mode) as file,
-                    tqdm(
-                        total=expected_size,
-                        initial=offset,
-                        desc=destination.name,
-                        unit="B",
-                        unit_scale=True,
-                        unit_divisor=1024,
-                        dynamic_ncols=True,
-                    ) as progress,
-                ):
-                    for chunk in response.iter_content(CHUNK_SIZE):
-                        if chunk:
-                            file.write(chunk)
-                            progress.update(len(chunk))
-
-            actual_size = partial.stat().st_size
-            if expected_size is not None and actual_size != expected_size:
-                raise OSError(
-                    f"Incomplete download for {destination.name}: expected "
-                    f"{expected_size:,} bytes, found {actual_size:,}."
-                )
-            partial.replace(destination)
-            print(f"[Complete download] {destination.name} ({actual_size:,} bytes)")
-            return destination
-        except (requests.RequestException, OSError) as exc:
-            last_error = exc
-            if attempt < max_retries:
-                print(f"[Retry] {destination.name}: {exc}")
-                time.sleep(RETRY_DELAY)
-
-    raise RuntimeError(f"Failed to download {url}") from last_error
+    return download_resumable(
+        url,
+        destination,
+        headers=HEADERS,
+        timeout=REQUEST_TIMEOUT,
+        max_retries=max_retries,
+        retry_delay=RETRY_DELAY,
+        chunk_size=CHUNK_SIZE,
+        overwrite=overwrite,
+        request_get=requests.get,
+        progress_factory=tqdm,
+        sleep=time.sleep,
+    )
 
 
 def _safe_members(archive: zipfile.ZipFile) -> list[zipfile.ZipInfo]:

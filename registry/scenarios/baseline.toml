@@ -151,9 +151,9 @@ description = "Canonical baseline using all global model defaults"
 # pipeline-impedance products remain available for later scenarios. Electricity
 # transmission continues to use the graph-edge topology independently.
 #
-# [transport_modes]
-# roads_enabled = false
-# pipelines_enabled = true
+[transport_modes]
+roads_enabled = false
+pipelines_enabled = true
 
 
 # -----------------------------------------------------------------------------
@@ -170,5 +170,5 @@ description = "Canonical baseline using all global model defaults"
 #   "all_km_dependent" - weighted distance for pipeline CAPEX tables, fixed
 #                        OPEX, and variable OPEX.
 #
-# [pipeline_costs]
-# impedance_scope = "all_km_dependent"
+[pipeline_costs]
+impedance_scope = "all_km_dependent"
