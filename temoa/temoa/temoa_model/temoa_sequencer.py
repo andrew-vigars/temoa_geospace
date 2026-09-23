@@ -152,9 +152,15 @@ class TemoaSequencer:
             try:
                 print(self.config.__repr__())
                 print('\nPlease press enter to continue or Ctrl+C to quit.\n')
-                # input()  # Give the user a chance to confirm input
-                print('\nUser input bypassed for quick run.  Continuing...\n')
-            
+                input()
+
+                db_name = Path(self.config.input_database).name
+
+                print("\n" + "=" * 70)
+                print(f"Starting: {db_name}")
+                print("Loading data and building model instance...")
+                print("=" * 70 + "\n")
+
             except KeyboardInterrupt:
                 logger.warning('User aborted from confirmation page.  Exiting')
                 print('\n\nUser requested quit.  Exiting Temoa ...\n')

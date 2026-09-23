@@ -1,13 +1,152 @@
+# -----------------------
+
 # Python
+
+# -----------------------
+
 .venv/
-__pycache__/
+**pycache**/
 *.pyc
+*.pyo
+*.egg-info/
+
+# -----------------------
 
 # VS Code
+
+# -----------------------
+
 .vscode/
 
+# -----------------------
+
+# Jupyter
+*.nbconvert.ipynb
+
+# -----------------------
+
+.ipynb_checkpoints/
+*.html
+# -----------------------
+
+# Processed data
+
+# -----------------------
+data_files/raw/
+data_files/processed/
+
+# Keep the Silver pipeline-impedance contract while ignoring generated data.
+!data_files/processed/
+data_files/processed/*
+!data_files/processed/pipeline_impedance/
+data_files/processed/pipeline_impedance/*
+!data_files/processed/pipeline_impedance/README.md
+
+# -----------------------
+
 # Model outputs
+
+# -----------------------
+
 output_files/
+outputs/
+audit_outputs/
+
+# -----------------------
+
+# Solver artifacts
+
+# -----------------------
+
+*.gurobi.log
+*.lp
+*.mps
+*.sol
+*.mst
+
+# -----------------------
+
+# Databases
+
+# -----------------------
+
 *.sqlite
+*.db
+
+# -----------------------
+
+# Temporary figures
+
+# -----------------------
+
+figures/
+notebooks/Misc outputs/
+git_review/
+
+# Keep manually curated files if desired
+
+!figures/README.md
+
+# -----------------------
+
+# CSV exports
+*.csv~
+*.xlsx~
+
+# -----------------------
+
+*_RoadClass_Count.csv
+
+# -----------------------
+
+# Logs and temporary files
+
+# -----------------------
+
+*.log
+*.tmp
+unknown.gurobi.log
+
+# -----------------------
+
+# Operating system files
+
+# -----------------------
+
+.DS_Store
+Thumbs.db
+
+# -----------------------
+
+# QGIS backup files
+
+# -----------------------
+
+*.qgz~
+*.gpkg-wal
+*.gpkg-shm
+
+# -----------------------
+
+# Keep QGIS project files
+
+# -----------------------
+
+!*.qgz
+
+# -----------------------
+
+# Study-area build profiles and scenario overlays are generally local,
+# system-boundary and policy-specific configuration. Keep the committed sample
+# templates and canonical baseline scenario available in a clean checkout.
+
+# -----------------------
+
+config/build_profiles/*.toml
+!config/build_profiles/sample_build_profile.toml
+
+registry/scenarios/*.toml
+!registry/scenarios/baseline.toml
+!registry/scenarios/sample_scenario.toml
 
 

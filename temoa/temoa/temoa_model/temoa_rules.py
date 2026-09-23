@@ -716,6 +716,44 @@ def loan_cost_survival_curve(
         )
     return res
 
+def _etl_is_canonical_exchange_entry(M: 'TemoaModel', r: str, p, t) -> bool:
+    """
+    RegionalExchangeCapacity_Constraint forces V_Capacity to be identical across both
+    directions of an exchange-tech region pair (r_e-r_i and r_i-r_e), since they
+    represent one shared physical asset (e.g. one pipeline, one transmission link).
+
+    ETLPeriodCost_rpt, however, is built directly from raw ETLSegment entries with no
+    awareness of this pairing -- if both directions are defined in ETLSegment, both
+    survive as independent members of ETLPeriodCost_rpt. Left unfiltered, PeriodCost_rule
+    would sum V_ETLPeriodCost for both directions and double-charge investment cost for
+    every bidirectional exchange-tech corridor, even though their capacities are
+    constraint-locked to be equal.
+
+    This returns True for the single canonical direction that should be charged
+    (chosen lexicographically, arbitrarily but consistently) and False for its mirror,
+    which should be excluded from the cost sum. Region strings that aren't a simple
+    two-part exchange pair (no '-', or a mirrored counterpart not present for this
+    (p, t)) are never deduped -- they always return True, so non-exchange ETL
+    processes are unaffected.
+    """
+    if '-' not in r:
+        return True  # not an exchange-tech region string; nothing to dedup
+
+    parts = r.split('-')
+    if len(parts) != 2:
+        # doesn't match the simple exchange-pair convention (e.g. a region name that
+        # itself contains a hyphen); don't guess, treat as-is rather than risk
+        # silently dropping a legitimate cost term
+        return True
+
+    r_a, r_b = parts
+    mirror = f'{r_b}-{r_a}'
+
+    if (mirror, p, t) not in M.ETLPeriodCost_rpt:
+        return True  # no mirrored entry for this (p, t); nothing to dedup
+
+    return r < mirror  # keep only the lexicographically smaller side
+
 
 def fixed_or_variable_cost(
     cap_or_flow: float | Var,
@@ -792,7 +830,8 @@ def PeriodCost_rule(M: 'TemoaModel', p):
         for r, S_t, S_v in M.CostInvest.sparse_iterkeys()
         if S_v == p and M.isSurvivalCurveProcess[r, S_t, S_v]
     )
-    # Endogenous Technological Learning
+
+# Endogenous Technological Learning
     loan_costs += sum(
         loan_cost(
             1,
@@ -807,6 +846,11 @@ def PeriodCost_rule(M: 'TemoaModel', p):
         )
         for S_r, S_p, S_t in M.ETLPeriodCost_rpt
         if S_p == p
+        # Exclude the mirrored direction of bidirectional exchange-tech corridors so
+        # investment cost is only charged once per physical asset. Capacity is already
+        # forced equal across both directions by RegionalExchangeCapacity_Constraint;
+        # ETLPeriodCost_rpt itself has no such dedup, see _etl_is_canonical_exchange_entry.
+        and _etl_is_canonical_exchange_entry(M, S_r, p, S_t)
         # Assumes that all r, t combos in the ETL cluster have the same lifetime and
         # loan parameters. This is a necessary assumption to maintain linearity.
         # Otherwise, our objective function would become quadratic as we try to

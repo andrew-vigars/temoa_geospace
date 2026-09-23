@@ -1,0 +1,307 @@
+schema_version: 2
+
+sources:
+  - id: statcan_2021_province_territory_boundaries
+    kind: vector_dataset
+    domain: administrative_boundaries
+    publisher: Statistics Canada
+    title: 2021 Census provincial and territorial boundaries
+    licence: Statistics Canada Open Licence
+    catalogue_url: https://www12.statcan.gc.ca/census-recensement/2021/geo/sip-pis/boundary-limites/index-eng.cfm
+    distribution_url: https://www12.statcan.gc.ca/census-recensement/2021/geo/sip-pis/boundary-limites/files-fichiers/lpr_000b21a_e.zip
+    acquisition:
+      stage: basemaps
+      module: geocanoe.acquisition.basemaps
+      refresh_policy: manual
+      release_model: fixed_2021_census_release
+    bronze:
+      root: data_files/raw/basemaps
+      primary_artifact: boundaries
+      artifacts:
+        boundaries:
+          path: lpr_000b21a_e.shp
+          format: shapefile
+          source_crs: EPSG:3347
+        metadata:
+          path: lpr_000b21a_e.xml
+          format: xml
+
+  - id: statcan_2021_da_population_density_inputs
+    kind: vector_tabular_bundle
+    domain: population_exposure
+    publisher: Statistics Canada
+    title: 2021 Census dissemination areas and population and dwelling counts
+    licence: Statistics Canada Open Licence
+    catalogue_url: https://www12.statcan.gc.ca/census-recensement/2021/geo/sip-pis/boundary-limites/index-eng.cfm
+    distribution_url: https://www12.statcan.gc.ca/census-recensement/2021/geo/sip-pis/boundary-limites/files-fichiers/lda_000b21a_e.zip
+    population_table_url: https://www150.statcan.gc.ca/n1/tbl/csv/98100015-eng.zip
+    acquisition:
+      stage: residential
+      module: geocanoe.acquisition.residential
+      refresh_policy: manual
+      release_model: fixed_2021_census_release
+    bronze:
+      root: data_files/raw/residential
+      primary_artifact: boundaries
+      artifacts:
+        boundaries:
+          path: lda_000b21a_e.shp
+          format: shapefile
+          source_crs: EPSG:3347
+        population_table:
+          path: 98100015.csv
+          format: csv
+
+  - id: statcan_gasoline_demand_inputs
+    kind: vector_tabular_bundle
+    domain: gasoline_demand
+    publisher: Statistics Canada
+    title: Provincial motor-fuel sales and 2021 population centres
+    licence: Statistics Canada Open Licence
+    catalogue_url: https://www150.statcan.gc.ca/n1/en/catalogue/2310006601
+    fuel_sales_distribution_url: https://www150.statcan.gc.ca/n1/en/tbl/csv/23100066-eng.zip
+    population_centres_catalogue_url: https://www150.statcan.gc.ca/n1/en/catalogue/92-166-X
+    population_centres_distribution_url: https://www12.statcan.gc.ca/census-recensement/2021/geo/sip-pis/boundary-limites/files-fichiers/lpc_000b21a_e.zip
+    methodology_reference_url: https://natural-resources.canada.ca/energy-sources/fossil-fuels/petroleum-products-distribution-networks
+    methodology_reference_note: >-
+      Natural Resources Canada describes the refinery-to-terminal and
+      terminal-to-retail distribution structure. It supports using selected
+      population centres as bulk-terminal proxies but is not a geocoded
+      terminal inventory.
+    acquisition:
+      stage: gasoline_demand
+      module: geocanoe.acquisition.gasoline_demand
+      refresh_policy: manual
+      release_model: rolling_annual_sales_fixed_2021_geography
+    bronze:
+      root: data_files/raw/gasoline_demand
+      primary_artifact: fuel_sales
+      artifacts:
+        fuel_sales:
+          path: fuel_sales/23100066.csv
+          format: csv
+        fuel_sales_metadata:
+          path: fuel_sales/23100066_MetaData.csv
+          format: csv
+        population_centres:
+          path: population_centres/lpc_000b21a_e.shp
+          format: shapefile
+          source_crs: EPSG:3347
+        population_centres_metadata:
+          path: population_centres/lpc_000b21a_e.xml
+          format: xml
+        acquisition_manifest:
+          path: gasoline_demand_acquisition_manifest.json
+          format: json
+    dependencies:
+      - source_id: statcan_2021_da_population_density_inputs
+        role: dissemination_area_population_weights
+
+  - id: nrcan_aboriginal_lands_national_en
+    kind: vector_dataset
+    domain: administrative_boundaries
+    publisher: Natural Resources Canada
+    title: Aboriginal Lands of Canada Legislative Boundaries
+    licence: Open Government Licence - Canada
+    catalogue_url: https://open.canada.ca/data/en/dataset/522b07b9-78e2-4819-b736-ad9208eb1067
+    distribution_url: https://ftp.maps.canada.ca/pub/nrcan_rncan/vector/geobase_al_ta/shp_eng/AL_TA_CA_SHP_eng.zip
+    distribution_directory_url: https://ftp.maps.canada.ca/pub/nrcan_rncan/vector/geobase_al_ta/shp_eng/
+    metadata_url: https://proxyinternet.nrcan-rncan.gc.ca/arcgis/services/CLSS-SATC/CLSS_Administrative_Boundaries/MapServer/WMSServer?request=GetCapabilities&service=WMS&version=1.3.0&layers=1
+    acquisition:
+      stage: aboriginal_lands
+      module: geocanoe.acquisition.aboriginal_lands
+      refresh_policy: manual
+      release_model: rolling_national_distribution
+    bronze:
+      root: data_files/raw/aboriginal_lands
+      primary_artifact: boundaries
+      artifacts:
+        boundaries:
+          glob: AL_TA_CA_*_eng.shp
+          format: shapefile
+          source_crs: EPSG:4617
+        metadata:
+          path: aboriginal_lands_wms_capabilities.xml
+          format: wms_capabilities_xml
+        acquisition_manifest:
+          path: aboriginal_lands_acquisition_manifest.json
+          format: json
+
+  - id: statcan_nrn_national_bilingual
+    kind: vector_database_collection
+    domain: transportation
+    publisher: Statistics Canada
+    title: National Road Network
+    licence: Statistics Canada Open Licence
+    catalogue_url: https://open.canada.ca/data/en/dataset/3d282116-e556-400c-9306-ca1a3cada77f
+    distribution_url: https://geo.statcan.gc.ca/nrn_rrn/
+    acquisition:
+      stage: nrn
+      module: geocanoe.acquisition.nrn
+      refresh_policy: manual
+      release_model: rolling_jurisdictional_distributions
+    bronze:
+      root: data_files/raw/nrn
+      primary_artifact: english_road_networks
+      artifacts:
+        english_road_networks:
+          glob: "*/NRN_*_GPKG_en.gpkg"
+          format: gpkg
+          multiple: true
+        french_road_networks:
+          glob: "*/RRN_*_GPKG_fr.gpkg"
+          format: gpkg
+          multiple: true
+
+  - id: nrcan_nhn_hhyd_national_en
+    kind: vector_database
+    domain: hydrography
+    publisher: Natural Resources Canada
+    title: National Hydro Network - Hydrographic Features
+    licence: Open Government Licence - Canada
+    catalogue_url: https://open.canada.ca/data/en/dataset/a4b190fe-e090-4e6d-881e-b87956c07977
+    distribution_url: https://ftp.maps.canada.ca/pub/nrcan_rncan/vector/geobase_nhn_rhn/gpkg_en/CA/rhn_nhn_hhyd.gpkg.zip
+    distribution_directory_url: https://ftp.maps.canada.ca/pub/nrcan_rncan/vector/geobase_nhn_rhn/gpkg_en/CA/
+    metadata_url: https://maps.geogratis.gc.ca/wms/hydro_network_en?request=GetCapabilities&service=WMS&version=1.3.0
+    acquisition:
+      stage: nhn
+      module: geocanoe.acquisition.nhn
+      refresh_policy: manual
+      release_model: rolling_national_distribution
+    bronze:
+      root: data_files/raw/nhn
+      primary_artifact: hydrographic_features
+      artifacts:
+        hydrographic_features:
+          path: rhn_nhn_hhyd.gpkg
+          format: gpkg
+          source_crs: EPSG:4617
+        metadata:
+          path: nhn_wms_capabilities.xml
+          format: wms_capabilities_xml
+        acquisition_manifest:
+          path: nhn_acquisition_manifest.json
+          format: json
+    domains:
+      water_definition:
+        field: water_definition
+        values:
+          canal: 1
+          conduit: 2
+          ditch: 3
+          lake: 4
+          reservoir: 5
+          watercourse: 6
+          tidal_river: 7
+          liquid_waste: 8
+          pond: 9
+      permanency:
+        field: permanency
+        values:
+          unknown: -1
+          none: 0
+          permanent: 1
+          intermittent: 2
+    layers:
+      waterbody_polygons:
+        source_layer: nhn_hhyd_Waterbody_2
+        geometry_type: MultiPolygon
+        primary_key_field: id
+        geometry_field: geom
+        feature_id_field: nid
+        preserve_fields:
+          - validity_date
+          - dataset_name
+          - planimetric_accuracy
+          - provider
+          - water_definition
+          - permanency
+          - isolated
+          - code_spec
+          - nid
+          - geonamedb
+          - lakeid_1
+          - lakeid_2
+          - lakename_1
+          - lakename_2
+          - rivid_1
+          - rivid_2
+          - rivname_1
+          - rivname_2
+      watercourse_lines:
+        source_layer: nhn_hhyd_S_L_Watercourse_1
+        geometry_type: MultiLineString
+        primary_key_field: id
+        geometry_field: geom
+        feature_id_field: nid
+        preserve_fields:
+          - validity_date
+          - dataset_name
+          - planimetric_accuracy
+          - provider
+          - water_definition
+          - permanency
+          - isolated
+          - code_spec
+          - nid
+          - geonamedb
+          - nameid_1
+          - nameid_2
+          - name_1
+          - name_2
+
+  - id: eccc_large_facility_ghg_2024
+    kind: tabular_vector_dataset
+    domain: emissions
+    publisher: Environment and Climate Change Canada
+    title: Greenhouse gas emissions from large facilities - 2024
+    licence: Open Government Licence - Canada
+    catalogue_url: https://open.canada.ca/data/en/dataset/756bc907-34bb-4b33-9a87-b3c1a6c3f292
+    acquisition:
+      stage: emissions
+      module: geocanoe.acquisition.emissions
+      refresh_policy: manual
+      release_model: fixed_annual_release
+    bronze:
+      root: data_files/raw/emissions/co2_large_facilities_2024
+      primary_artifact: facility_locations
+      artifacts:
+        facility_locations:
+          path: AirEmissions_GHG_2024.json
+          format: geojson
+          source_crs: EPSG:4326
+        facility_emissions:
+          path: Greenhouse gas emissions from large facilities - 2024.csv
+          format: csv
+
+  - id: canco2_unified_storage_selected_release
+    kind: vector_database_release
+    domain: geological_storage
+    publisher: CanCO2 Storage project
+    title: Canada Geological Storage Unified Atlas
+    licence: See acquired release metadata
+    acquisition:
+      stage: co2_storage
+      module: geocanoe.acquisition.co2_storage
+      refresh_policy: manual
+      release_model: selected_local_timestamped_release
+    bronze:
+      root: data_files/raw/canco2_storage
+      primary_artifact: unified_storage
+      selection_artifact: selected_release
+      artifacts:
+        unified_storage:
+          glob: "*_CanadaGeologicalStorageUnified*_v*.gpkg"
+          format: gpkg
+          multiple: true
+        selected_release:
+          path: selected_release.txt
+          format: text
+        release_metadata:
+          glob: "*_CanadaGeologicalStorageUnified*_v*.md"
+          format: markdown
+          multiple: true
+        release_tables:
+          glob: "*_CanadaGeologicalStorageUnified*_v*.csv"
+          format: csv
+          multiple: true

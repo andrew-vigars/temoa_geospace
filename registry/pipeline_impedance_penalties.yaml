@@ -1,0 +1,111 @@
+schema_version: 1
+purpose: >-
+  Versioned modelling assumptions that translate Silver geospatial evidence into
+  additive equivalent-distance penalties for candidate pipeline routes. Source
+  dataset metadata remains in geospatial_sources.yaml.
+
+profiles:
+  no_penalties:
+    description: Control profile that preserves physical pipeline distance.
+    layers:
+      aboriginal_lands:
+        enabled: false
+        source_id: nrcan_aboriginal_lands_national_en
+        penalty_method: additional_distance_factor
+        scalar: 0.0
+        evidence:
+          status: control_case
+          citation: No spatial penalty applied
+          publication_year: null
+          url: null
+          note: Use this profile for a physical-distance-only comparison.
+      nhn_waterbodies:
+        enabled: false
+        source_id: nrcan_nhn_hhyd_national_en
+        penalty_method: additional_distance_factor
+        scalar: 0.0
+        evidence:
+          status: control_case
+          citation: No spatial penalty applied
+          publication_year: null
+          url: null
+          note: >-
+            Polygonal NHN waterbodies remain available as Silver evidence but do
+            not modify pipeline cost distance in this control profile.
+      population_exposure:
+        enabled: false
+        source_id: statcan_2021_da_population_density_inputs
+        penalty_method: population_density_band_factor
+        scalar: 0.0
+        density_field: population_density_per_km2
+        spatial_scope: statcan_population_centres
+        bands:
+          - {name: below_157, minimum: null, maximum: 157, maximum_inclusive: false, factor: 0.0}
+          - {name: 157_to_703, minimum: 157, maximum: 703, maximum_inclusive: true, factor: 0.11}
+          - {name: 703_to_1199, minimum: 703, minimum_inclusive: false, maximum: 1199, maximum_inclusive: true, factor: 0.43}
+          - {name: above_1199, minimum: 1199, minimum_inclusive: false, maximum: null, factor: 0.82}
+        evidence:
+          status: control_case
+          citation: No spatial penalty applied
+          publication_year: null
+          url: null
+          note: >-
+            DA density classes inside Statistics Canada population centres remain
+            available as Silver evidence but do not modify cost distance.
+
+  legacy_reference_v1:
+    description: >-
+      Reproducible starting point based on the legacy Hydrogen_Project_Final
+      assumption. It is not yet a literature-validated Canadian estimate.
+    layers:
+      aboriginal_lands:
+        enabled: true
+        source_id: nrcan_aboriginal_lands_national_en
+        penalty_method: additional_distance_factor
+        scalar: 9.0
+        evidence:
+          status: legacy_model_assumption_unvalidated
+          citation: Hydrogen_Project_Final legacy routing model
+          publication_year: null
+          url: null
+          note: >-
+            One kilometre intersecting the layer adds nine equivalent kilometres,
+            for a total cost-distance contribution of ten kilometres. Replace or
+            add a named profile when a defensible literature estimate is adopted.
+      nhn_waterbodies:
+        enabled: true
+        source_id: nrcan_nhn_hhyd_national_en
+        penalty_method: additional_distance_factor
+        scalar: 9.0
+        evidence:
+          status: legacy_model_assumption_unvalidated
+          citation: Hydrogen_Project_Final legacy routing model waterbody assumption
+          publication_year: null
+          url: null
+          note: >-
+            One kilometre through a selected NHN waterbody adds nine equivalent
+            kilometres, for ten total cost-distance kilometres. This applies only
+            to polygonal waterbodies selected by the Silver hydrography profile;
+            watercourse lines require a separate crossing or width model.
+      population_exposure:
+        enabled: true
+        source_id: statcan_2021_da_population_density_inputs
+        penalty_method: population_density_band_factor
+        scalar: 0.0
+        density_field: population_density_per_km2
+        spatial_scope: statcan_population_centres
+        bands:
+          - {name: below_157, minimum: null, maximum: 157, maximum_inclusive: false, factor: 0.0}
+          - {name: 157_to_703, minimum: 157, maximum: 703, maximum_inclusive: true, factor: 0.11}
+          - {name: 703_to_1199, minimum: 703, minimum_inclusive: false, maximum: 1199, maximum_inclusive: true, factor: 0.43}
+          - {name: above_1199, minimum: 1199, minimum_inclusive: false, maximum: null, factor: 0.82}
+        evidence:
+          status: legacy_model_assumption_unvalidated
+          citation: Hydrogen_Project_Final legacy residential routing model
+          publication_year: null
+          url: null
+          note: >-
+            Population density is joined to 2021 dissemination-area polygons and
+            clipped to the 2021 Statistics Canada population-centre footprint.
+            The four factors reproduce the legacy density thresholds, but the
+            values are not yet literature-validated Canadian routing penalties.

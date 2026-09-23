@@ -1,0 +1,44 @@
+# =============================================================================
+# Geospatial-CANOE development dependency fragment
+# =============================================================================
+#
+# Setuptools combines this file with requirements.txt and
+# temoa/requirements-dev.txt through the dynamic optional-dependency
+# configuration in pyproject.toml.
+#
+# Install the complete development environment from the repository root with:
+#     python -m pip install -e ".[dev]"
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Code quality and testing
+# -----------------------------------------------------------------------------
+
+pytest==8.4.1
+pytest-cov==6.2.1
+mypy==1.17.0
+ruff==0.12.3
+pre-commit==4.2.0
+
+
+# -----------------------------------------------------------------------------
+# Interactive development
+# -----------------------------------------------------------------------------
+
+ipykernel==6.29.5
+jupyter==1.1.1
+jupyterlab==4.4.4
+
+
+# -----------------------------------------------------------------------------
+# Interactive geospatial exploration (Jupyter map widgets)
+# -----------------------------------------------------------------------------
+
+lonboard==0.16.0
+anywidget==0.9.21
+pyarrow==25.0.1
+psygnal==0.16.1
+arro3-core==0.8.3
+arro3-compute==0.8.3
+arro3-io==0.8.2
+geoarrow-rust-core==0.6.3

@@ -1,0 +1,28 @@
+# =============================================================================
+# Geospatial-CANOE batch-run configuration
+# =============================================================================
+#
+# A batch runs an ordered list of independent TEMOA solver configurations
+# (see geocanoe.execution.batch). Each [[runs]] entry points at a solver
+# config TOML like temoa/data_files/my_configs/*.toml; that file in turn names
+# the scenario and the input/output SQLite database it runs against.
+#
+# The entry below is a committed, always-resolvable disabled example using one
+# of TEMOA's test configurations. Running this batch file as committed performs
+# no solve. Copy the block, point "config" at a solver TOML created for a
+# GeoCANOE build-profile/scenario pair, and set enabled = true for a real run.
+
+[batch]
+name = "sample_batch"
+continue_on_failure = true
+skip_completed = true
+retry_failed = false
+
+# =============================================================================
+# Sample run (disabled) — replace with real solver configs before executing
+# =============================================================================
+
+
+[[runs]]
+config = "temoa/tests/testing_configs/config_utopia.toml"
+enabled = false
