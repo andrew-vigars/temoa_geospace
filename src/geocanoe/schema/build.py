@@ -23,9 +23,9 @@ Processed geospatial products:
     data_files/processed/gasoline_demand/{build_id}/basemaps/
         *_gasoline_demand.gpkg
 
-Schema and baseline database:
-    data_files/canoe_dataset_schema.sql
-    data_files/CANOE_geospatial.sqlite
+Schema contract:
+    temoa.db_schema/temoa_schema_v4.sql (installed TEMOA package)
+    temoa.extensions.economies_of_scale/tables.sql (installed TEMOA package)
 
 Processed model inputs:
     data_files/processed/legacy_inputs/sites_full_with_province.csv
@@ -51,11 +51,12 @@ data_files/processed/schema/
 
 import argparse
 from dataclasses import asdict, dataclass
-from datetime import date
 import hashlib
+from importlib import resources
 import json
 import math
 from pathlib import Path
+import sqlite3
 from time import perf_counter
 
 import geopandas as gpd
@@ -96,8 +97,11 @@ PROCESSED_PIPELINE_IMPEDANCE = DATA_FILES / "processed" / "pipeline_impedance"
 PROCESSED_SCHEMA = DATA_FILES / "processed" / "schema"
 
 RAW_BASEMAP_PATH = RAW_BASEMAPS / "lpr_000b21a_e.shp"
-RAW_SCHEMA_PATH = DATA_FILES / "canoe_dataset_schema.sql"
-BASELINE_SQLITE_PATH = DATA_FILES / "CANOE_geospatial.sqlite"
+
+TEMOA_SCHEMA_PACKAGE = "temoa.db_schema"
+TEMOA_SCHEMA_RESOURCE = "temoa_schema_v4.sql"
+EOS_SCHEMA_PACKAGE = "temoa.extensions.economies_of_scale"
+EOS_SCHEMA_RESOURCE = "tables.sql"
 
 PROCESSED_LEGACY_INPUTS = DATA_FILES / "processed" / "legacy_inputs"
 SITES_PATH = PROCESSED_LEGACY_INPUTS / "sites_full_with_province.csv"
@@ -166,7 +170,7 @@ LEGACY_GASOLINE_EFFICIENCY_ROW = {
 
 GENERALIZED_PIPELINE_COST_NOTE = (
     "Temporary generalized pipeline cost-and-capacity assumption: the "
-    "processed H2 pipeline ETLSegment capacity breakpoints, CAPEX curve, "
+    "processed H2 pipeline EOS capacity breakpoints, CAPEX curve, "
     "fixed-OPEX slope, and variable-OPEX slope are applied to all pipeline "
     "technologies in transport_techs.csv. This assumption will be replaced "
     "as commodity-specific pipeline cost layers become available."
@@ -815,7 +819,6 @@ def resolve_schema_configuration(
         pipeline_impedance_path=pipeline_impedance_path,
     )
 
-    ensure_baseline_sqlite_exists()
     validate_required_paths(config)
 
     return config
@@ -850,38 +853,51 @@ def build_schema_fingerprint(
     ).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()[:8]
 
-def ensure_baseline_sqlite_exists() -> None:
-    """Ensure the baseline CANOE/TEMOA SQLite database exists.
+def _read_packaged_sql(package: str, resource: str) -> str:
+    """Read a SQL resource from the installed TEMOA distribution."""
 
-    This helper checks whether the baseline SQLite database is already present.
-    If it is missing, the function creates it from the raw CANOE/TEMOA schema
-    SQL file. This provides a clean database structure that can be loaded and
-    rebuilt with the selected geospatial topology.
+    sql_resource = resources.files(package).joinpath(resource)
+    if not sql_resource.is_file():
+        raise FileNotFoundError(
+            f"Installed TEMOA SQL resource is missing: {package}/{resource}"
+        )
+    return sql_resource.read_text(encoding="utf-8")
 
-    Returns
-    -------
-    None
 
-    Raises
-    ------
-    FileNotFoundError
-        If the baseline SQLite database is missing and the raw schema SQL file
-        needed to create it is also missing.
-    """
-    if BASELINE_SQLITE_PATH.exists():
-        return
+def initialize_temoa_v4_schema(connection: sqlite3.Connection) -> None:
+    """Install the TEMOA v4 core schema and EOS extension schema."""
 
-    if not RAW_SCHEMA_PATH.exists():
-        raise FileNotFoundError(f"Missing raw schema SQL: {RAW_SCHEMA_PATH}")
-
-    print("\nBaseline SQLite not found.")
-    print(f"Creating baseline SQLite from: {RAW_SCHEMA_PATH}")
-    print(f"Output baseline SQLite: {BASELINE_SQLITE_PATH}")
-
-    database.convert_sql_to_sqlite(
-        RAW_SCHEMA_PATH,
-        BASELINE_SQLITE_PATH,
+    connection.executescript(
+        _read_packaged_sql(TEMOA_SCHEMA_PACKAGE, TEMOA_SCHEMA_RESOURCE)
     )
+    connection.executescript(
+        _read_packaged_sql(EOS_SCHEMA_PACKAGE, EOS_SCHEMA_RESOURCE)
+    )
+    connection.commit()
+
+
+def load_empty_temoa_v4_tables() -> dict[str, pd.DataFrame]:
+    """Return empty/default tables from the installed v4 and EOS schemas."""
+
+    connection = sqlite3.connect(":memory:")
+    try:
+        initialize_temoa_v4_schema(connection)
+        table_names = [
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='table' AND name NOT LIKE 'sqlite_%' "
+                "ORDER BY name"
+            ).fetchall()
+        ]
+        return {
+            table_name: pd.read_sql_query(
+                f'SELECT * FROM "{table_name}"', connection
+            )
+            for table_name in table_names
+        }
+    finally:
+        connection.close()
 
 def validate_required_paths(config: ResolvedSchemaConfig) -> None:
     """Validate that all inputs required for schema building exist.
@@ -908,8 +924,6 @@ def validate_required_paths(config: ResolvedSchemaConfig) -> None:
         If one or more required input files are missing.
     """
     required_paths = {
-        "raw_schema": RAW_SCHEMA_PATH,
-        "baseline_sqlite": BASELINE_SQLITE_PATH,
         "sites": SITES_PATH,
         "gasoline_demand": config.gasoline_demand_path,
         "co2_source": CO2_SOURCE_PATH,
@@ -1548,7 +1562,7 @@ def load_inputs(config: ResolvedSchemaConfig) -> LoadedInputs:
             config.gasoline_demand_path,
             layer="regional_gasoline_demand",
         ),
-        db=database.sqlite_to_dfs(BASELINE_SQLITE_PATH),
+        db=load_empty_temoa_v4_tables(),
         sites_raw=pd.read_csv(SITES_PATH),
         co2_raw=gpd.read_file(CO2_SOURCE_PATH),
         transport_techs_raw=pd.read_csv(TRANSPORT_TECHS_PATH),
@@ -2837,7 +2851,7 @@ def rebuild_demand(
         .reset_index(drop=True)
     )
 
-    db_encoded["Demand"] = pd.DataFrame(
+    db_encoded["demand"] = pd.DataFrame(
         {
             "region": demand_sites["region"],
             "period": model_period,
@@ -2858,12 +2872,12 @@ def rebuild_demand(
         }
     )
 
-    assert db_encoded["Demand"]["region"].nunique() == len(
-        db_encoded["Demand"]
+    assert db_encoded["demand"]["region"].nunique() == len(
+        db_encoded["demand"]
     )
-    assert db_encoded["Demand"]["demand"].gt(0).all()
+    assert db_encoded["demand"]["demand"].gt(0).all()
 
-    print(f"Demand rows: {len(db_encoded['Demand']):,}")
+    print(f"Demand rows: {len(db_encoded['demand']):,}")
 
 
 def rebuild_capacity_limits(
@@ -2919,7 +2933,7 @@ def rebuild_capacity_limits(
             f"{emissions_projection_method!r}."
         )
 
-    db_encoded["LimitCapacity"] = pd.concat(
+    db_encoded["limit_capacity"] = pd.concat(
         [
             pd.DataFrame(
                 {
@@ -2968,9 +2982,9 @@ def rebuild_capacity_limits(
         ignore_index=True,
     )
 
-    assert len(db_encoded["LimitCapacity"]) == 2 * len(site_attributes)
+    assert len(db_encoded["limit_capacity"]) == 2 * len(site_attributes)
 
-    print(f"LimitCapacity rows: {len(db_encoded['LimitCapacity']):,}")
+    print(f"LimitCapacity rows: {len(db_encoded['limit_capacity']):,}")
 
 
 def rebuild_storage_activity_limit(
@@ -3001,8 +3015,8 @@ def rebuild_storage_activity_limit(
     if period_years <= 0:
         raise ValueError("Storage projection period_years must be positive.")
 
-    limit_activity = db_encoded["LimitActivity"]
-    db_encoded["LimitActivity"] = limit_activity.loc[
+    limit_activity = db_encoded["limit_activity"]
+    db_encoded["limit_activity"] = limit_activity.loc[
         limit_activity["tech_or_group"] != "CO2_INJECT"
     ].copy()
 
@@ -3021,8 +3035,8 @@ def rebuild_storage_activity_limit(
             "is 'minimum_cumulative_activity'."
         )
 
-    storage_processes = db_encoded["Efficiency"].loc[
-        db_encoded["Efficiency"]["tech"] == "CO2_INJECT"
+    storage_processes = db_encoded["efficiency"].loc[
+        db_encoded["efficiency"]["tech"] == "CO2_INJECT"
     ]
     if storage_processes.empty:
         raise ValueError(
@@ -3053,15 +3067,15 @@ def rebuild_storage_activity_limit(
     }
     storage_limit = pd.DataFrame(
         [row],
-        columns=db_encoded["LimitActivity"].columns,
+        columns=db_encoded["limit_activity"].columns,
     )
-    db_encoded["LimitActivity"] = pd.concat(
-        [db_encoded["LimitActivity"], storage_limit],
+    db_encoded["limit_activity"] = pd.concat(
+        [db_encoded["limit_activity"], storage_limit],
         ignore_index=True,
     )
 
-    encoded = db_encoded["LimitActivity"].loc[
-        db_encoded["LimitActivity"]["tech_or_group"] == "CO2_INJECT"
+    encoded = db_encoded["limit_activity"].loc[
+        db_encoded["limit_activity"]["tech_or_group"] == "CO2_INJECT"
     ]
     assert len(encoded) == 1
     assert encoded.iloc[0]["region"] == "global"
@@ -3173,8 +3187,8 @@ def rebuild_legacy_gasoline_activity_limit(
         ``period_years`` is not positive.
     """
 
-    db_encoded["LimitActivity"] = db_encoded["LimitActivity"].loc[
-        db_encoded["LimitActivity"]["tech_or_group"] != LEGACY_GASOLINE_TECH
+    db_encoded["limit_activity"] = db_encoded["limit_activity"].loc[
+        db_encoded["limit_activity"]["tech_or_group"] != LEGACY_GASOLINE_TECH
     ].copy()
 
     if not enabled:
@@ -3230,13 +3244,13 @@ def rebuild_legacy_gasoline_activity_limit(
         }
     )
 
-    db_encoded["LimitActivity"] = pd.concat(
-        [db_encoded["LimitActivity"], legacy_limit],
+    db_encoded["limit_activity"] = pd.concat(
+        [db_encoded["limit_activity"], legacy_limit],
         ignore_index=True,
     )
 
-    encoded = db_encoded["LimitActivity"].loc[
-        db_encoded["LimitActivity"]["tech_or_group"] == LEGACY_GASOLINE_TECH
+    encoded = db_encoded["limit_activity"].loc[
+        db_encoded["limit_activity"]["tech_or_group"] == LEGACY_GASOLINE_TECH
     ]
     assert len(encoded) == len(demand_nodes)
     assert (encoded["operator"] == "le").all()
@@ -3258,7 +3272,9 @@ def rebuild_node_costs(
 
     This function replaces existing node-level ``CostVariable`` rows for
     selected technologies with geospatially assigned costs for electricity
-    generation, CO2 capture, and backup gasoline supply. It also replaces
+    generation, CO2 capture, and backup gasoline supply. Backup gasoline costs
+    are restricted to positive-demand regions so every cost row corresponds to
+    a process defined by the TEMOA v4 efficiency index. It also replaces
     existing node-level ``CostInvest`` rows for electricity generation and CO2
     capture with fixed investment-cost assumptions for every selected graph
     node.
@@ -3278,6 +3294,10 @@ def rebuild_node_costs(
     -------
     None
     """
+    gasoline_demand_sites = site_attributes.loc[
+        site_attributes["demand"] > 0
+    ].reset_index(drop=True)
+
     node_costvariable = pd.concat(
         [
             pd.DataFrame(
@@ -3318,7 +3338,7 @@ def rebuild_node_costs(
             ),
             pd.DataFrame(
                 {
-                    "region": site_attributes["region"],
+                    "region": gasoline_demand_sites["region"],
                     "period": model_period,
                     "tech": "GSL_BACKUP",
                     "vintage": model_period,
@@ -3338,11 +3358,11 @@ def rebuild_node_costs(
         ignore_index=True,
     )
 
-    db_encoded["CostVariable"] = db_encoded["CostVariable"].loc[
-        ~db_encoded["CostVariable"]["tech"].isin(NODE_COSTVARIABLE_TECHS)
+    db_encoded["cost_variable"] = db_encoded["cost_variable"].loc[
+        ~db_encoded["cost_variable"]["tech"].isin(NODE_COSTVARIABLE_TECHS)
     ].copy()
-    db_encoded["CostVariable"] = pd.concat(
-        [db_encoded["CostVariable"], node_costvariable],
+    db_encoded["cost_variable"] = pd.concat(
+        [db_encoded["cost_variable"], node_costvariable],
         ignore_index=True,
     )
 
@@ -3386,11 +3406,11 @@ def rebuild_node_costs(
         ignore_index=True,
     )
 
-    db_encoded["CostInvest"] = db_encoded["CostInvest"].loc[
-        ~db_encoded["CostInvest"]["tech"].isin(NODE_COSTINVEST_TECHS)
+    db_encoded["cost_invest"] = db_encoded["cost_invest"].loc[
+        ~db_encoded["cost_invest"]["tech"].isin(NODE_COSTINVEST_TECHS)
     ].copy()
-    db_encoded["CostInvest"] = pd.concat(
-        [db_encoded["CostInvest"], node_costinvest],
+    db_encoded["cost_invest"] = pd.concat(
+        [db_encoded["cost_invest"], node_costinvest],
         ignore_index=True,
     )
 
@@ -3518,12 +3538,15 @@ def rebuild_input_splits(
         model_period,
     )
 
-    db_encoded["LimitTechInputSplitAnnual"] = pd.concat(
+    db_encoded["limit_tech_input_split_annual"] = pd.concat(
         [gsl_input_split, metoh_input_split],
         ignore_index=True,
     )
 
-    print(f"LimitTechInputSplitAnnual rows: {len(db_encoded['LimitTechInputSplitAnnual']):,}")
+    print(
+        "LimitTechInputSplitAnnual rows: "
+        f"{len(db_encoded['limit_tech_input_split_annual']):,}"
+    )
 
 
 def rebuild_node_efficiency(
@@ -3604,7 +3627,7 @@ def rebuild_node_efficiency(
 
     node_efficiency = pd.concat(efficiency_rows, ignore_index=True)
 
-    demand_regions = db_encoded["Demand"]["region"].drop_duplicates().reset_index(drop=True)
+    demand_regions = db_encoded["demand"]["region"].drop_duplicates().reset_index(drop=True)
 
     gsl_demand_efficiency = pd.DataFrame(
         {
@@ -3632,23 +3655,23 @@ def rebuild_node_efficiency(
 
     node_efficiency_techs = set(node_efficiency["tech"])
 
-    db_encoded["Efficiency"] = db_encoded["Efficiency"].loc[
-        (~db_encoded["Efficiency"]["tech"].isin(node_efficiency_techs))
-        & (~db_encoded["Efficiency"]["region"].astype(str).str.contains("-", regex=False))
+    db_encoded["efficiency"] = db_encoded["efficiency"].loc[
+        (~db_encoded["efficiency"]["tech"].isin(node_efficiency_techs))
+        & (~db_encoded["efficiency"]["region"].astype(str).str.contains("-", regex=False))
     ].copy()
 
-    db_encoded["Efficiency"] = pd.concat(
-        [db_encoded["Efficiency"], node_efficiency],
+    db_encoded["efficiency"] = pd.concat(
+        [db_encoded["efficiency"], node_efficiency],
         ignore_index=True,
     )
 
-    assert set(db_encoded["Demand"]["region"]) == set(
-        db_encoded["Efficiency"].loc[
-            db_encoded["Efficiency"]["tech"] == "GSL_DEMAND",
+    assert set(db_encoded["demand"]["region"]) == set(
+        db_encoded["efficiency"].loc[
+            db_encoded["efficiency"]["tech"] == "GSL_DEMAND",
             "region",
         ]
     )
-    assert not db_encoded["Efficiency"]["region"].astype(str).str.contains("-", regex=False).any()
+    assert not db_encoded["efficiency"]["region"].astype(str).str.contains("-", regex=False).any()
 
     print(f"Node Efficiency rows added: {len(node_efficiency):,}")
 
@@ -3677,7 +3700,7 @@ def rebuild_storage_efficiency(
     Returns
     -------
     None
-        ``db_encoded["Efficiency"]`` is modified in place.
+        ``db_encoded["efficiency"]`` is modified in place.
 
     Raises
     ------
@@ -3717,6 +3740,7 @@ def rebuild_storage_efficiency(
             "vintage": model_period,
             "output_comm": "co2_stored",
             "efficiency": 1.0,
+            "units": None,
             "notes": (
                 "CO2 injection availability derived from mapped geological "
                 "storage evidence"
@@ -3731,24 +3755,24 @@ def rebuild_storage_efficiency(
         }
     )
     storage_efficiency = storage_efficiency[
-        db_encoded["Efficiency"].columns
+        db_encoded["efficiency"].columns
     ].copy()
 
-    existing_efficiency = db_encoded["Efficiency"].loc[
-        db_encoded["Efficiency"]["tech"] != "CO2_INJECT"
+    existing_efficiency = db_encoded["efficiency"].loc[
+        db_encoded["efficiency"]["tech"] != "CO2_INJECT"
     ].copy()
     if existing_efficiency.empty:
-        db_encoded["Efficiency"] = storage_efficiency.copy()
+        db_encoded["efficiency"] = storage_efficiency.copy()
     elif storage_efficiency.empty:
-        db_encoded["Efficiency"] = existing_efficiency
+        db_encoded["efficiency"] = existing_efficiency
     else:
-        db_encoded["Efficiency"] = pd.concat(
+        db_encoded["efficiency"] = pd.concat(
             [existing_efficiency, storage_efficiency],
             ignore_index=True,
         )
 
-    encoded_storage = db_encoded["Efficiency"].loc[
-        db_encoded["Efficiency"]["tech"] == "CO2_INJECT"
+    encoded_storage = db_encoded["efficiency"].loc[
+        db_encoded["efficiency"]["tech"] == "CO2_INJECT"
     ]
     expected_regions = set(eligible_regions)
     assert len(encoded_storage) == len(expected_regions)
@@ -4136,23 +4160,24 @@ def rebuild_etl_segments(
     specs: TechSpecs,
     h2_etlsegment_template: pd.DataFrame,
 ) -> None:
-    """Rebuild the complete ETLSegment table for the encoded schema.
+    """Rebuild the TEMOA v4 EOS investment-cost table.
 
     Legacy plant and electricity-transmission segments are generated from the
     existing analytical cost curves, while pipeline segments are generated from
-    the generalized H2-derived ETLSegment template. The two components are combined
-    and replace the existing CANOE/TEMOA ``ETLSegment`` table.
+    the generalized H2-derived legacy-shaped segment template. The two components
+    are combined and translated into the EOS extension's
+    ``cost_invest_eos`` contract.
 
     The assembled table is checked for duplicate primary keys. Edge-region entries
     must belong to the canonical pipeline topology, and truck technologies are
-    explicitly prohibited from receiving ETLSegment rows because their costs are
+    explicitly prohibited from receiving EOS investment rows because their costs are
     represented outside the piecewise investment-cost formulation.
 
     Parameters
     ----------
     db_encoded : dict[str, pd.DataFrame]
         Mutable mapping of CANOE/TEMOA table names to encoded DataFrames. The
-        existing ``ETLSegment`` table is replaced in place.
+        ``cost_invest_eos`` table is replaced in place.
     site_attributes : pd.DataFrame
         Node-level site table used to assign legacy plant ETL curves.
     canonical : CanonicalLinks
@@ -4161,7 +4186,7 @@ def rebuild_etl_segments(
         Canonical transport technology groups used to build transmission and
         pipeline segments and to exclude truck technologies.
     h2_etlsegment_template : pd.DataFrame
-        Validated topology-free H2-derived pipeline ETLSegment template.
+        Validated topology-free H2-derived pipeline segment template.
 
     Returns
     -------
@@ -4170,11 +4195,11 @@ def rebuild_etl_segments(
     Raises
     ------
     ValueError
-        If the assembled ETLSegment table contains duplicate region, technology,
+        If the assembled EOS table contains duplicate region, technology,
         and segment keys.
     AssertionError
         If an encoded edge region is outside the canonical pipeline topology or a
-        truck technology receives ETLSegment rows.
+        truck technology receives EOS investment rows.
     """
 
     legacy_etl = build_legacy_etl_segments(
@@ -4192,19 +4217,39 @@ def rebuild_etl_segments(
         else pd.DataFrame(columns=legacy_etl.columns)
     )
 
-    db_encoded["ETLSegment"] = pd.concat(
+    cost_invest_eos = pd.concat(
         [legacy_etl, pipeline_etl],
         ignore_index=True,
+    ).rename(
+        columns={
+            "cap_lower": "capacity_lower",
+            "cap_upper": "capacity_upper",
+        }
     )
+    cost_invest_eos["units"] = None
+    cost_invest_eos["notes"] = GENERALIZED_PIPELINE_COST_NOTE
+    db_encoded["cost_invest_eos"] = cost_invest_eos[
+        [
+            "region",
+            "tech_or_group",
+            "segment",
+            "capacity_lower",
+            "capacity_upper",
+            "cost_lower",
+            "cost_upper",
+            "units",
+            "notes",
+        ]
+    ].copy()
 
-    if db_encoded["ETLSegment"][
+    if db_encoded["cost_invest_eos"][
         ["region", "tech_or_group", "segment"]
     ].duplicated().any():
-        raise ValueError("Encoded ETLSegment table contains duplicate keys.")
+        raise ValueError("Encoded cost_invest_eos table contains duplicate keys.")
 
     etl_edge_regions = set(
-        db_encoded["ETLSegment"].loc[
-            db_encoded["ETLSegment"]["region"]
+        db_encoded["cost_invest_eos"].loc[
+            db_encoded["cost_invest_eos"]["region"]
             .astype(str)
             .str.contains("-", regex=False),
             "region",
@@ -4214,18 +4259,18 @@ def rebuild_etl_segments(
         etl_edge_regions - canonical.valid_pipeline_edge_regions
     )
     assert not invalid_etl_edge_regions, (
-        "ETLSegment contains invalid edge regions: "
+        "cost_invest_eos contains invalid edge regions: "
         f"{invalid_etl_edge_regions[:10]}"
     )
 
-    truck_etl_rows = db_encoded["ETLSegment"].loc[
-        db_encoded["ETLSegment"]["tech_or_group"].isin(specs.truck_techs)
+    truck_etl_rows = db_encoded["cost_invest_eos"].loc[
+        db_encoded["cost_invest_eos"]["tech_or_group"].isin(specs.truck_techs)
     ]
     assert truck_etl_rows.empty, (
-        "Truck technologies should not receive ETLSegment rows."
+        "Truck technologies should not receive EOS investment rows."
     )
 
-    print(f"Encoded ETLSegment rows: {len(db_encoded['ETLSegment']):,}")
+    print(f"Encoded EOS investment rows: {len(db_encoded['cost_invest_eos']):,}")
 
 
 def rebuild_technology_table(
@@ -4271,16 +4316,16 @@ def rebuild_technology_table(
     technology["flex"] = 0
     technology["data_id"] = DATA_ID
 
-    db_encoded["Technology"] = technology.copy()
+    db_encoded["technology"] = technology.copy()
 
-    assert specs.truck_techs.issubset(set(db_encoded["Technology"]["tech"])), (
+    assert specs.truck_techs.issubset(set(db_encoded["technology"]["tech"])), (
         "Truck technologies are missing from techs.csv."
     )
-    assert specs.pipe_techs.issubset(set(db_encoded["Technology"]["tech"])), (
+    assert specs.pipe_techs.issubset(set(db_encoded["technology"]["tech"])), (
         "Pipeline technologies are missing from techs.csv."
     )
 
-    print(f"Technology rows: {len(db_encoded['Technology']):,}")
+    print(f"Technology rows: {len(db_encoded['technology']):,}")
 
 
 def build_transport_efficiency(
@@ -4538,13 +4583,13 @@ def rebuild_transport_efficiency(
         model_period,
     )
 
-    db_encoded["Efficiency"] = db_encoded["Efficiency"].loc[
-        ~db_encoded["Efficiency"]["tech"].isin(specs.transport_techs)
+    db_encoded["efficiency"] = db_encoded["efficiency"].loc[
+        ~db_encoded["efficiency"]["tech"].isin(specs.transport_techs)
     ].copy()
 
-    db_encoded["Efficiency"] = pd.concat(
+    db_encoded["efficiency"] = pd.concat(
         [
-            db_encoded["Efficiency"],
+            db_encoded["efficiency"],
             pipeline_efficiency,
             truck_efficiency,
             transmission_efficiency,
@@ -4629,13 +4674,13 @@ def rebuild_legacy_transport_costvariable(
         model_period,
     )
 
-    non_edge_costvariable = db_encoded["CostVariable"].loc[
-        ~db_encoded["CostVariable"]["region"]
+    non_edge_costvariable = db_encoded["cost_variable"].loc[
+        ~db_encoded["cost_variable"]["region"]
         .astype(str)
         .str.contains("-", regex=False)
     ].copy()
 
-    db_encoded["CostVariable"] = pd.concat(
+    db_encoded["cost_variable"] = pd.concat(
         [non_edge_costvariable, truck_costvariable, transmission_costvariable],
         ignore_index=True,
     )
@@ -4822,18 +4867,18 @@ def rebuild_generalized_pipeline_opex(
     )
     pipeline_techs = set(pipeline_tech_specs["tech"].astype(str))
 
-    db_encoded["CostFixed"] = db_encoded["CostFixed"].loc[
-        ~db_encoded["CostFixed"]["tech"].isin(pipeline_techs)
+    db_encoded["cost_fixed"] = db_encoded["cost_fixed"].loc[
+        ~db_encoded["cost_fixed"]["tech"].isin(pipeline_techs)
     ].copy()
-    db_encoded["CostFixed"] = pd.concat(
-        [db_encoded["CostFixed"], pipeline_costfixed], ignore_index=True
+    db_encoded["cost_fixed"] = pd.concat(
+        [db_encoded["cost_fixed"], pipeline_costfixed], ignore_index=True
     )
 
-    db_encoded["CostVariable"] = db_encoded["CostVariable"].loc[
-        ~db_encoded["CostVariable"]["tech"].isin(pipeline_techs)
+    db_encoded["cost_variable"] = db_encoded["cost_variable"].loc[
+        ~db_encoded["cost_variable"]["tech"].isin(pipeline_techs)
     ].copy()
-    db_encoded["CostVariable"] = pd.concat(
-        [db_encoded["CostVariable"], pipeline_costvariable], ignore_index=True
+    db_encoded["cost_variable"] = pd.concat(
+        [db_encoded["cost_variable"], pipeline_costvariable], ignore_index=True
     )
 
     print(f"Generalized pipeline CostFixed rows: {len(pipeline_costfixed):,}")
@@ -4910,11 +4955,11 @@ def rebuild_truck_costinvest(
         ignore_index=True,
     )
 
-    db_encoded["CostInvest"] = db_encoded["CostInvest"].loc[
-        ~db_encoded["CostInvest"]["tech"].isin(specs.truck_techs)
+    db_encoded["cost_invest"] = db_encoded["cost_invest"].loc[
+        ~db_encoded["cost_invest"]["tech"].isin(specs.truck_techs)
     ].copy()
-    db_encoded["CostInvest"] = pd.concat(
-        [db_encoded["CostInvest"], truck_costinvest],
+    db_encoded["cost_invest"] = pd.concat(
+        [db_encoded["cost_invest"], truck_costinvest],
         ignore_index=True,
     )
 
@@ -4932,8 +4977,8 @@ def remove_pipeline_ordinary_costinvest(
     """Remove ordinary pipeline investment-cost rows from the encoded schema.
 
     In the current generalized pipeline build, the modeled capital-cost component
-    is represented through the piecewise ``ETLSegment`` formulation. Conventional
-    ``CostInvest`` rows inherited for those technologies are therefore removed to
+    is represented through the piecewise ``cost_invest_eos`` formulation.
+    Conventional ``cost_invest`` rows inherited for those technologies are removed to
     prevent duplicate accounting of that same component. This is a build-specific
     choice, not a general restriction against using both tables for distinct costs.
 
@@ -4943,7 +4988,7 @@ def remove_pipeline_ordinary_costinvest(
     ----------
     db_encoded : dict[str, pd.DataFrame]
         Mutable mapping of CANOE/TEMOA table names to encoded DataFrames. Pipeline
-        rows are removed from the ``CostInvest`` table in place.
+        rows are removed from the ``cost_invest`` table in place.
     pipeline_techs : set[str]
         Canonical pipeline technology identifiers whose ordinary investment-cost
         rows must be removed.
@@ -4954,10 +4999,10 @@ def remove_pipeline_ordinary_costinvest(
     """
 
     removed_rows = int(
-        db_encoded["CostInvest"]["tech"].isin(pipeline_techs).sum()
+        db_encoded["cost_invest"]["tech"].isin(pipeline_techs).sum()
     )
-    db_encoded["CostInvest"] = db_encoded["CostInvest"].loc[
-        ~db_encoded["CostInvest"]["tech"].isin(pipeline_techs)
+    db_encoded["cost_invest"] = db_encoded["cost_invest"].loc[
+        ~db_encoded["cost_invest"]["tech"].isin(pipeline_techs)
     ].copy()
     print(f"Removed ordinary pipeline CostInvest rows: {removed_rows:,}")
 
@@ -4993,18 +5038,34 @@ def rebuild_static_supporting_tables(
     -------
     None
     """
-    db_encoded["Commodity"] = commodities_raw.copy()
-    db_encoded["TechnologyType"] = pd.DataFrame(
+    db_encoded["commodity"] = commodities_raw.copy()
+    db_encoded["technology_type"] = pd.DataFrame(
         {
             "label": ["p", "t"],
             "description": ["production", "transport"],
         }
     )
-    db_encoded["TimePeriod"] = pd.DataFrame(
+    db_encoded["time_period"] = pd.DataFrame(
         {
             "sequence": [1, 2],
             "period": [model_start_year, model_end_year],
             "flag": ["f", "f"],
+        }
+    )
+    db_encoded["time_season"] = pd.DataFrame(
+        {
+            "sequence": [1],
+            "season": ["S"],
+            "segment_fraction": [1.0],
+            "notes": ["Single representative annual season"],
+        }
+    )
+    db_encoded["time_of_day"] = pd.DataFrame(
+        {
+            "sequence": [1],
+            "tod": ["D"],
+            "hours": [24.0],
+            "notes": ["Single representative daily time slice"],
         }
     )
     model_finance = pd.DataFrame(
@@ -5017,10 +5078,10 @@ def rebuild_static_supporting_tables(
             ],
         }
     )
-    db_encoded["MetaDataReal"] = pd.concat(
+    db_encoded["metadata_real"] = pd.concat(
         [
-            db_encoded["MetaDataReal"].loc[
-                ~db_encoded["MetaDataReal"]["element"].isin(
+            db_encoded["metadata_real"].loc[
+                ~db_encoded["metadata_real"]["element"].isin(
                     model_finance["element"]
                 )
             ],
@@ -5028,32 +5089,12 @@ def rebuild_static_supporting_tables(
         ],
         ignore_index=True,
     )
-    db_encoded["SectorLabel"] = pd.DataFrame(
+    db_encoded["sector_label"] = pd.DataFrame(
         {
             "sector": ["industrial"],
             "notes": ["industrial sector"],
         }
     )
-    db_encoded["DataSet"] = pd.DataFrame(
-        {
-            "data_id": [DATA_ID],
-            "label": ["Geospatial Renewable Gas Data"],
-            "version": ["GEO001"],
-            "description": ["Geospatial data for renewable gas model"],
-            "status": ["active"],
-            "author": ["Geospatial-CANOE workflow"],
-            "date": [date.today().isoformat()],
-            "parent_id": [None],
-            "changelog": [
-                "Rebuilt on selected geospatial topology without legacy "
-                "grouped-site topology. H2-derived pipeline cost and capacity "
-                "relationships are temporarily generalized to all pipeline "
-                "technologies."
-            ],
-            "notes": [GENERALIZED_PIPELINE_COST_NOTE],
-        }
-    )
-
     print("Static supporting tables rebuilt.")
 
 
@@ -5076,9 +5117,9 @@ def validate_encoded_region_coverage(
     set or the valid road-edge set.
 
     The function also validates transport-specific coverage assumptions:
-    pipeline technologies must have matching region coverage in ``ETLSegment``
-    and ``Efficiency``, while truck technologies must not receive
-    ``ETLSegment`` rows.
+    pipeline technologies must have matching region coverage in
+    ``cost_invest_eos`` and ``efficiency``, while truck technologies must not
+    receive EOS investment rows.
 
     Parameters
     ----------
@@ -5099,10 +5140,10 @@ def validate_encoded_region_coverage(
     ------
     AssertionError
         If any checked table contains invalid node or edge regions, if pipeline
-        ETLSegment coverage differs from pipeline Efficiency coverage, or if
-        truck technologies have ETLSegment rows.
+        EOS investment coverage differs from pipeline efficiency coverage, or
+        if truck technologies have EOS investment rows.
     """
-    for table_name in ["Efficiency", "CostVariable", "CostFixed", "CostInvest", "ETLSegment"]:
+    for table_name in ["efficiency", "cost_variable", "cost_fixed", "cost_invest", "cost_invest_eos"]:
         table = db_encoded[table_name].copy()
         if "region" not in table.columns:
             continue
@@ -5130,28 +5171,31 @@ def validate_encoded_region_coverage(
         )
 
     pipeline_etl_regions = set(
-        db_encoded["ETLSegment"].loc[
-            db_encoded["ETLSegment"]["tech_or_group"].isin(specs.pipe_techs),
+        db_encoded["cost_invest_eos"].loc[
+            db_encoded["cost_invest_eos"]["tech_or_group"].isin(specs.pipe_techs),
             "region",
         ].astype(str)
     )
     pipeline_eff_regions = set(
-        db_encoded["Efficiency"].loc[
-            db_encoded["Efficiency"]["tech"].isin(specs.pipe_techs),
+        db_encoded["efficiency"].loc[
+            db_encoded["efficiency"]["tech"].isin(specs.pipe_techs),
             "region",
         ].astype(str)
     )
     assert pipeline_etl_regions == pipeline_eff_regions, (
-        "Pipeline ETLSegment region coverage does not match pipeline Efficiency region coverage."
+        "Pipeline cost_invest_eos region coverage does not match pipeline "
+        "efficiency region coverage."
     )
 
     truck_etl_regions = set(
-        db_encoded["ETLSegment"].loc[
-            db_encoded["ETLSegment"]["tech_or_group"].isin(specs.truck_techs),
+        db_encoded["cost_invest_eos"].loc[
+            db_encoded["cost_invest_eos"]["tech_or_group"].isin(specs.truck_techs),
             "region",
         ].astype(str)
     )
-    assert not truck_etl_regions, "Truck technologies should have no ETLSegment rows."
+    assert not truck_etl_regions, (
+        "Truck technologies should have no EOS investment rows."
+    )
 
     print("Transport region coverage validated.")
 
@@ -5166,14 +5210,15 @@ def validate_generalized_pipeline_cost_layer(
     """Validate generalized pipeline topology, CAPEX, and OPEX encoding.
 
     For every configured pipeline technology, this function verifies that the
-    encoded ``Efficiency``, ``ETLSegment``, ``CostFixed``, and ``CostVariable``
+    encoded ``efficiency``, ``cost_invest_eos``, ``cost_fixed``, and
+    ``cost_variable``
     rows cover the complete canonical pipeline-edge set with the expected number of
     records. It also confirms that no inherited ordinary ``CostInvest`` rows remain
     because this build represents its generalized pipeline CAPEX component through
-    ``ETLSegment``.
+    ``cost_invest_eos``.
 
     Distance-normalized fixed and variable costs are compared against the processed
-    H2-derived OPEX coefficients. Link-specific ETLSegment cost bounds are likewise
+    H2-derived OPEX coefficients. Link-specific EOS cost bounds are likewise
     recalculated from the topology-free per-kilometre template and canonical edge
     distances and compared with the encoded values.
 
@@ -5244,20 +5289,20 @@ def validate_generalized_pipeline_cost_layer(
     ]]
 
     for tech in sorted(specs.pipe_techs):
-        efficiency = db_encoded["Efficiency"].loc[
-            db_encoded["Efficiency"]["tech"] == tech
+        efficiency = db_encoded["efficiency"].loc[
+            db_encoded["efficiency"]["tech"] == tech
         ].copy()
-        etl = db_encoded["ETLSegment"].loc[
-            db_encoded["ETLSegment"]["tech_or_group"] == tech
+        etl = db_encoded["cost_invest_eos"].loc[
+            db_encoded["cost_invest_eos"]["tech_or_group"] == tech
         ].copy()
-        fixed = db_encoded["CostFixed"].loc[
-            db_encoded["CostFixed"]["tech"] == tech
+        fixed = db_encoded["cost_fixed"].loc[
+            db_encoded["cost_fixed"]["tech"] == tech
         ].copy()
-        variable = db_encoded["CostVariable"].loc[
-            db_encoded["CostVariable"]["tech"] == tech
+        variable = db_encoded["cost_variable"].loc[
+            db_encoded["cost_variable"]["tech"] == tech
         ].copy()
-        invest = db_encoded["CostInvest"].loc[
-            db_encoded["CostInvest"]["tech"] == tech
+        invest = db_encoded["cost_invest"].loc[
+            db_encoded["cost_invest"]["tech"] == tech
         ].copy()
 
         assert set(efficiency["region"]) == expected_regions
@@ -5323,10 +5368,55 @@ def clear_output_tables(db_encoded: dict[str, pd.DataFrame]) -> None:
     -------
     None
     """
-    output_tables = [name for name in db_encoded if name.startswith("Output")]
+    output_tables = [name for name in db_encoded if name.startswith("output_")]
     for table_name in output_tables:
         db_encoded[table_name] = db_encoded[table_name].iloc[0:0].copy()
     print(f"Cleared solver output tables: {len(output_tables):,}")
+
+
+LEGACY_PROVENANCE_COLUMNS = {
+    "data_source",
+    "dq_cred",
+    "dq_geog",
+    "dq_struc",
+    "dq_tech",
+    "dq_time",
+    "data_id",
+}
+
+
+def conform_tables_to_temoa_v4(
+    db_encoded: dict[str, pd.DataFrame],
+) -> dict[str, pd.DataFrame]:
+    """Align encoded DataFrames exactly with the installed v4/EOS schemas."""
+
+    schema_tables = load_empty_temoa_v4_tables()
+    unknown_tables = sorted(set(db_encoded) - set(schema_tables))
+    if unknown_tables:
+        raise ValueError(
+            "Encoded database contains tables outside the installed TEMOA v4 "
+            f"and EOS schemas: {unknown_tables}"
+        )
+
+    conformed: dict[str, pd.DataFrame] = {}
+    for table_name, schema_table in schema_tables.items():
+        source = db_encoded.get(table_name, schema_table).copy()
+        target_columns = list(schema_table.columns)
+        unexpected = set(source.columns) - set(target_columns)
+        unsupported = unexpected - LEGACY_PROVENANCE_COLUMNS
+        if unsupported:
+            raise ValueError(
+                f"Table {table_name!r} has columns outside the installed "
+                f"TEMOA v4 schema: {sorted(unsupported)}"
+            )
+        if unexpected:
+            source = source.drop(columns=sorted(unexpected))
+        for column in target_columns:
+            if column not in source.columns:
+                source[column] = None
+        conformed[table_name] = source.loc[:, target_columns]
+
+    return conformed
 
 
 def export_sqlite(
@@ -5354,8 +5444,16 @@ def export_sqlite(
     if output_sqlite_path.exists():
         output_sqlite_path.unlink()
 
-    database.convert_sql_to_sqlite(RAW_SCHEMA_PATH, output_sqlite_path)
-    database.update_sqlite(output_sqlite_path, db_encoded)
+    connection = sqlite3.connect(output_sqlite_path)
+    try:
+        initialize_temoa_v4_schema(connection)
+    finally:
+        connection.close()
+
+    database.update_sqlite(
+        output_sqlite_path,
+        conform_tables_to_temoa_v4(db_encoded),
+    )
 
     print(f"Created SQLite: {output_sqlite_path}")
 
@@ -5432,31 +5530,31 @@ def verify_exported_sqlite(
     """
     db_test = database.sqlite_to_dfs(output_sqlite_path)
 
-    assert db_test["TimePeriod"].to_dict("records") == [
+    assert db_test["time_period"].to_dict("records") == [
         {"sequence": 1, "period": config.model_start_year, "flag": "f"},
         {"sequence": 2, "period": config.model_end_year, "flag": "f"},
     ]
-    finance = db_test["MetaDataReal"].set_index("element")["value"]
+    finance = db_test["metadata_real"].set_index("element")["value"]
     assert finance["global_discount_rate"] == config.global_discount_rate
     assert finance["default_loan_rate"] == config.default_loan_rate
 
     for table_name in [
-        "Demand",
-        "LimitCapacity",
-        "LimitActivity",
-        "LimitTechInputSplitAnnual",
-        "CostFixed",
-        "CostVariable",
+        "demand",
+        "limit_capacity",
+        "limit_activity",
+        "limit_tech_input_split_annual",
+        "cost_fixed",
+        "cost_variable",
     ]:
         table = db_test[table_name]
         if not table.empty:
             assert set(table["period"]) == {config.model_start_year}
 
     for table_name in [
-        "Efficiency",
-        "CostFixed",
-        "CostInvest",
-        "CostVariable",
+        "efficiency",
+        "cost_fixed",
+        "cost_invest",
+        "cost_variable",
     ]:
         table = db_test[table_name]
         if not table.empty:
@@ -5464,32 +5562,32 @@ def verify_exported_sqlite(
 
     print("\nExported database table counts:")
     for table_name in [
-        "Region",
-        "Technology",
-        "Demand",
-        "LimitCapacity",
-        "LimitActivity",
-        "Efficiency",
-        "CostVariable",
-        "CostFixed",
-        "CostInvest",
-        "ETLSegment",
+        "region",
+        "technology",
+        "demand",
+        "limit_capacity",
+        "limit_activity",
+        "efficiency",
+        "cost_variable",
+        "cost_fixed",
+        "cost_invest",
+        "cost_invest_eos",
     ]:
         print(f"{table_name}: {len(db_test[table_name]):,}")
 
     expected_truck_rows = len(canonical.road_links) * len(specs.truck_tech_specs)
-    assert specs.truck_techs.issubset(set(db_test["Technology"]["tech"]))
-    assert db_test["Efficiency"]["tech"].isin(specs.truck_techs).sum() == expected_truck_rows
-    assert db_test["CostVariable"]["tech"].isin(specs.truck_techs).sum() == expected_truck_rows
-    assert db_test["CostInvest"]["tech"].isin(specs.truck_techs).sum() == expected_truck_rows
+    assert specs.truck_techs.issubset(set(db_test["technology"]["tech"]))
+    assert db_test["efficiency"]["tech"].isin(specs.truck_techs).sum() == expected_truck_rows
+    assert db_test["cost_variable"]["tech"].isin(specs.truck_techs).sum() == expected_truck_rows
+    assert db_test["cost_invest"]["tech"].isin(specs.truck_techs).sum() == expected_truck_rows
 
-    co2_cap_rows = db_test["LimitCapacity"].loc[
-        db_test["LimitCapacity"]["tech_or_group"] == "CO2_CAP"
+    co2_cap_rows = db_test["limit_capacity"].loc[
+        db_test["limit_capacity"]["tech_or_group"] == "CO2_CAP"
     ].copy()
 
     co2_cap_positive = co2_cap_rows.loc[co2_cap_rows["capacity"] > 0].copy()
 
-    assert len(co2_cap_rows) == len(db_test["Region"])
+    assert len(co2_cap_rows) == len(db_test["region"])
     assert co2_cap_rows["capacity"].ge(0).all()
     assert co2_cap_rows["capacity"].sum() > 0
 
@@ -5533,16 +5631,16 @@ def summarize_final_database(db_encoded: dict[str, pd.DataFrame]) -> None:
     """
     print("\nFinal encoded database summary:")
     for table_name in [
-        "Region",
-        "Technology",
-        "Demand",
-        "LimitCapacity",
-        "LimitActivity",
-        "Efficiency",
-        "CostVariable",
-        "CostFixed",
-        "CostInvest",
-        "ETLSegment",
+        "region",
+        "technology",
+        "demand",
+        "limit_capacity",
+        "limit_activity",
+        "efficiency",
+        "cost_variable",
+        "cost_fixed",
+        "cost_invest",
+        "cost_invest_eos",
     ]:
         print(f"{table_name}: {len(db_encoded[table_name]):,}")
 
@@ -5691,6 +5789,9 @@ def run_schema_build(
         pipelines_enabled=config.pipelines_enabled,
     )
     disabled_transport_techs = all_specs.transport_techs - specs.transport_techs
+    disabled_techs = set(disabled_transport_techs)
+    if not config.legacy_gasoline_enabled:
+        disabled_techs.add(LEGACY_GASOLINE_TECH)
 
     if specs.pipe_techs:
         print("\nTemporary generalized pipeline cost assumption:")
@@ -5706,11 +5807,11 @@ def run_schema_build(
     }
     remove_disabled_transport_technologies(
         db_encoded,
-        disabled_transport_techs,
+        disabled_techs,
     )
 
     print("\nRebuilding core model sets...")
-    db_encoded["Region"] = canonical.region_table.copy()
+    db_encoded["region"] = canonical.region_table.copy()
     rebuild_static_supporting_tables(
         db_encoded,
         inputs.commodities_raw,
@@ -5722,7 +5823,7 @@ def run_schema_build(
     rebuild_technology_table(
         db_encoded,
         inputs.technologies_raw.loc[
-            ~inputs.technologies_raw["tech"].isin(disabled_transport_techs)
+            ~inputs.technologies_raw["tech"].isin(disabled_techs)
         ].copy(),
         specs,
     )

@@ -21,8 +21,10 @@ from geocanoe.schema.build import (
     build_tech_specs,
     build_schema_fingerprint,
     clear_output_tables,
+    load_empty_temoa_v4_tables,
     rebuild_capacity_limits,
     rebuild_demand,
+    rebuild_node_costs,
     rebuild_static_supporting_tables,
     rebuild_storage_activity_limit,
     rebuild_storage_efficiency,
@@ -36,6 +38,35 @@ from geocanoe.schema.build import (
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_backup_gasoline_costs_are_limited_to_demand_regions() -> None:
+    tables = load_empty_temoa_v4_tables()
+    site_attributes = pd.DataFrame(
+        {
+            "region": ["R0", "R1", "R2"],
+            "demand": [0.0, 10.0, 0.0],
+            "LCOE": [1.0, 2.0, 3.0],
+            "co2_cost": [4.0, 5.0, 6.0],
+        }
+    )
+
+    rebuild_node_costs(tables, site_attributes, model_period=2025)
+
+    node_costs = tables["cost_variable"]
+    assert set(node_costs.loc[node_costs["tech"] == "GSL_BACKUP", "region"]) == {
+        "R1"
+    }
+    assert set(node_costs.loc[node_costs["tech"] == "ELC_GEN", "region"]) == {
+        "R0",
+        "R1",
+        "R2",
+    }
+    assert set(node_costs.loc[node_costs["tech"] == "CO2_CAP", "region"]) == {
+        "R0",
+        "R1",
+        "R2",
+    }
 
 
 def test_co2_registry_flags_balance_captured_co2_only() -> None:
@@ -548,7 +579,7 @@ def test_storage_efficiency_exactly_covers_accessible_regions() -> None:
         columns=columns,
     )
     db_encoded = {
-        "Efficiency": pd.concat([ordinary, stale_storage], ignore_index=True)
+        "efficiency": pd.concat([ordinary, stale_storage], ignore_index=True)
     }
     storage_regions = pd.DataFrame(
         {
@@ -559,8 +590,8 @@ def test_storage_efficiency_exactly_covers_accessible_regions() -> None:
 
     rebuild_storage_efficiency(db_encoded, storage_regions, 2025)
 
-    encoded = db_encoded["Efficiency"].loc[
-        db_encoded["Efficiency"]["tech"] == "CO2_INJECT"
+    encoded = db_encoded["efficiency"].loc[
+        db_encoded["efficiency"]["tech"] == "CO2_INJECT"
     ]
     assert set(encoded["region"]) == {"R0", "R2"}
     assert len(encoded) == 2
@@ -568,8 +599,8 @@ def test_storage_efficiency_exactly_covers_accessible_regions() -> None:
     assert encoded["output_comm"].eq("co2_stored").all()
     assert encoded["efficiency"].eq(1.0).all()
     assert encoded["vintage"].eq(2025).all()
-    assert not db_encoded["Efficiency"].loc[
-        db_encoded["Efficiency"]["tech"] == "ELC_GEN"
+    assert not db_encoded["efficiency"].loc[
+        db_encoded["efficiency"]["tech"] == "ELC_GEN"
     ].empty
 
 
@@ -617,8 +648,8 @@ def test_capacity_limits_keep_emissions_as_annual_representative_capacity() -> N
         emissions_projection_method="constant",
     )
 
-    co2_limits = db_encoded["LimitCapacity"].loc[
-        db_encoded["LimitCapacity"]["tech_or_group"] == "CO2_CAP"
+    co2_limits = db_encoded["limit_capacity"].loc[
+        db_encoded["limit_capacity"]["tech_or_group"] == "CO2_CAP"
     ]
     assert co2_limits["capacity"].tolist() == [1_000.0, 0.0]
     assert set(co2_limits["units"]) == {"t CO2e/year"}
@@ -639,7 +670,7 @@ def test_demand_is_encoded_as_annual_tonnes() -> None:
         model_period=2025,
     )
 
-    assert db_encoded["Demand"][
+    assert db_encoded["demand"][
         ["region", "period", "commodity", "demand", "units"]
     ].to_dict("records") == [
         {
@@ -651,7 +682,7 @@ def test_demand_is_encoded_as_annual_tonnes() -> None:
         }
     ]
     assert "Silver gasoline-demand workflow" in (
-        db_encoded["Demand"].iloc[0]["notes"]
+        db_encoded["demand"].iloc[0]["notes"]
     )
 
 
@@ -680,14 +711,14 @@ def test_storage_minimum_cumulative_activity_encodes_annual_equivalent() -> None
         "data_id",
     ]
     db_encoded = {
-        "LimitActivity": pd.DataFrame(
+        "limit_activity": pd.DataFrame(
             [
                 ["R0", 1, "ELC_GEN", "le", 10.0] + [None] * 9,
                 ["R9", 1, "CO2_INJECT", "le", 5.0] + [None] * 9,
             ],
             columns=limit_columns,
         ),
-        "Efficiency": pd.DataFrame(
+        "efficiency": pd.DataFrame(
             {"region": ["R1"], "tech": ["CO2_INJECT"]}
         ),
     }
@@ -700,8 +731,8 @@ def test_storage_minimum_cumulative_activity_encodes_annual_equivalent() -> None
         period_years=25,
     )
 
-    encoded = db_encoded["LimitActivity"].loc[
-        db_encoded["LimitActivity"]["tech_or_group"] == "CO2_INJECT"
+    encoded = db_encoded["limit_activity"].loc[
+        db_encoded["limit_activity"]["tech_or_group"] == "CO2_INJECT"
     ]
     assert encoded[
         ["region", "period", "operator", "activity", "units"]
@@ -714,7 +745,7 @@ def test_storage_minimum_cumulative_activity_encodes_annual_equivalent() -> None
             "units": "t CO2e/year",
         }
     ]
-    assert set(db_encoded["LimitActivity"]["tech_or_group"]) == {
+    assert set(db_encoded["limit_activity"]["tech_or_group"]) == {
         "ELC_GEN",
         "CO2_INJECT",
     }
@@ -722,26 +753,26 @@ def test_storage_minimum_cumulative_activity_encodes_annual_equivalent() -> None
 
 def test_storage_requirement_none_removes_stale_injection_constraint() -> None:
     db_encoded = {
-        "LimitActivity": pd.DataFrame(
+        "limit_activity": pd.DataFrame(
             {
                 "tech_or_group": ["CO2_INJECT", "ELC_GEN"],
             }
         ),
-        "Efficiency": pd.DataFrame(
+        "efficiency": pd.DataFrame(
             {"region": ["R1"], "tech": ["CO2_INJECT"]}
         ),
     }
 
     rebuild_storage_activity_limit(db_encoded, "none", 0.0, 2025, 25)
 
-    assert db_encoded["LimitActivity"]["tech_or_group"].tolist() == [
+    assert db_encoded["limit_activity"]["tech_or_group"].tolist() == [
         "ELC_GEN"
     ]
 
 
 def test_static_tables_encode_one_25_year_period_and_finance() -> None:
     db_encoded = {
-        "MetaDataReal": pd.DataFrame(
+        "metadata_real": pd.DataFrame(
             {
                 "element": ["global_discount_rate", "default_loan_rate"],
                 "value": [0.05, 0.05],
@@ -762,25 +793,35 @@ def test_static_tables_encode_one_25_year_period_and_finance() -> None:
         default_loan_rate=0.03,
     )
 
-    assert db_encoded["TimePeriod"].to_dict("records") == [
+    assert db_encoded["time_period"].to_dict("records") == [
         {"sequence": 1, "period": 2025, "flag": "f"},
         {"sequence": 2, "period": 2050, "flag": "f"},
     ]
-    finance = db_encoded["MetaDataReal"].set_index("element")["value"]
+    assert db_encoded["time_season"][
+        ["sequence", "season", "segment_fraction"]
+    ].to_dict("records") == [
+        {"sequence": 1, "season": "S", "segment_fraction": 1.0}
+    ]
+    assert db_encoded["time_of_day"][
+        ["sequence", "tod", "hours"]
+    ].to_dict("records") == [
+        {"sequence": 1, "tod": "D", "hours": 24.0}
+    ]
+    finance = db_encoded["metadata_real"].set_index("element")["value"]
     assert finance["global_discount_rate"] == 0.03
     assert finance["default_loan_rate"] == 0.03
 
 
 def test_clear_output_tables_preserves_schema() -> None:
     tables = {
-        "Technology": pd.DataFrame({"tech": ["A"]}),
-        "OutputFlowOut": pd.DataFrame({"scenario": ["S"], "flow": [1.0]}),
-        "OutputCost": pd.DataFrame({"scenario": ["S"], "cost": [2.0]}),
+        "technology": pd.DataFrame({"tech": ["A"]}),
+        "output_flow_out": pd.DataFrame({"scenario": ["S"], "flow": [1.0]}),
+        "output_cost": pd.DataFrame({"scenario": ["S"], "cost": [2.0]}),
     }
 
     clear_output_tables(tables)
 
-    assert tables["Technology"].to_dict("records") == [{"tech": "A"}]
-    assert tables["OutputFlowOut"].empty
-    assert list(tables["OutputFlowOut"].columns) == ["scenario", "flow"]
-    assert tables["OutputCost"].empty
+    assert tables["technology"].to_dict("records") == [{"tech": "A"}]
+    assert tables["output_flow_out"].empty
+    assert list(tables["output_flow_out"].columns) == ["scenario", "flow"]
+    assert tables["output_cost"].empty

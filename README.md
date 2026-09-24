@@ -2,7 +2,10 @@
 
 Geospatial-CANOE extends the CANOE/TEMOA energy-system modelling framework with a modular geospatial data, schema, execution, and analysis pipeline. It converts Canadian boundary, road, emissions, demand, technology, and cost data into a spatial graph, encodes that graph as a CANOE/TEMOA-compatible SQLite database, executes model scenarios, and provides post-solve exports and interactive maps.
 
-The repository is an active research codebase. The current implementation uses the TEMOA v3-compatible CANOE backend and introduces mixed-integer formulations where transport infrastructure requires economies of scale, particularly for pipelines. Migration to TEMOA v4 is planned after the geospatial workflow is stable.
+The repository is an active research codebase undergoing migration to the
+TEMOA v4 backend. The geospatial workflow still contains v3-shaped schema,
+execution, and output contracts that are being adapted incrementally, while
+new installations obtain TEMOA v4 directly from its upstream unstable branch.
 
 ## Release and handoff history
 
@@ -120,8 +123,8 @@ Geospatial-CANOE/
 │   │   ├── nrn/
 │   │   ├── road_connectivity/
 │   │   └── schema/
-│   ├── CANOE_geospatial.sqlite    Baseline CANOE/TEMOA database
-│   ├── canoe_dataset_schema.sql   Base relational schema
+│   ├── CANOE_geospatial.sqlite    Legacy v3 database retained for migration reference
+│   ├── canoe_dataset_schema.sql   Legacy v3 schema retained for migration reference
 │   └── *.csv                      Other model input tables
 │
 ├── registry/                      User-managed registered model inputs
@@ -166,7 +169,7 @@ Geospatial-CANOE/
 ├── notebooks/                    Exploratory and development notebooks
 ├── output_files/                 Timestamped optimization runs
 ├── legacy_workflow/              Superseded workflow implementations
-└── temoa/                        CANOE/TEMOA optimization backend
+└── requirements.txt              Geospatial stack plus upstream TEMOA v4 dependency
 ```
 
 Active reusable code belongs under `src/geocanoe/`. Generated intermediate products belong under `data_files/processed/`, while solved scenarios and run provenance belong under `output_files/`.
@@ -174,18 +177,14 @@ Active reusable code belongs under `src/geocanoe/`. Generated intermediate produ
 ## Installation
 
 The root `pyproject.toml` is the canonical package and installation interface
-for Geospatial-CANOE. Setuptools dynamically combines the root requirement
-fragments with the corresponding files from the bundled TEMOA backend, so no
+for Geospatial-CANOE. Setuptools reads the root requirement fragments, so no
 separate requirements-file installation is needed.
 
-The normal installation reads `requirements.txt` and `temoa/requirements.txt`.
-Together, these provide the complete research environment for acquiring and
-processing data, building and solving CANOE/TEMOA models, and analysing model
-outputs. The `dev` extra additionally reads `requirements-dev.txt` and
-`temoa/requirements-dev.txt`, extending that research environment with the
-deeper contributor, testing, and notebook toolchain. Updating the bundled TEMOA
-checkout therefore updates the backend dependency set used by the next
-installation.
+The normal installation reads `requirements.txt`, which installs TEMOA v4
+directly from the upstream `unstable` Git branch alongside the geospatial
+runtime. The `dev` extra additionally reads `requirements-dev.txt`, extending
+that environment with the contributor, testing, and notebook toolchain. TEMOA
+is no longer vendored in this repository.
 
 Dependencies imported directly by `geocanoe` are declared in the root runtime
 fragment even when TEMOA currently requires the same package. This keeps the
@@ -197,7 +196,7 @@ in `requirements-lock.txt`.
 ### Standard research installation
 
 This is the normal installation for research use. It supports the complete
-Geospatial-CANOE workflow and bundled CANOE/TEMOA model, including data
+Geospatial-CANOE workflow and installed CANOE/TEMOA model, including data
 acquisition, preprocessing, schema construction, optimization, diagnostics,
 exports, and maps. It intentionally excludes contributor-only tools.
 
@@ -406,7 +405,7 @@ with every directed ``Ri-Rj`` edge without changing the graph's physical
 
 - ``none``: use physical distance for all pipeline costs;
 - ``etl_capex_only``: use weighted distance only for pipeline CAPEX tables
-  (``CostInvest`` and/or ``ETLSegment``); and
+  (``cost_invest`` and/or EOS ``cost_invest_eos``); and
 - ``all_km_dependent``: use weighted distance for pipeline CAPEX tables, fixed
   OPEX, and variable OPEX.
 
@@ -868,10 +867,10 @@ hydrogen-pipeline capacity and cost representation to all pipeline technologies
 until commodity-specific pipeline cost layers are available. A scenario may
 apply the matching Silver edge-impedance multiplier to CAPEX only or to every
 kilometre-dependent pipeline cost table; physical graph distances remain
-unchanged. ``CostInvest`` and ``ETLSegment`` are commonly used as alternative
-CAPEX representations, but they may coexist when they encode different
-investment components. The current generated pipeline layer uses
-``ETLSegment`` for its piecewise economies-of-scale CAPEX curve.
+unchanged. TEMOA v4's ``cost_invest`` and EOS ``cost_invest_eos`` tables
+may coexist when they encode different investment components. The current
+generated pipeline layer uses ``cost_invest_eos`` for its piecewise
+economies-of-scale CAPEX curve.
 
 ### Single-scenario execution
 

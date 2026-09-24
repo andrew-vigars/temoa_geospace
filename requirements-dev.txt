@@ -2,9 +2,8 @@
 # Geospatial-CANOE development dependency fragment
 # =============================================================================
 #
-# Setuptools combines this file with requirements.txt and
-# temoa/requirements-dev.txt through the dynamic optional-dependency
-# configuration in pyproject.toml.
+# Setuptools combines this file with requirements.txt through the dynamic
+# optional-dependency configuration in pyproject.toml.
 #
 # Install the complete development environment from the repository root with:
 #     python -m pip install -e ".[dev]"

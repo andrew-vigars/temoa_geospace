@@ -24,13 +24,12 @@ geocanoe-map = "geocanoe.analysis.maps:main"
 package-dir = {"" = "src"}
 
 [tool.setuptools.dynamic]
-dependencies = {file = ["requirements.txt", "temoa/requirements.txt"]}
+dependencies = {file = ["requirements.txt"]}
 
 [tool.setuptools.dynamic.optional-dependencies]
 dev = {file = [
     "requirements.txt",
     "requirements-dev.txt",
-    "temoa/requirements-dev.txt",
 ]}
 
 [tool.setuptools.packages.find]

@@ -2,9 +2,10 @@
 # Geospatial-CANOE runtime dependency fragment
 # =============================================================================
 #
-# This file contains only Geospatial-CANOE's runtime dependencies. Setuptools
-# combines it with temoa/requirements.txt through the dynamic dependency
-# configuration in pyproject.toml.
+# Setuptools exposes these entries as Geospatial-CANOE's runtime dependencies
+# through the dynamic dependency configuration in pyproject.toml. TEMOA v4 is
+# installed directly from its upstream unstable branch rather than vendored in
+# this repository.
 #
 # Install the complete runtime environment from the repository root with:
 #     python -m pip install -e .
@@ -18,7 +19,7 @@ iam-units==2023.9.12
 numpy==2.3.1
 openpyxl==3.1.5
 pandas==2.3.1
-Pint==0.24.4
+Pint==0.26.1
 pyam-iamc==3.0.0
 PyYAML==6.0.2
 
@@ -53,3 +54,10 @@ xyzservices==2026.3.0
 # -----------------------------------------------------------------------------
 
 tqdm==4.68.3
+
+
+# -----------------------------------------------------------------------------
+# Optimization backend
+# -----------------------------------------------------------------------------
+
+temoa @ git+https://github.com/TemoaProject/temoa.git@unstable

@@ -79,7 +79,7 @@ resolutions = []
 
 # EPSG:3347 grid resolutions in kilometres.
 # Leave empty to skip projected basemap generation.
-resolutions_km = [25, 50]
+resolutions_km = [50]
 
 
 # -----------------------------------------------------------------------------
