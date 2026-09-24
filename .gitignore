@@ -49,6 +49,7 @@ data_files/processed/pipeline_impedance/*
 # -----------------------
 
 output_files/
+analysis_outputs/
 outputs/
 audit_outputs/
 

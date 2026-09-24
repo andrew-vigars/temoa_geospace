@@ -165,6 +165,7 @@ Geospatial-CANOE/
 ├── diagnostics/                  Input, balance, and run-audit utilities
 ├── notebooks/                    Exploratory and development notebooks
 ├── output_files/                 Timestamped optimization runs
+├── analysis_outputs/             Derived analysis grouped by source run
 ├── legacy_workflow/              Superseded workflow implementations
 └── temoa/                        CANOE/TEMOA optimization backend
 ```
@@ -228,6 +229,9 @@ Installation also provides the canonical workflow commands:
 | `geocanoe-diagnostics` | Audit model inputs or solved outputs |
 | `geocanoe-export` | Export solved output tables |
 | `geocanoe-map` | Generate an interactive solved-output map |
+| `geocanoe-network` | Analyse a solved transport network with NetworkX |
+| `geocanoe-network-plot` | Visualize a projected NetworkX transport graph |
+| `geocanoe-network-html` | Explore optimized networks in interactive TEMOA-style HTML |
 
 The files under `scripts/` and `diagnostics/check.py` remain compatibility
 wrappers for existing notebooks and automation. Package-module invocation with
@@ -997,6 +1001,150 @@ parallel active transport corridors for visualization, and exports an interactiv
 Leaflet/Folium HTML map with layer controls, tooltips, and popups. Solved
 `CO2_INJECT` output appears as a purple `CO2 storage` node layer.
 
+### Network analysis
+
+Build a directed NetworkX representation of one solved scenario and period:
+
+```bash
+geocanoe-network --period 2025
+```
+
+or select paths non-interactively:
+
+```bash
+python -m geocanoe.analysis.network \
+  --db output_files/<run>/solved_<scenario>.sqlite \
+  --edges data_files/processed/graph/<basemap>_graph_edges.csv \
+  --scenario <scenario> --period 2025
+```
+
+Technology/commodity relationships come from the canonical
+`registry/generation_efficiency.csv` and `registry/transport_techs.csv` files,
+with the solved database's region-expanded `Efficiency` table defining where
+those relationships are available. `OutputFlowIn`, `OutputFlowOut`, and
+`OutputNetCapacity` then distinguish optimized activity and capacity from mere
+availability. The workflow decodes each deployed transport pseudo-region
+(`Ri-Rj`) as a directed `Ri -> Rj` segment. Within each
+technology/commodity layer it collapses
+degree-two pass-through chains into one route between production, storage,
+emitter, demand, or branch nodes. Route attributes retain the complete region
+path and pseudo-edge list; route flow is the minimum segment flow (the chain's
+bottleneck throughput), while route distance is additive. Parallel technologies
+remain separate in `network_contracted.graphml` and are aggregated only in
+`network_projected.graphml` for centrality calculations.
+
+Results are written to `analysis_outputs/<source-run>/network/`, keeping derived
+analysis separate from immutable solver-run artifacts:
+
+- `network_node_centrality.csv` — degree, directed closeness, betweenness,
+  PageRank, capacity strength, clustering coefficient, connected component, and
+  modularity community;
+- `network_edge_betweenness.csv` — ranked corridor bottlenecks;
+- `network_asset_inventory.csv` — regional process availability, optimized
+  capacity, activity, deployment status, and deployed-network connectivity;
+- `network_disconnected_assets.csv` — available-but-unused assets outside the
+  deployed transport network, including untapped CO2 sources;
+- `network_transport_inventory.csv` — every SQL-defined candidate transport
+  link classified as active, deployed-but-idle, or available-but-unused;
+- `network_contracted.graphml` — technology-specific multigraph;
+- `network_projected.graphml` — topology-level directed graph.
+- `network_manifest.json` — exact source SQLite database, graph-edge CSV,
+  filters, threshold, timestamp, and graph sizes.
+
+If the database contains multiple scenarios or periods, the command requires an
+explicit filter rather than combining distinct network snapshots.
+
+Visualize one of the projected networks with:
+
+```bash
+geocanoe-network-plot
+```
+
+The visualizer lists the available analyses under `analysis_outputs/`, reads the
+selected `network_projected.graphml`, and writes `network_visualization.png`
+beside it. By default, it displays the largest connected network, sizes nodes by
+betweenness centrality, colours them by modularity community, scales edge width
+by transport capacity, and labels the 15 highest-ranked bottleneck nodes.
+
+Alternative views can be generated without rerunning the optimization or graph
+analysis:
+
+```bash
+geocanoe-network-plot --size-by pagerank --color-by roles \
+  --layout kamada-kawai --top-labels 25 --all-components
+```
+
+PNG and SVG outputs are supported through `--out`.
+
+For an interactive browser view using the same Gravis/D3 backend as TEMOA's
+commodity-network diagnostics, run:
+
+```bash
+geocanoe-network-html
+```
+
+The default `commodity` view reconstructs the optimized network from registered
+technology relationships at process locations with positive solved activity or
+capacity. It represents these as `region · commodity` nodes connected by
+deployed production, conversion, transport, capture, storage, and demand
+technologies. It eliminates transport
+pseudo-regions by connecting each source-region commodity directly to its
+destination-region commodity. Transport chains use the same contraction as the
+centrality analysis, and pass-through labels are hidden until hover so they do
+not overwhelm the asset nodes.
+
+The HTML opens on a focused end-fuel subsystem rather than the complete network.
+Its data-selection menu provides separate gasoline, hydrogen, CO2, methanol,
+electricity, storage, and demand pathways plus an explicit `All commodities`
+view. Each pathway includes its complete optimized upstream and downstream
+closure, so the gasoline view retains the CO2, hydrogen, and electricity inputs
+to methanol rather than presenting methanol as an unexplained source. The menu
+labels the default largest-connected selection explicitly; use
+`--all-components` to retain every separate optimized component.
+A second HTML mode displays the contracted regional corridors:
+
+```bash
+geocanoe-network-html --view corridor
+```
+
+Two additional regional views keep the commodity graph intact while providing
+cleaner infrastructure and opportunity summaries:
+
+```bash
+geocanoe-network-html --view hub
+geocanoe-network-html --view opportunity
+```
+
+The `hub` view collapses zero-distance local processes into one physical-region
+node and leaves only contracted inter-regional transport as edges. Regions with
+co-located hydrogen, methanol, gasoline/MTG conversion, or gasoline demand are
+marked as integrated hubs; their complete technology lists, activity,
+component, community, and centrality remain available on hover. Corridor details
+include realized flow, optimized bottleneck capacity, utilization, distance, and
+the number of contracted pseudo-edge segments.
+
+The `opportunity` view overlays available-but-unused assets on the largest
+deployed hub component. Its graph selector provides all untapped CO2 sources and
+the highest-capacity unused electricity sites. The electricity display is capped
+at 250 sites by default to keep the browser usable; change it with
+`--opportunity-limit`, or pass `--opportunity-limit 0` to retain all sites.
+
+Both HTML views support zooming, node dragging, neighbourhood highlighting,
+labels, menus, and hover/click details. Large networks can be narrowed without
+re-solving:
+
+```bash
+geocanoe-network-html --region R789 --commodity co2 \
+  --edge-color-by commodity --show-edge-labels --all-components
+```
+
+The palette retains TEMOA's source/physical/demand/capacity/exchange/waste
+semantics while translating them to colour-blind-friendly Okabe-Ito colours.
+Commodity colours match `geocanoe.analysis.maps`; technology categories remain
+visible in labels and details so colour is not the only identifier. Generated
+files are saved as `network_commodity_interactive.html` or
+`network_corridor_interactive.html` beside the selected network analysis.
+
 ## Canonical execution order
 
 ```text
@@ -1047,7 +1195,7 @@ The package is organized by semantic responsibility rather than by the libraries
 - `geocanoe.costs` — engineering and economic cost-model preparation;
 - `geocanoe.schema` — CANOE/TEMOA schema encoding and database persistence;
 - `geocanoe.execution` — workflow orchestration and model execution;
-- `geocanoe.analysis` — solved-output exports and visualization;
+- `geocanoe.analysis` — solved-output exports, visualization, and network analysis;
 - `geocanoe.config` — configuration parsing and validation;
 - `geocanoe.registry` — canonical dataset and stage metadata.
 
@@ -1103,7 +1251,7 @@ Priority extensions include:
 - multi-period optimization and improved temporal representation;
 - terrain- and infrastructure-aware routing;
 - multi-objective and modelling-to-generate-alternatives analysis;
-- network robustness, hub persistence, and near-optimal corridor analysis;
+- network robustness, hub persistence, and near-optimal corridor comparison;
 - stronger automated input, balance, and schema-integrity tests.
 
 ## Status

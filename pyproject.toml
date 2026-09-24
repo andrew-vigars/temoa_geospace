@@ -19,6 +19,9 @@ geocanoe-batch = "geocanoe.execution.batch:main"
 geocanoe-diagnostics = "geocanoe.diagnostics.cli:main"
 geocanoe-export = "geocanoe.analysis.exports:main"
 geocanoe-map = "geocanoe.analysis.maps:main"
+geocanoe-network = "geocanoe.analysis.network:main"
+geocanoe-network-plot = "geocanoe.analysis.network_viz:main"
+geocanoe-network-html = "geocanoe.analysis.network_html:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
