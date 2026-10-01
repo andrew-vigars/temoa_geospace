@@ -3927,6 +3927,101 @@ def assign_etl_curve_to_regions(
     ].copy()
 
 
+def build_undirected_etl_edge_mapping(
+    links: pd.DataFrame,
+    distance_column: str,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Reduce directed transport links to physical ETL cost corridors.
+
+    CANOE/TEMOA still needs an ``ETLSegment`` row for each directed edge-region
+    because transport technologies operate in those pseudo-regions. The cost
+    curve itself, however, describes the shared physical corridor. This helper
+    therefore assigns a stable undirected key to each endpoint pair, validates
+    that both directions use the same cost distance, and returns one distance
+    row per physical corridor plus a directed-edge-to-corridor mapping.
+
+    Parameters
+    ----------
+    links : pd.DataFrame
+        Directed link rows containing ``canoe_region``, ``region_from``,
+        ``region_to``, and the selected cost-distance column.
+    distance_column : str
+        Distance column used to scale the ETL curve.
+
+    Returns
+    -------
+    tuple[pd.DataFrame, pd.DataFrame]
+        One row per undirected cost corridor and one row per directed edge,
+        respectively.
+
+    Raises
+    ------
+    ValueError
+        If required fields are absent, directed edge IDs are duplicated, cost
+        distances are invalid, or opposite directions disagree on distance.
+    """
+    required = {
+        "canoe_region",
+        "region_from",
+        "region_to",
+        distance_column,
+    }
+    missing = sorted(required - set(links.columns))
+    if missing:
+        raise ValueError(
+            "Transport links are missing columns required for undirected ETL "
+            f"cost mapping: {missing}"
+        )
+
+    directed = links[list(required)].copy().reset_index(drop=True)
+    if directed["canoe_region"].isna().any():
+        raise ValueError("Directed ETL edge-region identifiers must be non-null.")
+    if directed["canoe_region"].duplicated().any():
+        raise ValueError("Directed ETL edge-region identifiers must be unique.")
+    if directed[["region_from", "region_to"]].isna().any().any():
+        raise ValueError("Directed ETL edge endpoints must be non-null.")
+
+    directed[distance_column] = pd.to_numeric(
+        directed[distance_column], errors="coerce"
+    )
+    distances = directed[distance_column].to_numpy(dtype=float)
+    if (
+        directed[distance_column].isna().any()
+        or not np.isfinite(distances).all()
+        or (directed[distance_column] <= 0).any()
+    ):
+        raise ValueError("ETL cost distances must be finite and positive.")
+
+    directed["etl_cost_curve"] = [
+        "--".join(sorted((str(left), str(right))))
+        for left, right in zip(
+            directed["region_from"], directed["region_to"], strict=True
+        )
+    ]
+    distance_ranges = directed.groupby("etl_cost_curve")[distance_column].agg(
+        ["min", "max"]
+    )
+    inconsistent = distance_ranges.loc[
+        ~np.isclose(distance_ranges["min"], distance_ranges["max"])
+    ]
+    if not inconsistent.empty:
+        raise ValueError(
+            "Opposite directed edges cannot share an ETL cost curve because "
+            "their cost distances differ: "
+            f"{inconsistent.index.tolist()[:10]}"
+        )
+
+    corridors = (
+        directed[["etl_cost_curve", distance_column]]
+        .drop_duplicates("etl_cost_curve", keep="first")
+        .reset_index(drop=True)
+    )
+    edge_mapping = directed[["canoe_region", "etl_cost_curve"]].rename(
+        columns={"canoe_region": "region"}
+    )
+    return corridors, edge_mapping
+
+
 def build_legacy_etl_segments(
     site_attributes: pd.DataFrame,
     canonical: CanonicalLinks,
@@ -3987,12 +4082,15 @@ def build_legacy_etl_segments(
         f"{reference_distance_km:.2f} km"
     )
 
-    edge_frame = (
-        canonical.pipeline_links[["canoe_region", "distance_km"]]
-        .rename(columns={"canoe_region": "region"})
-        .copy()
+    transmission_corridors, transmission_edge_mapping = (
+        build_undirected_etl_edge_mapping(
+            canonical.pipeline_links,
+            "distance_km",
+        )
     )
-    distance_factor = edge_frame["distance_km"] / reference_distance_km
+    distance_factor = (
+        transmission_corridors["distance_km"] / reference_distance_km
+    )
 
     edge_etl_rows: list[pd.DataFrame] = []
     for tech in (
@@ -4006,12 +4104,18 @@ def build_legacy_etl_segments(
                 f"technology: {tech}"
             )
 
+        corridor_etl = assign_etl_curve_to_regions(
+            regions=transmission_corridors["etl_cost_curve"],
+            tech=tech,
+            distance_factor=distance_factor,
+        ).rename(columns={"region": "etl_cost_curve"})
         edge_etl_rows.append(
-            assign_etl_curve_to_regions(
-                regions=edge_frame["region"],
-                tech=tech,
-                distance_factor=distance_factor,
-            )
+            transmission_edge_mapping.merge(
+                corridor_etl,
+                on="etl_cost_curve",
+                how="left",
+                validate="many_to_many",
+            ).drop(columns="etl_cost_curve")
         )
 
     edge_etl = (
@@ -4035,11 +4139,12 @@ def build_generalized_pipeline_etl_segments(
 ) -> pd.DataFrame:
     """Map the generalized H2-derived pipeline ETLSegment curve to all links.
 
-    The topology-free ETLSegment template is replicated across every canonical
-    pipeline edge and every configured pipeline technology. Template technology
-    labels are replaced with the target pipeline technology, while per-kilometre
-    lower and upper CAPEX bounds are multiplied by each edge's distance to produce
-    link-specific investment-cost segments.
+    The topology-free ETLSegment template is calculated once for each undirected
+    physical corridor and configured pipeline technology, then mapped back to
+    every directed edge-region. Template technology labels are replaced with the
+    target pipeline technology, while per-kilometre lower and upper CAPEX bounds
+    are multiplied by each corridor's distance to produce link-specific
+    investment-cost segments.
 
     The resulting table is validated against the expected Cartesian-product row
     count and checked for duplicate region, technology, and segment keys.
@@ -4070,12 +4175,11 @@ def build_generalized_pipeline_etl_segments(
         are produced.
     """
 
-    edge_frame = (
-        pipeline_links[["canoe_region", "pipeline_capex_distance_km"]]
-        .rename(columns={"canoe_region": "region"})
-        .copy()
+    cost_corridors, directed_edge_mapping = build_undirected_etl_edge_mapping(
+        pipeline_links,
+        "pipeline_capex_distance_km",
     )
-    if edge_frame.empty:
+    if directed_edge_mapping.empty:
         raise ValueError("No canonical pipeline links are available.")
 
     template = etl_template.sort_values("segment").reset_index(drop=True).copy()
@@ -4093,7 +4197,7 @@ def build_generalized_pipeline_etl_segments(
         tech_template = template.copy()
         tech_template["tech_or_group"] = tech
 
-        edge_work = edge_frame.copy()
+        edge_work = cost_corridors.copy()
         edge_work["_join_key"] = 1
         tech_template["_join_key"] = 1
         mapped = (
@@ -4109,14 +4213,21 @@ def build_generalized_pipeline_etl_segments(
             * mapped["pipeline_capex_distance_km"]
         )
         mapped_rows.append(
-            mapped[[
+            directed_edge_mapping.merge(
+                mapped,
+                on="etl_cost_curve",
+                how="left",
+                validate="many_to_many",
+            )[[
                 "region", "tech_or_group", "segment", "cap_lower",
                 "cap_upper", "cost_lower", "cost_upper", "data_id",
             ]].copy()
         )
 
     output = pd.concat(mapped_rows, ignore_index=True)
-    expected_rows = len(edge_frame) * len(template) * len(pipeline_techs)
+    expected_rows = (
+        len(directed_edge_mapping) * len(template) * len(pipeline_techs)
+    )
     if len(output) != expected_rows:
         raise ValueError(
             "Generalized pipeline ETLSegment mapping produced an unexpected "

@@ -423,6 +423,14 @@ coverage from the matching Silver artifact under
 ``data_files/processed/pipeline_impedance/<build-id>/edges/``. Truck and
 electricity-transmission costs always retain physical distance.
 
+ETL investment curves are calculated once per undirected physical corridor.
+Thus the directed edge regions ``Ri-Rj`` and ``Rj-Ri`` share one calculated
+cost curve and must have the same selected cost distance. The finished schema
+still contains an ``ETLSegment`` row for each direction because CANOE/TEMOA
+models each directed link as a separate edge pseudo-region; those rows reference
+identical capacity and cost bounds. This shares the curve definition, not the
+investment decision or installed capacity between directions.
+
 The two time boundaries define exactly one optimization period, `[2025, 2050)`,
 with a 25-year duration. Temoa optimizes one representative year and assumes its
 capacity and activity repeat in every year of that period. Accordingly, the

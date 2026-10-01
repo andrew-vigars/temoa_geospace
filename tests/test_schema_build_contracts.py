@@ -19,6 +19,7 @@ from geocanoe.schema.build import (
     build_transport_costvariable,
     build_transport_efficiency,
     build_tech_specs,
+    build_undirected_etl_edge_mapping,
     build_schema_fingerprint,
     clear_output_tables,
     rebuild_capacity_limits,
@@ -396,6 +397,44 @@ def test_pipeline_etl_and_opex_use_separate_cost_distances() -> None:
     assert fixed["cost"].eq(45.0).all()
     assert variable["cost"].eq(60.0).all()
     assert transmission["cost"].eq(20.0).all()
+
+
+def test_bidirectional_edges_share_one_etl_cost_corridor() -> None:
+    links = attach_pipeline_cost_distances(
+        _pipeline_graph_edges(),
+        _pipeline_impedance(),
+        "etl_capex_only",
+    )
+    links["canoe_region"] = links["edge_region"]
+
+    corridors, edge_mapping = build_undirected_etl_edge_mapping(
+        links,
+        "pipeline_capex_distance_km",
+    )
+
+    assert corridors.to_dict("records") == [
+        {
+            "etl_cost_curve": "R0--R1",
+            "pipeline_capex_distance_km": 15.0,
+        }
+    ]
+    assert edge_mapping.to_dict("records") == [
+        {"region": "R0-R1", "etl_cost_curve": "R0--R1"},
+        {"region": "R1-R0", "etl_cost_curve": "R0--R1"},
+    ]
+
+
+def test_bidirectional_edges_reject_different_etl_cost_distances() -> None:
+    links = attach_pipeline_cost_distances(
+        _pipeline_graph_edges(),
+        None,
+        "none",
+    )
+    links["canoe_region"] = links["edge_region"]
+    links.loc[links["canoe_region"] == "R1-R0", "distance_km"] = 12.0
+
+    with pytest.raises(ValueError, match="cost distances differ"):
+        build_undirected_etl_edge_mapping(links, "distance_km")
 
 
 def test_canonical_links_separate_all_edges_from_road_edges() -> None:
