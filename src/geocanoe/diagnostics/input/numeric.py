@@ -25,14 +25,22 @@ class NumericColumnRule:
 
 
 DEFAULT_NUMERIC_RULES: list[NumericColumnRule] = [
-    NumericColumnRule("Demand", "demand", "non_negative"),
-    NumericColumnRule("Efficiency", "efficiency", "positive"),
-    NumericColumnRule("CostVariable", "cost", "non_negative"),
-    NumericColumnRule("CostInvest", "cost", "non_negative"),
-    NumericColumnRule("ETLSegment", "cap_lower", "non_negative"),
-    NumericColumnRule("ETLSegment", "cap_upper", "non_negative"),
-    NumericColumnRule("ETLSegment", "cost_lower", "non_negative"),
-    NumericColumnRule("ETLSegment", "cost_upper", "non_negative"),
+    NumericColumnRule("demand", "demand", "non_negative"),
+    NumericColumnRule("efficiency", "efficiency", "positive"),
+    NumericColumnRule("cost_variable", "cost", "non_negative"),
+    NumericColumnRule("cost_invest", "cost", "non_negative"),
+    NumericColumnRule("cost_invest_eos", "capacity_lower", "non_negative"),
+    NumericColumnRule("cost_invest_eos", "capacity_upper", "non_negative"),
+    NumericColumnRule("cost_invest_eos", "cost_lower", "non_negative"),
+    NumericColumnRule("cost_invest_eos", "cost_upper", "non_negative"),
+    NumericColumnRule("cost_fixed_eos", "capacity_lower", "non_negative"),
+    NumericColumnRule("cost_fixed_eos", "capacity_upper", "non_negative"),
+    NumericColumnRule("cost_fixed_eos", "cost_lower", "non_negative"),
+    NumericColumnRule("cost_fixed_eos", "cost_upper", "non_negative"),
+    NumericColumnRule("cost_variable_eos", "activity_lower", "non_negative"),
+    NumericColumnRule("cost_variable_eos", "activity_upper", "non_negative"),
+    NumericColumnRule("cost_variable_eos", "cost_lower", "non_negative"),
+    NumericColumnRule("cost_variable_eos", "cost_upper", "non_negative"),
 ]
 
 

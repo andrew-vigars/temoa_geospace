@@ -16,6 +16,7 @@ EXPECTED_SCRIPTS = {
     "geocanoe-build-bronze": "geocanoe.execution.bronze:main",
     "geocanoe-build-silver": "geocanoe.execution.silver:main",
     "geocanoe-build-schema": "geocanoe.schema.build:main",
+    "geocanoe-init-temoa-config": "geocanoe.execution.temoa_config:main",
     "geocanoe-run": "geocanoe.execution.run:main",
     "geocanoe-batch": "geocanoe.execution.batch:main",
     "geocanoe-diagnostics": "geocanoe.diagnostics.cli:main",
@@ -27,6 +28,22 @@ EXPECTED_SCRIPTS = {
 def test_pyproject_registers_expected_console_scripts() -> None:
     metadata = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
     assert metadata["project"]["scripts"] == EXPECTED_SCRIPTS
+
+
+def test_pyproject_owns_runtime_and_development_dependencies() -> None:
+    metadata = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
+    project = metadata["project"]
+
+    assert "dynamic" not in project
+    assert any(
+        dependency.startswith(
+            "temoa @ git+https://github.com/andrew-vigars/temoa.git@29f98f9"
+        )
+        for dependency in project["dependencies"]
+    )
+    assert "gurobipy==12.0.3" in project["dependencies"]
+    assert "tomlkit==0.15.1" in project["dependencies"]
+    assert "pytest==8.4.1" in project["optional-dependencies"]["dev"]
 
 
 @pytest.mark.parametrize("target", EXPECTED_SCRIPTS.values())

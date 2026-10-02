@@ -152,4 +152,7 @@ registry/scenarios/*.toml
 # Local TEMOA v3 run configurations retained temporarily for v4 migration.
 config/temoa_v3_configs/
 
+# Generated from the tutorial template packaged with the active TEMOA install.
+config/temoav4/config_sample.toml
+
 

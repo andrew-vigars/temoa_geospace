@@ -22,13 +22,13 @@ Checks
    The script reports:
        * all encoded edge technologies
        * edge technologies with positive solved flow
-       * edge technologies with reported OutputNetCapacity
-       * edge technologies with edge-region ETLSegment rows
-       * edge technologies without reported OutputNetCapacity
-       * edge technologies without ETLSegment rows
+       * edge technologies with reported output_net_capacity
+       * edge technologies with edge-region cost_invest_eos rows
+       * edge technologies without reported output_net_capacity
+       * edge technologies without cost_invest_eos rows
 
-   For edge technologies with ETLSegment rows, verify that positive solved edge
-   flow appears only with positive reported OutputNetCapacity.
+   For edge technologies with cost_invest_eos rows, verify that positive solved
+   edge flow appears only with positive reported output_net_capacity.
 
    This check does not assert flow <= capacity by default because annual flow
    and capacity may use different dimensional conventions.
@@ -247,12 +247,12 @@ def build_node_balance(
     Build commodity balance by reinterpreting edge pseudo-regions.
 
     For node regions:
-        OutputFlowOut = local production of output_comm
-        OutputFlowIn  = local consumption of input_comm
+        output_flow_out = local production of output_comm
+        output_flow_in  = local consumption of input_comm
 
     For edge regions like R1-R2:
-        OutputFlowIn  = export from R1 into transport edge
-        OutputFlowOut = import into R2 from transport edge
+        output_flow_in  = export from R1 into transport edge
+        output_flow_out = import into R2 from transport edge
 
     Balance:
         production + imports = consumption + exports + demand
@@ -267,11 +267,11 @@ def build_node_balance(
     missing_demand = required_demand - set(demand.columns)
 
     if missing_in:
-        raise ValueError(f"OutputFlowIn missing columns: {sorted(missing_in)}")
+        raise ValueError(f"output_flow_in missing columns: {sorted(missing_in)}")
     if missing_out:
-        raise ValueError(f"OutputFlowOut missing columns: {sorted(missing_out)}")
+        raise ValueError(f"output_flow_out missing columns: {sorted(missing_out)}")
     if missing_demand:
-        raise ValueError(f"Demand missing columns: {sorted(missing_demand)}")
+        raise ValueError(f"demand missing columns: {sorted(missing_demand)}")
 
     flow_in = flow_in.copy()
     flow_out = flow_out.copy()
@@ -412,7 +412,7 @@ def filter_balance_commodities(
     missing = required - set(commodity.columns)
 
     if missing:
-        raise ValueError(f"Commodity table missing columns: {sorted(missing)}")
+        raise ValueError(f"commodity table missing columns: {sorted(missing)}")
 
     commodity_flags = (
         commodity[["name", "flag"]]
@@ -491,7 +491,7 @@ def infer_edge_technology_sets(
     efficiency: pd.DataFrame,
     cost_variable: pd.DataFrame,
     cost_invest: pd.DataFrame,
-    etl_segment: pd.DataFrame,
+    cost_invest_eos: pd.DataFrame,
     net_capacity: pd.DataFrame,
     abs_tol: float,
 ) -> tuple[dict[str, set[str]], pd.DataFrame]:
@@ -507,7 +507,7 @@ def infer_edge_technology_sets(
         "efficiency": get_edge_techs_from_table(efficiency, "tech"),
         "cost_variable": get_edge_techs_from_table(cost_variable, "tech"),
         "cost_invest": get_edge_techs_from_table(cost_invest, "tech"),
-        "etl_segment": get_edge_techs_from_table(etl_segment, "tech_or_group"),
+        "cost_invest_eos": get_edge_techs_from_table(cost_invest_eos, "tech_or_group"),
         "net_capacity": get_edge_techs_from_table(net_capacity, "tech", "capacity", abs_tol),
     }
 
@@ -515,14 +515,14 @@ def infer_edge_technology_sets(
         edge_tech_sets["efficiency"],
         edge_tech_sets["cost_variable"],
         edge_tech_sets["cost_invest"],
-        edge_tech_sets["etl_segment"],
+        edge_tech_sets["cost_invest_eos"],
         edge_tech_sets["flow_in"],
         edge_tech_sets["flow_out"],
         edge_tech_sets["net_capacity"],
     )
 
     positive_flow_edge_techs = edge_tech_sets["flow_in"] | edge_tech_sets["flow_out"]
-    etl_defined_edge_techs = edge_tech_sets["etl_segment"]
+    eos_invest_defined_edge_techs = edge_tech_sets["cost_invest_eos"]
     capacity_reported_edge_techs = edge_tech_sets["net_capacity"]
 
     summary_rows = []
@@ -534,12 +534,12 @@ def infer_edge_technology_sets(
                 "has_positive_edge_flow_out": tech in edge_tech_sets["flow_out"],
                 "has_positive_edge_flow": tech in positive_flow_edge_techs,
                 "has_edge_efficiency": tech in edge_tech_sets["efficiency"],
-                "has_edge_costvariable": tech in edge_tech_sets["cost_variable"],
-                "has_edge_costinvest": tech in edge_tech_sets["cost_invest"],
-                "has_edge_etlsegment": tech in etl_defined_edge_techs,
+                "has_edge_cost_variable": tech in edge_tech_sets["cost_variable"],
+                "has_edge_cost_invest": tech in edge_tech_sets["cost_invest"],
+                "has_edge_cost_invest_eos": tech in eos_invest_defined_edge_techs,
                 "has_reported_edge_capacity": tech in capacity_reported_edge_techs,
                 "missing_reported_edge_capacity": tech not in capacity_reported_edge_techs,
-                "missing_edge_etlsegment": tech not in etl_defined_edge_techs,
+                "missing_edge_cost_invest_eos": tech not in eos_invest_defined_edge_techs,
             }
         )
 
@@ -549,7 +549,7 @@ def infer_edge_technology_sets(
         {
             "encoded_edge_techs": encoded_edge_techs,
             "positive_flow_edge_techs": positive_flow_edge_techs,
-            "etl_defined_edge_techs": etl_defined_edge_techs,
+            "eos_invest_defined_edge_techs": eos_invest_defined_edge_techs,
             "capacity_reported_edge_techs": capacity_reported_edge_techs,
         },
         tech_summary,
@@ -561,12 +561,12 @@ def build_positive_edge_flow_summary(
     tech_summary: pd.DataFrame,
     abs_tol: float,
 ) -> pd.DataFrame:
-    """Summarize positive OutputFlowOut on edge pseudo-regions by tech."""
+    """Summarize positive output_flow_out on edge pseudo-regions by tech."""
     required_flow = {"region", "tech", "flow"}
     missing_flow = required_flow - set(flow_out.columns)
 
     if missing_flow:
-        raise ValueError(f"OutputFlowOut missing columns: {sorted(missing_flow)}")
+        raise ValueError(f"output_flow_out missing columns: {sorted(missing_flow)}")
 
     edge_flow = flow_out.loc[flow_out["region"].map(is_edge_region)].copy()
     edge_flow["flow"] = pd.to_numeric(edge_flow["flow"], errors="coerce").fillna(0.0)
@@ -589,10 +589,10 @@ def build_positive_edge_flow_summary(
     if not tech_summary.empty:
         cols = [
             "tech",
-            "has_edge_etlsegment",
+            "has_edge_cost_invest_eos",
             "has_reported_edge_capacity",
             "missing_reported_edge_capacity",
-            "missing_edge_etlsegment",
+            "missing_edge_cost_invest_eos",
         ]
         existing_cols = [col for col in cols if col in tech_summary.columns]
         summary = summary.merge(tech_summary[existing_cols], on="tech", how="left")
@@ -600,29 +600,29 @@ def build_positive_edge_flow_summary(
     return summary.sort_values("tech").reset_index(drop=True)
 
 
-def check_etl_defined_edge_flow_capacity(
+def check_eos_invest_defined_edge_flow_capacity(
     flow_out: pd.DataFrame,
     net_capacity: pd.DataFrame,
-    etl_defined_edge_techs: set[str],
+    eos_invest_defined_edge_techs: set[str],
     abs_tol: float,
     strict_capacity_flow: bool,
 ) -> tuple[bool, pd.DataFrame]:
     """
-    Check whether positive ETLSegment-defined edge flows have capacity.
+    Check whether positive cost_invest_eos-defined edge flows have capacity.
 
-    This is deliberately based on ETLSegment rows rather than hard-coded names.
-    If a technology has edge-region ETLSegment rows, the diagnostic expects
-    positive solved edge flow to have positive OutputNetCapacity.
+    This is based on EOS investment rows rather than hard-coded names. If a
+    technology has edge-region cost_invest_eos rows, positive solved edge flow
+    must have positive output_net_capacity.
     """
     required_flow = {"scenario", "region", "period", "tech", "vintage", "flow"}
     missing_flow = required_flow - set(flow_out.columns)
 
     if missing_flow:
-        raise ValueError(f"OutputFlowOut missing columns: {sorted(missing_flow)}")
+        raise ValueError(f"output_flow_out missing columns: {sorted(missing_flow)}")
 
     etl_flow = flow_out.loc[
         flow_out["region"].map(is_edge_region)
-        & flow_out["tech"].isin(etl_defined_edge_techs)
+        & flow_out["tech"].isin(eos_invest_defined_edge_techs)
     ].copy()
 
     etl_flow["flow"] = pd.to_numeric(etl_flow["flow"], errors="coerce").fillna(0.0)
@@ -633,14 +633,14 @@ def check_etl_defined_edge_flow_capacity(
 
     if net_capacity.empty:
         etl_flow["capacity"] = pd.NA
-        etl_flow["failure_reason"] = "OutputNetCapacity table missing"
+        etl_flow["failure_reason"] = "output_net_capacity table missing"
         return False, etl_flow
 
     required_cap = {"scenario", "region", "period", "tech", "vintage", "capacity"}
     missing_cap = required_cap - set(net_capacity.columns)
 
     if missing_cap:
-        raise ValueError(f"OutputNetCapacity missing columns: {sorted(missing_cap)}")
+        raise ValueError(f"output_net_capacity missing columns: {sorted(missing_cap)}")
 
     cap = net_capacity.copy()
     cap["capacity"] = pd.to_numeric(cap["capacity"], errors="coerce").fillna(0.0)
@@ -653,7 +653,7 @@ def check_etl_defined_edge_flow_capacity(
 
     no_capacity = checked.loc[checked["capacity"] <= abs_tol].copy()
     no_capacity["failure_reason"] = (
-        "positive ETLSegment-defined edge flow with zero or missing capacity"
+        "positive cost_invest_eos-defined edge flow with zero or missing capacity"
     )
 
     failures = no_capacity
@@ -663,7 +663,7 @@ def check_etl_defined_edge_flow_capacity(
             checked["flow"] > checked["capacity"] + abs_tol
         ].copy()
         exceeds_capacity["failure_reason"] = (
-            "ETLSegment-defined edge flow exceeds reported capacity"
+            "cost_invest_eos-defined edge flow exceeds reported capacity"
         )
         failures = pd.concat([failures, exceeds_capacity], ignore_index=True)
 
@@ -682,7 +682,7 @@ def check_objective_cost_consistency(
     objective_cost_mode: str = "either",
 ) -> tuple[bool, pd.DataFrame]:
     """
-    Compare OutputObjective total_system_cost against OutputCost sums.
+    Compare output_objective total_system_cost against output_cost sums.
 
     Default pass condition for the current single-period model:
         objective matches either:
@@ -694,10 +694,10 @@ def check_objective_cost_consistency(
     multi-period and discounted objective accounting should be required.
     """
     if objective.empty:
-        raise ValueError("OutputObjective is empty or missing.")
+        raise ValueError("output_objective is empty or missing.")
 
     if output_cost.empty:
-        raise ValueError("OutputCost is empty or missing.")
+        raise ValueError("output_cost is empty or missing.")
 
     required_obj = {"scenario", "objective_name", "total_system_cost"}
     required_cost = {
@@ -716,9 +716,9 @@ def check_objective_cost_consistency(
     missing_cost = required_cost - set(output_cost.columns)
 
     if missing_obj:
-        raise ValueError(f"OutputObjective missing columns: {sorted(missing_obj)}")
+        raise ValueError(f"output_objective missing columns: {sorted(missing_obj)}")
     if missing_cost:
-        raise ValueError(f"OutputCost missing columns: {sorted(missing_cost)}")
+        raise ValueError(f"output_cost missing columns: {sorted(missing_cost)}")
 
     obj = objective.copy()
     cost = output_cost.copy()
@@ -865,17 +865,17 @@ def run_output_database_checks(
 
     db_path = resolve_database_path(database)
     with connect(db_path) as con:
-        flow_in = read_table(con, "OutputFlowIn")
-        flow_out = read_table(con, "OutputFlowOut")
-        demand = read_table(con, "Demand")
-        commodity = read_optional_table(con, "Commodity")
-        objective = read_optional_table(con, "OutputObjective")
-        output_cost = read_optional_table(con, "OutputCost")
-        net_capacity = read_optional_table(con, "OutputNetCapacity")
-        efficiency = read_optional_table(con, "Efficiency")
-        cost_variable = read_optional_table(con, "CostVariable")
-        cost_invest = read_optional_table(con, "CostInvest")
-        etl_segment = read_optional_table(con, "ETLSegment")
+        flow_in = read_table(con, "output_flow_in")
+        flow_out = read_table(con, "output_flow_out")
+        demand = read_table(con, "demand")
+        commodity = read_optional_table(con, "commodity")
+        objective = read_optional_table(con, "output_objective")
+        output_cost = read_optional_table(con, "output_cost")
+        net_capacity = read_optional_table(con, "output_net_capacity")
+        efficiency = read_optional_table(con, "efficiency")
+        cost_variable = read_optional_table(con, "cost_variable")
+        cost_invest = read_optional_table(con, "cost_invest")
+        cost_invest_eos = read_optional_table(con, "cost_invest_eos")
 
     tech_sets, tech_summary = infer_edge_technology_sets(
         flow_in=flow_in,
@@ -883,7 +883,7 @@ def run_output_database_checks(
         efficiency=efficiency,
         cost_variable=cost_variable,
         cost_invest=cost_invest,
-        etl_segment=etl_segment,
+        cost_invest_eos=cost_invest_eos,
         net_capacity=net_capacity,
         abs_tol=abs_tol,
     )
@@ -907,10 +907,10 @@ def run_output_database_checks(
         tech_summary=tech_summary,
         abs_tol=abs_tol,
     )
-    capacity_passed, capacity_failures = check_etl_defined_edge_flow_capacity(
+    capacity_passed, capacity_failures = check_eos_invest_defined_edge_flow_capacity(
         flow_out=flow_out,
         net_capacity=net_capacity,
-        etl_defined_edge_techs=tech_sets["etl_defined_edge_techs"],
+        eos_invest_defined_edge_techs=tech_sets["eos_invest_defined_edge_techs"],
         abs_tol=abs_tol,
         strict_capacity_flow=strict_capacity_flow,
     )
@@ -942,7 +942,7 @@ def run_output_database_checks(
             stage=DiagnosticStage.OUTPUT,
         ),
         DiagnosticResult(
-            name="Positive ETLSegment-defined edge flow has reported capacity",
+            name="Positive cost_invest_eos-defined edge flow has reported capacity",
             passed=capacity_passed,
             severity="ERROR",
             detail=f"failures={len(capacity_failures)}",
@@ -1048,19 +1048,19 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         with connect(db_path) as con:
-            flow_in = read_table(con, "OutputFlowIn")
-            flow_out = read_table(con, "OutputFlowOut")
-            demand = read_table(con, "Demand")
+            flow_in = read_table(con, "output_flow_in")
+            flow_out = read_table(con, "output_flow_out")
+            demand = read_table(con, "demand")
 
-            commodity = read_optional_table(con, "Commodity")
-            objective = read_optional_table(con, "OutputObjective")
-            output_cost = read_optional_table(con, "OutputCost")
-            net_capacity = read_optional_table(con, "OutputNetCapacity")
+            commodity = read_optional_table(con, "commodity")
+            objective = read_optional_table(con, "output_objective")
+            output_cost = read_optional_table(con, "output_cost")
+            net_capacity = read_optional_table(con, "output_net_capacity")
 
-            efficiency = read_optional_table(con, "Efficiency")
-            cost_variable = read_optional_table(con, "CostVariable")
-            cost_invest = read_optional_table(con, "CostInvest")
-            etl_segment = read_optional_table(con, "ETLSegment")
+            efficiency = read_optional_table(con, "efficiency")
+            cost_variable = read_optional_table(con, "cost_variable")
+            cost_invest = read_optional_table(con, "cost_invest")
+            cost_invest_eos = read_optional_table(con, "cost_invest_eos")
 
     except (OSError, sqlite3.Error, ValueError) as exc:
         print_section("Balance gate error")
@@ -1076,7 +1076,7 @@ def main(argv: list[str] | None = None) -> int:
             efficiency=efficiency,
             cost_variable=cost_variable,
             cost_invest=cost_invest,
-            etl_segment=etl_segment,
+            cost_invest_eos=cost_invest_eos,
             net_capacity=net_capacity,
             abs_tol=args.abs_tol,
         )
@@ -1093,7 +1093,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Objective cost mode: {args.objective_cost_mode}")
     print(f"Encoded edge techs: {fmt_set(tech_sets['encoded_edge_techs'])}")
     print(f"Positive-flow edge techs: {fmt_set(tech_sets['positive_flow_edge_techs'])}")
-    print(f"ETLSegment-defined edge techs: {fmt_set(tech_sets['etl_defined_edge_techs'])}")
+    print(f"cost_invest_eos-defined edge techs: {fmt_set(tech_sets['eos_invest_defined_edge_techs'])}")
     print(f"Edge techs with reported capacity: {fmt_set(tech_sets['capacity_reported_edge_techs'])}")
 
     any_failed = False
@@ -1178,7 +1178,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     # -------------------------------------------------------------------------
-    # Edge technology diagnostics and ETLSegment capacity sanity
+    # Edge technology diagnostics and EOS investment-capacity sanity
     # -------------------------------------------------------------------------
     print_section("Check 2: edge technology diagnostics")
 
@@ -1189,10 +1189,10 @@ def main(argv: list[str] | None = None) -> int:
             abs_tol=args.abs_tol,
         )
 
-        etl_capacity_passed, etl_capacity_failures = check_etl_defined_edge_flow_capacity(
+        etl_capacity_passed, etl_capacity_failures = check_eos_invest_defined_edge_flow_capacity(
             flow_out=flow_out,
             net_capacity=net_capacity,
-            etl_defined_edge_techs=tech_sets["etl_defined_edge_techs"],
+            eos_invest_defined_edge_techs=tech_sets["eos_invest_defined_edge_techs"],
             abs_tol=args.abs_tol,
             strict_capacity_flow=args.strict_capacity_flow,
         )
@@ -1205,30 +1205,30 @@ def main(argv: list[str] | None = None) -> int:
                 "tech",
                 "has_positive_edge_flow",
                 "has_edge_efficiency",
-                "has_edge_costvariable",
-                "has_edge_costinvest",
-                "has_edge_etlsegment",
+                "has_edge_cost_variable",
+                "has_edge_cost_invest",
+                "has_edge_cost_invest_eos",
                 "has_reported_edge_capacity",
                 "missing_reported_edge_capacity",
-                "missing_edge_etlsegment",
+                "missing_edge_cost_invest_eos",
             ]
             existing_cols = [col for col in cols if col in tech_summary.columns]
             print(tech_summary[existing_cols].to_string(index=False))
 
-        print("\nPositive OutputFlowOut edge-flow summary:")
+        print("\nPositive output_flow_out edge-flow summary:")
         if edge_flow_summary.empty:
-            print("No positive OutputFlowOut edge flows found.")
+            print("No positive output_flow_out edge flows found.")
         else:
             print(edge_flow_summary.to_string(index=False))
 
         print_check(
-            "Positive ETLSegment-defined edge flow has reported capacity",
+            "Positive cost_invest_eos-defined edge flow has reported capacity",
             etl_capacity_passed,
             detail=f"failures: {len(etl_capacity_failures):,}",
         )
         report.add(
             DiagnosticResult(
-                name="Positive ETLSegment-defined edge flow has reported capacity",
+                name="Positive cost_invest_eos-defined edge flow has reported capacity",
                 passed=etl_capacity_passed,
                 severity="ERROR",
                 detail=f"failures={len(etl_capacity_failures)}",
@@ -1239,7 +1239,7 @@ def main(argv: list[str] | None = None) -> int:
                 ),
                 check_id="OUTPUT.CAPACITY.EDGE_FLOW_WITHOUT_CAPACITY",
                 stage=DiagnosticStage.OUTPUT,
-                remediation="Check ETLSegment encoding and OutputNetCapacity for failing edge technologies.",
+                remediation="Check cost_invest_eos encoding and output_net_capacity for failing edge technologies.",
             )
         )
 
@@ -1257,7 +1257,7 @@ def main(argv: list[str] | None = None) -> int:
             ]
             existing_cols = [col for col in cols if col in etl_capacity_failures.columns]
 
-            print("\nETLSegment-defined edge capacity failures:")
+            print("\ncost_invest_eos-defined edge capacity failures:")
             print(
                 etl_capacity_failures[existing_cols]
                 .head(args.max_report_rows)
@@ -1310,7 +1310,7 @@ def main(argv: list[str] | None = None) -> int:
                 ),
                 check_id="OUTPUT.OBJECTIVE.COST_MISMATCH",
                 stage=DiagnosticStage.OUTPUT,
-                remediation="Reconcile OutputObjective with discounted OutputCost components.",
+                remediation="Reconcile output_objective with discounted output_cost components.",
             )
         )
 
@@ -1374,7 +1374,7 @@ def main(argv: list[str] | None = None) -> int:
 
         if not etl_capacity_failures.empty:
             etl_capacity_failures.to_csv(
-                report_dir / "etl_defined_edge_capacity_failures.csv",
+                report_dir / "eos_invest_defined_edge_capacity_failures.csv",
                 index=False,
             )
 

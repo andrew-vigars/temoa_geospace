@@ -15,9 +15,9 @@ Checks
 4. Silver regional gasoline demand exactly covers the selected graph regions.
 5. Encoded SQLite schema exists and contains required non-empty set/parameter tables.
 6. Graph node regions match schema Region entries.
-7. Region, Commodity, and Technology references in parameter tables are valid.
+7. Region, commodity, and technology references in parameter tables are valid.
 8. Primary-key-like rows are unique in key parameter tables.
-9. Numeric sanity checks hold for demand, costs, efficiencies, and ETL bounds.
+9. Numeric sanity checks hold for demand, costs, efficiencies, and EOS bounds.
 10. All declared checks executed; skipped checks are treated as gate failures.
 
 Exit codes
@@ -126,22 +126,22 @@ EDGE_REGION_SEPARATOR = "-"
 # =============================================================================
 
 SET_TABLES = {
-    "Region": "region",
-    "Commodity": "name",
-    "Technology": "tech",
+    "region": "region",
+    "commodity": "name",
+    "technology": "tech",
 }
 
 REQUIRED_SCHEMA_TABLES = [
-    "Region",
-    "Technology",
-    "Commodity",
-    "TimePeriod",
-    "Demand",
-    "LimitCapacity",
-    "Efficiency",
-    "CostVariable",
-    "CostInvest",
-    "ETLSegment",
+    "region",
+    "technology",
+    "commodity",
+    "time_period",
+    "demand",
+    "limit_capacity",
+    "efficiency",
+    "cost_variable",
+    "cost_invest",
+    "cost_invest_eos",
 ]
 
 # Table-driven schema description.
@@ -158,54 +158,75 @@ class ParameterTableSpec(TypedDict):
 
 
 PARAM_TABLES: dict[str, ParameterTableSpec] = {
-    "Demand": {
+    "demand": {
         "region": ["region"],
         "commodity": ["commodity"],
         "tech": [],
-        "pk": ["region", "period", "commodity", "data_id"],
+        "pk": ["region", "period", "commodity"],
         "required": True,
     },
-    "LimitCapacity": {
+    "limit_capacity": {
         "region": ["region"],
         "commodity": [],
         "tech": ["tech_or_group"],
-        "pk": ["region", "period", "tech_or_group", "operator", "data_id"],
+        "pk": ["region", "period", "tech_or_group", "operator"],
         "required": True,
     },
-    "CostVariable": {
+    "cost_variable": {
         "region": ["region"],
         "commodity": [],
         "tech": ["tech"],
-        "pk": ["region", "period", "tech", "vintage", "data_id"],
+        "pk": ["region", "period", "tech", "vintage"],
         "required": True,
     },
-    "CostInvest": {
+    "cost_invest": {
         "region": ["region"],
         "commodity": [],
         "tech": ["tech"],
-        "pk": ["region", "tech", "vintage", "data_id"],
+        "pk": ["region", "tech", "vintage"],
         "required": True,
     },
-    "Efficiency": {
+    "cost_fixed": {
+        "region": ["region"],
+        "commodity": [],
+        "tech": ["tech"],
+        "pk": ["region", "period", "tech", "vintage"],
+        "required": False,
+    },
+    "efficiency": {
         "region": ["region"],
         "commodity": ["input_comm", "output_comm"],
         "tech": ["tech"],
-        "pk": ["region", "input_comm", "tech", "vintage", "output_comm", "data_id"],
+        "pk": ["region", "input_comm", "tech", "vintage", "output_comm"],
         "required": True,
     },
-    "LimitTechInputSplitAnnual": {
+    "limit_tech_input_split_annual": {
         "region": ["region"],
         "commodity": ["input_comm"],
         "tech": ["tech"],
-        "pk": ["region", "period", "input_comm", "tech", "operator", "data_id"],
+        "pk": ["region", "period", "input_comm", "tech", "operator"],
         "required": False,
     },
-    "ETLSegment": {
+    "cost_invest_eos": {
         "region": ["region"],
         "commodity": [],
         "tech": ["tech_or_group"],
         "pk": ["region", "tech_or_group", "segment"],
         "required": True,
+    },
+    "cost_fixed_eos": {
+        "region": ["region"],
+        "commodity": [],
+        "tech": ["tech_or_group"],
+        "pk": ["region", "period", "tech_or_group", "segment"],
+        "required": False,
+    },
+    "cost_variable_eos": {
+        "region": ["region"],
+        "commodity": [],
+        "tech": ["tech_or_group"],
+        "pk": ["region", "period", "tech_or_group", "segment"],
+        "required": False,
     },
 }
 
@@ -629,7 +650,7 @@ def check_gasoline_demand_conservation(
         pd.to_numeric(gasoline_regions["demand"], errors="coerce") > 0,
         ["region", "demand"],
     ].copy()
-    gold = schema_tables.get("Demand", pd.DataFrame()).copy()
+    gold = schema_tables.get("demand", pd.DataFrame()).copy()
     if "commodity" in gold.columns:
         gold = gold.loc[gold["commodity"].eq("d_gsl")].copy()
 
@@ -1080,7 +1101,7 @@ def check_schema_tables(table_counts: pd.DataFrame) -> list[CheckResult]:
 def build_reference_sets(
     tables: dict[str, pd.DataFrame],
 ) -> tuple[dict[str, set[str]], list[CheckResult]]:
-    """Build defining Region, Commodity, and Technology membership sets."""
+    """Build defining region, commodity, and technology membership sets."""
 
     reference_sets: dict[str, set[str]] = {}
     results: list[CheckResult] = []
@@ -1189,9 +1210,9 @@ def check_schema_referential_integrity(
 
     results: list[CheckResult] = []
 
-    valid_regions = reference_sets.get("Region", set())
-    valid_commodities = reference_sets.get("Commodity", set())
-    valid_techs = reference_sets.get("Technology", set())
+    valid_regions = reference_sets.get("region", set())
+    valid_commodities = reference_sets.get("commodity", set())
+    valid_techs = reference_sets.get("technology", set())
 
     for table_name, spec in PARAM_TABLES.items():
         required = bool(spec.get("required", True))
@@ -1320,18 +1341,18 @@ def check_graph_node_region_mapping(
 ) -> CheckResult:
     """Check exact agreement between graph nodes and schema node regions."""
 
-    if "Region" not in tables or "region" not in tables["Region"].columns:
+    if "region" not in tables or "region" not in tables["region"].columns:
         return CheckResult(
-            name="Graph node regions match schema Region",
+            name="Graph node regions match schema region",
             passed=False,
             severity="ERROR",
-            detail="Region table or Region.region column missing.",
+            detail="region table or region.region column missing.",
             ran=False,
         )
 
     if "region" not in graph_nodes.columns:
         return CheckResult(
-            name="Graph node regions match schema Region",
+            name="Graph node regions match schema region",
             passed=False,
             severity="ERROR",
             detail="graph_nodes missing region column.",
@@ -1339,7 +1360,7 @@ def check_graph_node_region_mapping(
         )
 
     graph_region_set = set(graph_nodes["region"].dropna().astype(str))
-    schema_region_set = set(tables["Region"]["region"].dropna().astype(str))
+    schema_region_set = set(tables["region"]["region"].dropna().astype(str))
     schema_node_set = {region for region in schema_region_set if not is_edge_region(region)}
 
     graph_missing_from_schema = sorted(graph_region_set - schema_node_set)
@@ -1347,17 +1368,17 @@ def check_graph_node_region_mapping(
 
     failures = pd.DataFrame(
         [
-            {"region": region, "reason": "graph node missing from schema Region"}
+            {"region": region, "reason": "graph node missing from schema region"}
             for region in graph_missing_from_schema
         ]
         + [
-            {"region": region, "reason": "schema Region node missing from graph nodes"}
+            {"region": region, "reason": "schema region node missing from graph nodes"}
             for region in schema_missing_from_graph
         ]
     )
 
     return CheckResult(
-        name="Graph node regions match schema Region",
+        name="Graph node regions match schema region",
         passed=failures.empty,
         severity="ERROR",
         detail=(
@@ -1374,47 +1395,106 @@ def check_numeric_schema_values(tables: dict[str, pd.DataFrame]) -> list[CheckRe
     return check_numeric_columns(tables, DEFAULT_NUMERIC_RULES)
 
 
-def check_etl_segment_monotonicity(tables: dict[str, pd.DataFrame]) -> CheckResult:
-    """Check that ETL capacity and cost upper bounds exceed lower bounds."""
+def check_eos_cost_curves(tables: dict[str, pd.DataFrame]) -> list[CheckResult]:
+    """Validate ordering, bounds, and contiguity for every Temoa v4 EOS table."""
 
-    if "ETLSegment" not in tables:
-        return CheckResult(
-            name="ETLSegment capacity and cost bounds are monotonic",
-            passed=False,
-            severity="ERROR",
-            detail="ETLSegment table missing.",
-            ran=False,
+    specifications = {
+        "cost_invest_eos": (["region", "tech_or_group"], "capacity"),
+        "cost_fixed_eos": (["region", "period", "tech_or_group"], "capacity"),
+        "cost_variable_eos": (["region", "period", "tech_or_group"], "activity"),
+    }
+    results: list[CheckResult] = []
+
+    for table_name, (group_columns, quantity) in specifications.items():
+        lower = f"{quantity}_lower"
+        upper = f"{quantity}_upper"
+        required = [
+            *group_columns,
+            "segment",
+            lower,
+            upper,
+            "cost_lower",
+            "cost_upper",
+        ]
+        name = f"{table_name} segments are ordered, bounded, and contiguous"
+
+        if table_name not in tables:
+            results.append(
+                CheckResult(
+                    name=name,
+                    passed=False,
+                    severity="ERROR",
+                    detail=f"{table_name} table missing.",
+                    ran=False,
+                )
+            )
+            continue
+
+        curve = tables[table_name].copy()
+        missing = [column for column in required if column not in curve.columns]
+        if missing:
+            results.append(
+                CheckResult(
+                    name=name,
+                    passed=False,
+                    severity="ERROR",
+                    detail=f"missing_columns={missing}",
+                    failures=pd.DataFrame({"missing_column": missing}),
+                    ran=False,
+                )
+            )
+            continue
+
+        if curve.empty:
+            results.append(
+                CheckResult(
+                    name=name,
+                    passed=True,
+                    severity="ERROR",
+                    detail="rows=0, curves=0, failing_rows=0",
+                )
+            )
+            continue
+
+        numeric_columns = ["segment", lower, upper, "cost_lower", "cost_upper"]
+        for column in numeric_columns:
+            curve[column] = pd.to_numeric(curve[column], errors="coerce")
+
+        curve = curve.sort_values([*group_columns, "segment"]).copy()
+        previous = curve.groupby(group_columns, dropna=False).shift(1)
+        first_segment = curve.groupby(group_columns, dropna=False).cumcount().eq(0)
+        expected_segment = curve.groupby(group_columns, dropna=False).cumcount()
+
+        invalid = curve[numeric_columns].isna().any(axis=1)
+        invalid |= curve["segment"].ne(expected_segment)
+        invalid |= curve[upper].le(curve[lower])
+        invalid |= curve["cost_upper"].lt(curve["cost_lower"])
+        invalid |= (~first_segment) & ~curve[lower].sub(previous[upper]).abs().le(1e-9)
+        invalid |= (~first_segment) & ~curve["cost_lower"].sub(
+            previous["cost_upper"]
+        ).abs().le(1e-9)
+
+        failures = curve.loc[invalid].copy()
+        results.append(
+            CheckResult(
+                name=name,
+                passed=failures.empty,
+                severity="ERROR",
+                detail=(
+                    f"rows={len(curve)}, curves="
+                    f"{curve.groupby(group_columns, dropna=False).ngroups}, "
+                    f"failing_rows={len(failures)}"
+                ),
+                failures=failures if not failures.empty else None,
+                remediation=(
+                    "Use zero-based consecutive segment IDs, strict increasing "
+                    f"{quantity} bounds, nondecreasing cost bounds, and contiguous "
+                    "quantity and cost endpoints within each curve."
+                ),
+            )
         )
 
-    etl = tables["ETLSegment"].copy()
-    required = ["region", "tech_or_group", "segment", "cap_lower", "cap_upper", "cost_lower", "cost_upper"]
-    missing = [col for col in required if col not in etl.columns]
-
-    if missing:
-        return CheckResult(
-            name="ETLSegment capacity and cost bounds are monotonic",
-            passed=False,
-            severity="ERROR",
-            detail=f"missing_columns={missing}",
-            failures=pd.DataFrame({"missing_column": missing}),
-            ran=False,
-        )
-
-    for col in ["cap_lower", "cap_upper", "cost_lower", "cost_upper"]:
-        etl[col] = pd.to_numeric(etl[col], errors="coerce")
-
-    failures = etl.loc[
-        (etl["cap_upper"] < etl["cap_lower"])
-        | (etl["cost_upper"] < etl["cost_lower"])
-    ].copy()
-
-    return CheckResult(
-        name="ETLSegment capacity and cost bounds are monotonic",
-        passed=failures.empty,
-        severity="ERROR",
-        detail=f"failing_rows={len(failures)}",
-        failures=failures if not failures.empty else None,
-    )
+    return results
 
 
 def check_gate_coverage(results: list[CheckResult]) -> CheckResult:
@@ -1660,7 +1740,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     results.extend(unit_results)
     results.extend(check_numeric_schema_values(schema_tables))
-    results.append(check_etl_segment_monotonicity(schema_tables))
+    results.extend(check_eos_cost_curves(schema_tables))
     results.append(check_gate_coverage(results))
 
     print_banner("Pre-solve gate checks")

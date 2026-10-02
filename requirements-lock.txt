@@ -220,7 +220,7 @@ SQLAlchemy-Utils==0.41.2
 stack-data==0.6.3
 starlette==0.47.1
 tabulate==0.9.0
-temoa @ git+https://github.com/TemoaProject/temoa.git@fc10702d3f6528cb2de731c03d1202f7bb5980d7
+temoa @ git+https://github.com/andrew-vigars/temoa.git@29f98f9f67f4645ff35f6a176933d86b2963e485
 terminado==0.18.1
 tinycss2==1.4.0
 toml==0.10.2

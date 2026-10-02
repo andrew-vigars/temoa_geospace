@@ -10,11 +10,11 @@ import pytest
 from geocanoe.config import load_geospatial_build_config, load_model_config
 from geocanoe.schema.build import (
     ResolvedSchemaConfig,
-    assign_etl_curve_to_regions,
+    assign_eos_investment_curve_to_regions,
     attach_pipeline_cost_distances,
     build_canonical_links,
-    build_etl_curve,
-    build_generalized_pipeline_etl_segments,
+    build_eos_investment_curve,
+    build_generalized_pipeline_eos_investment_curves,
     build_generalized_pipeline_opex_rows,
     build_transport_costvariable,
     build_transport_efficiency,
@@ -109,7 +109,7 @@ minimum_cumulative_activity = 7_500_000_000
 id = "weighted-pipeline"
 
 [pipeline_costs]
-impedance_scope = "etl_capex_only"
+impedance_scope = "eos_capex_only"
 """,
         encoding="utf-8",
     )
@@ -181,40 +181,40 @@ resolution = 999
         select_basemap_stem_for_resolution(build_config, model_config)
 
 
-def test_etl_curve_is_contiguous_and_monotonic() -> None:
-    curve = build_etl_curve("ELC_TRANS", resolution=5, spacing="linear")
+def test_eos_investment_curve_is_contiguous_and_monotonic() -> None:
+    curve = build_eos_investment_curve("ELC_TRANS", resolution=5, spacing="linear")
 
     assert len(curve) == 4
-    assert curve.iloc[0]["cap_lower"] == 0
-    assert np.allclose(curve["cap_upper"].iloc[:-1], curve["cap_lower"].iloc[1:])
+    assert curve.iloc[0]["capacity_lower"] == 0
+    assert np.allclose(curve["capacity_upper"].iloc[:-1], curve["capacity_lower"].iloc[1:])
     assert np.allclose(
         curve["cost_upper"].iloc[:-1],
         curve["cost_lower"].iloc[1:],
     )
-    assert (curve["cap_upper"] > curve["cap_lower"]).all()
+    assert (curve["capacity_upper"] > curve["capacity_lower"]).all()
     assert (curve["cost_upper"] > curve["cost_lower"]).all()
 
 
 @pytest.mark.parametrize(
     ("technology", "resolution", "spacing", "message"),
     [
-        ("UNKNOWN", 5, "linear", "Missing ETL cost parameters"),
+        ("UNKNOWN", 5, "linear", "Missing EOS investment cost parameters"),
         ("ELC_TRANS", 1, "linear", "at least 2"),
         ("ELC_TRANS", 5, "quadratic", "must be 'log' or 'linear'"),
     ],
 )
-def test_etl_curve_rejects_invalid_requests(
+def test_eos_investment_curve_rejects_invalid_requests(
     technology: str,
     resolution: int,
     spacing: str,
     message: str,
 ) -> None:
     with pytest.raises(ValueError, match=message):
-        build_etl_curve(technology, resolution=resolution, spacing=spacing)
+        build_eos_investment_curve(technology, resolution=resolution, spacing=spacing)
 
 
-def test_etl_region_assignment_scales_cost_by_distance() -> None:
-    assigned = assign_etl_curve_to_regions(
+def test_eos_region_assignment_scales_cost_by_distance() -> None:
+    assigned = assign_eos_investment_curve_to_regions(
         pd.Series(["R0-R1", "R1-R2"]),
         "ELC_TRANS",
         pd.Series([1.0, 2.0]),
@@ -224,7 +224,7 @@ def test_etl_region_assignment_scales_cost_by_distance() -> None:
 
     assert len(first) == len(second)
     assert np.allclose(second["cost_upper"], first["cost_upper"] * 2)
-    assert np.allclose(second["cap_upper"], first["cap_upper"])
+    assert np.allclose(second["capacity_upper"], first["capacity_upper"])
 
 
 def test_transport_tables_expand_links_by_technology() -> None:
@@ -332,7 +332,7 @@ def _pipeline_impedance() -> pd.DataFrame:
     ("scope", "expected_capex", "expected_fixed_opex", "expected_variable_opex"),
     [
         ("none", 10.0, 10.0, 10.0),
-        ("etl_capex_only", 15.0, 10.0, 10.0),
+        ("eos_capex_only", 15.0, 10.0, 10.0),
         ("all_km_dependent", 15.0, 15.0, 15.0),
     ],
 )
@@ -365,11 +365,11 @@ def test_pipeline_impedance_requires_exact_edge_coverage() -> None:
         attach_pipeline_cost_distances(
             _pipeline_graph_edges(),
             impedance,
-            "etl_capex_only",
+            "eos_capex_only",
         )
 
 
-def test_pipeline_etl_and_opex_use_separate_cost_distances() -> None:
+def test_pipeline_eos_and_opex_use_separate_cost_distances() -> None:
     links = attach_pipeline_cost_distances(
         _pipeline_graph_edges(),
         _pipeline_impedance(),
@@ -377,15 +377,14 @@ def test_pipeline_etl_and_opex_use_separate_cost_distances() -> None:
     )
     links["canoe_region"] = links["edge_region"]
     tech_specs = pd.DataFrame({"tech": ["H2_PIPE"]})
-    etl_template = pd.DataFrame(
+    eos_template = pd.DataFrame(
         {
             "tech_or_group": ["H2_PIPE"],
             "segment": [0],
-            "cap_lower": [0.0],
-            "cap_upper": [100.0],
+            "capacity_lower": [0.0],
+            "capacity_upper": [100.0],
             "cost_lower_per_km": [0.0],
             "cost_upper_per_km": [2.0],
-            "data_id": ["GEO001"],
         }
     )
     opex_coefficients = pd.DataFrame(
@@ -398,10 +397,10 @@ def test_pipeline_etl_and_opex_use_separate_cost_distances() -> None:
         }
     )
 
-    etl = build_generalized_pipeline_etl_segments(
+    eos_rows = build_generalized_pipeline_eos_investment_curves(
         links,
         tech_specs,
-        etl_template,
+        eos_template,
     )
     fixed, variable = build_generalized_pipeline_opex_rows(
         links,
@@ -423,7 +422,7 @@ def test_pipeline_etl_and_opex_use_separate_cost_distances() -> None:
         2025,
     )
 
-    assert etl["cost_upper"].eq(30.0).all()
+    assert eos_rows["cost_upper"].eq(30.0).all()
     assert fixed["cost"].eq(45.0).all()
     assert variable["cost"].eq(60.0).all()
     assert transmission["cost"].eq(20.0).all()

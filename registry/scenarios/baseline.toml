@@ -165,8 +165,8 @@ pipelines_enabled = true
 #
 # Supported scopes:
 #   "none"             - physical distance for all pipeline costs;
-#   "etl_capex_only"   - weighted distance for pipeline CAPEX tables
-#                        (CostInvest and/or ETLSegment) only;
+#   "eos_capex_only"   - weighted distance for pipeline EOS CAPEX tables
+#                        (cost_invest and/or cost_invest_eos) only;
 #   "all_km_dependent" - weighted distance for pipeline CAPEX tables, fixed
 #                        OPEX, and variable OPEX.
 #

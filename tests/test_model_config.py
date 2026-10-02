@@ -118,7 +118,7 @@ def test_model_registry_rejects_nonboolean_transport_switch(tmp_path: Path) -> N
 
 @pytest.mark.parametrize(
     "scope",
-    ["none", "etl_capex_only", "all_km_dependent"],
+    ["none", "eos_capex_only", "all_km_dependent"],
 )
 def test_scenario_overrides_pipeline_impedance_scope(
     tmp_path: Path,

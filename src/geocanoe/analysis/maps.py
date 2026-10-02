@@ -42,7 +42,6 @@ from shapely.geometry import LineString
 from xyzservices import providers
 
 from geocanoe.paths import find_project_root
-from geocanoe.schema import database
 
 # =============================================================================
 # Project import path
@@ -765,12 +764,35 @@ def infer_geospatial_paths(
 # Data loading and spacing
 # =============================================================================
 
+def _resolve_table_name(table_names: Sequence[str], required_name: str) -> str:
+    """Resolve a table across legacy CamelCase and TEMOA v4 snake_case names."""
+
+    normalized_required = re.sub(r"[^a-z0-9]", "", required_name.casefold())
+    matches = [
+        name
+        for name in table_names
+        if re.sub(r"[^a-z0-9]", "", name.casefold()) == normalized_required
+    ]
+    if not matches:
+        available = ", ".join(sorted(table_names, key=str.casefold))
+        raise KeyError(
+            f"Required table {required_name!r} is missing. "
+            f"Available tables: {available}"
+        )
+    if len(matches) > 1:
+        raise ValueError(
+            f"Database contains ambiguous variants of {required_name!r}: "
+            f"{sorted(matches, key=str.casefold)}"
+        )
+    return matches[0]
+
+
 def load_model_tables(db_path: Path) -> ModelTables:
     """Load CANOE/TEMOA tables required by the mapping workflow.
 
-    Reads the selected SQLite database into DataFrames and extracts the output
-    flow, demand, and capacity-limit tables used to construct process-point,
-    demand-point, and transport-flow map layers.
+    Reads the output-flow, demand, and capacity-limit tables used to construct
+    process-point, demand-point, and transport-flow map layers. Table names are
+    resolved across legacy CamelCase and TEMOA v4 snake_case conventions.
 
     Parameters
     ----------
@@ -785,17 +807,33 @@ def load_model_tables(db_path: Path) -> ModelTables:
     Raises
     ------
     KeyError
-        If the database does not contain ``OutputFlowOut``, ``Demand``, or
-        ``LimitCapacity``.
+        If the database does not contain a recognizable output-flow, demand,
+        or capacity-limit table.
     """
 
-    db_tables = database.sqlite_to_dfs(str(db_path))
+    database_uri = f"{db_path.resolve().as_uri()}?mode=ro"
+    with sqlite3.connect(database_uri, uri=True) as connection:
+        table_names = [
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'"
+            )
+        ]
 
-    return ModelTables(
-        flow_out=db_tables["OutputFlowOut"].copy(),
-        demand=db_tables["Demand"].copy(),
-        limit_capacity=db_tables["LimitCapacity"].copy(),
-    )
+        def read_required_table(required_name: str) -> pd.DataFrame:
+            table_name = _resolve_table_name(table_names, required_name)
+            quoted_name = table_name.replace('"', '""')
+            return pd.read_sql_query(
+                f'SELECT * FROM "{quoted_name}"',
+                connection,
+            )
+
+        return ModelTables(
+            flow_out=read_required_table("OutputFlowOut"),
+            demand=read_required_table("Demand"),
+            limit_capacity=read_required_table("LimitCapacity"),
+        )
 
 
 def _load_processed_context_layers(

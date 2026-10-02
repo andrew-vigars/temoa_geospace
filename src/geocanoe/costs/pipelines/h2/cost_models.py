@@ -104,17 +104,16 @@ SELECTED_MODEL_OUTPUT_COLUMNS = [
 
 
 DEFAULT_DATA_ID = "GEO001"
-DEFAULT_ETL_SEGMENT_COUNT = 5
-DEFAULT_ETL_SPACING = "log"
+DEFAULT_EOS_SEGMENT_COUNT = 5
+DEFAULT_EOS_SPACING = "log"
 
-ETLSEGMENT_TEMPLATE_COLUMNS = [
+EOS_TEMPLATE_COLUMNS = [
     "tech_or_group",
     "segment",
-    "cap_lower",
-    "cap_upper",
+    "capacity_lower",
+    "capacity_upper",
     "cost_lower_per_km",
     "cost_upper_per_km",
-    "data_id",
 ]
 
 OPEX_COEFFICIENT_COLUMNS = [
@@ -277,8 +276,8 @@ def default_model_selection_path(project_root: Path) -> Path:
     )
 
 
-def default_etlsegment_template_path(project_root: Path) -> Path:
-    """Return the canonical topology-free H2 pipeline ETLSegment template path.
+def default_eos_template_path(project_root: Path) -> Path:
+    """Return the canonical topology-free H2 pipeline EOS CAPEX template path.
 
     Parameters
     ----------
@@ -289,12 +288,12 @@ def default_etlsegment_template_path(project_root: Path) -> Path:
     -------
     Path
         Path to the CSV containing the capacity and cost breakpoints used to build
-        distance-scaled H2 pipeline ETLSegment records downstream.
+        distance-scaled H2 pipeline ``cost_invest_eos`` records downstream.
     """
 
     return (
         default_cost_directory(project_root)
-        / "h2_pipeline_etlsegment_template.csv"
+        / "h2_pipeline_eos_template.csv"
     )
 
 
@@ -1135,13 +1134,12 @@ def extract_capex_power_model(
     return capex_model
 
 
-def build_h2_etlsegment_template(
+def build_h2_eos_template(
     selected_models: pd.DataFrame,
-    segment_count: int = DEFAULT_ETL_SEGMENT_COUNT,
-    spacing: str = DEFAULT_ETL_SPACING,
-    data_id: str = DEFAULT_DATA_ID,
+    segment_count: int = DEFAULT_EOS_SEGMENT_COUNT,
+    spacing: str = DEFAULT_EOS_SPACING,
 ) -> pd.DataFrame:
-    """Build a topology-free H2 pipeline ETLSegment CAPEX template.
+    """Build a topology-free H2 pipeline ``cost_invest_eos`` CAPEX template.
 
     The selected CAPEX power model is converted into contiguous piecewise-linear
     capacity-cost intervals suitable for downstream TEMOA schema construction. The
@@ -1155,27 +1153,23 @@ def build_h2_etlsegment_template(
         Table containing the selected fitted pipeline cost models, including one
         validated CAPEX power model.
     segment_count : int, optional
-        Total number of ETL intervals to construct. The first interval spans zero
+        Total number of EOS intervals to construct. The first interval spans zero
         to the minimum observed capacity. Defaults to
-        ``DEFAULT_ETL_SEGMENT_COUNT``.
+        ``DEFAULT_EOS_SEGMENT_COUNT``.
     spacing : str, optional
         Spacing method for positive-capacity breakpoints. Must be ``"log"`` or
-        ``"linear"``. Defaults to ``DEFAULT_ETL_SPACING``.
-    data_id : str, optional
-        Data-quality identifier assigned to every generated ETLSegment row.
-        Defaults to ``DEFAULT_DATA_ID``.
-
+        ``"linear"``. Defaults to ``DEFAULT_EOS_SPACING``.
     Returns
     -------
     pd.DataFrame
-        Topology-free ETLSegment template containing contiguous capacity and CAPEX
+        Topology-free EOS investment template containing contiguous capacity and CAPEX
         bounds per kilometre for the selected H2 pipeline technology.
 
     Raises
     ------
     ValueError
         If ``segment_count`` is less than one, ``spacing`` is unsupported,
-        ``data_id`` is blank, the selected CAPEX model is invalid, any segment has
+        the selected CAPEX model is invalid, any segment has
         non-increasing bounds, adjacent segments are not contiguous, the first
         segment does not begin at zero, or the final segment does not end at the
         fitted model's maximum capacity.
@@ -1183,16 +1177,13 @@ def build_h2_etlsegment_template(
 
     if segment_count < 1:
         raise ValueError(
-            "ETL segment_count must be at least 1."
+            "EOS segment_count must be at least 1."
         )
 
     if spacing not in {"log", "linear"}:
         raise ValueError(
-            "ETL spacing must be either 'log' or 'linear'."
+            "EOS spacing must be either 'log' or 'linear'."
         )
-
-    if not data_id.strip():
-        raise ValueError("data_id must not be blank.")
 
     capex_model = extract_capex_power_model(
         selected_models=selected_models,
@@ -1203,9 +1194,9 @@ def build_h2_etlsegment_template(
     coefficient = float(capex_model["coefficient"])
     exponent = float(capex_model["exponent"])
 
-    # TEMOA's ETL formulation requires one segment to be selected for every
-    # region-technology pair represented by ETLSegment. The curve must therefore
-    # include a valid zero-build point; otherwise the first positive cap_lower
+    # Temoa's EOS formulation requires one segment to be selected for every
+    # region-technology pair represented by cost_invest_eos. The curve must therefore
+    # include a valid zero-build point; otherwise the first positive capacity_lower
     # would impose a minimum H2 pipeline build on every candidate corridor.
     #
     # Keep ``segment_count`` as the total number of intervals. The first interval
@@ -1233,8 +1224,8 @@ def build_h2_etlsegment_template(
         )
     )
 
-    cap_lower = capacity_breakpoints[:-1]
-    cap_upper = capacity_breakpoints[1:]
+    capacity_lower = capacity_breakpoints[:-1]
+    capacity_upper = capacity_breakpoints[1:]
 
     cost_breakpoints_per_km = np.empty_like(
         capacity_breakpoints,
@@ -1249,85 +1240,84 @@ def build_h2_etlsegment_template(
     cost_lower_per_km = cost_breakpoints_per_km[:-1]
     cost_upper_per_km = cost_breakpoints_per_km[1:]
 
-    etl_template = pd.DataFrame(
+    eos_template = pd.DataFrame(
         {
             "tech_or_group": str(capex_model["technology"]),
             "segment": np.arange(segment_count, dtype=int),
-            "cap_lower": cap_lower,
-            "cap_upper": cap_upper,
+            "capacity_lower": capacity_lower,
+            "capacity_upper": capacity_upper,
             "cost_lower_per_km": cost_lower_per_km,
             "cost_upper_per_km": cost_upper_per_km,
-            "data_id": data_id,
         }
     )
 
     if not (
-        etl_template["cap_upper"]
-        > etl_template["cap_lower"]
+        eos_template["capacity_upper"]
+        > eos_template["capacity_lower"]
     ).all():
         raise ValueError(
-            "Every ETL segment must have cap_upper greater than cap_lower."
+            "Every EOS segment must have capacity_upper greater than capacity_lower."
         )
 
     if not (
-        etl_template["cost_upper_per_km"]
-        > etl_template["cost_lower_per_km"]
+        eos_template["cost_upper_per_km"]
+        > eos_template["cost_lower_per_km"]
     ).all():
         raise ValueError(
-            "Every ETL segment must have cost_upper_per_km greater than "
+            "Every EOS segment must have cost_upper_per_km greater than "
             "cost_lower_per_km."
         )
 
-    if len(etl_template) > 1:
+    if len(eos_template) > 1:
         if not np.allclose(
-            etl_template["cap_upper"].iloc[:-1],
-            etl_template["cap_lower"].iloc[1:],
+            eos_template["capacity_upper"].iloc[:-1],
+            eos_template["capacity_lower"].iloc[1:],
         ):
             raise ValueError(
-                "ETL capacity segments are not contiguous."
+                "EOS capacity segments are not contiguous."
             )
 
         if not np.allclose(
-            etl_template["cost_upper_per_km"].iloc[:-1],
-            etl_template["cost_lower_per_km"].iloc[1:],
+            eos_template["cost_upper_per_km"].iloc[:-1],
+            eos_template["cost_lower_per_km"].iloc[1:],
         ):
             raise ValueError(
-                "ETL CAPEX bounds are not contiguous."
+                "EOS CAPEX bounds are not contiguous."
             )
 
     if not np.isclose(
-        etl_template["cap_lower"].iloc[0],
+        eos_template["capacity_lower"].iloc[0],
         0.0,
     ):
         raise ValueError(
-            "First ETL segment must begin at zero capacity."
+            "First EOS segment must begin at zero capacity."
         )
 
     if not np.isclose(
-        etl_template["cost_lower_per_km"].iloc[0],
+        eos_template["cost_lower_per_km"].iloc[0],
         0.0,
     ):
         raise ValueError(
-            "First ETL segment must begin at zero CAPEX."
+            "First EOS segment must begin at zero CAPEX."
         )
 
     if not np.isclose(
-        etl_template["cap_upper"].iloc[0],
+        eos_template["capacity_upper"].iloc[0],
         capacity_min,
     ):
         raise ValueError(
-            "First ETL segment must end at model capacity_min."
+            "First EOS segment must end at model capacity_min."
         )
 
     if not np.isclose(
-        etl_template["cap_upper"].iloc[-1],
+        eos_template["capacity_upper"].iloc[-1],
         capacity_max,
     ):
         raise ValueError(
-            "Final ETL segment does not end at model capacity_max."
+            "Final EOS segment does not end at model capacity_max."
         )
 
-    return etl_template[ETLSEGMENT_TEMPLATE_COLUMNS].copy()
+    return eos_template[EOS_TEMPLATE_COLUMNS].copy()
 
 
 def build_h2_pipeline_opex_coefficient_template(
@@ -1635,34 +1625,34 @@ def export_selected_cost_models(
 
 
 def export_h2_pipeline_cost_templates(
-    etlsegment_template: pd.DataFrame,
+    eos_template: pd.DataFrame,
     opex_template: pd.DataFrame,
-    etlsegment_path: Path,
+    eos_path: Path,
     opex_path: Path,
 ) -> tuple[Path, Path]:
     """Validate and export topology-free H2 pipeline cost templates.
 
-    The ETLSegment and OPEX templates are checked for required columns, non-empty
+    The EOS investment and OPEX templates are checked for required columns, non-empty
     contents, unique identifying rows, and valid increasing capacity and CAPEX
     bounds. Each table is reordered into its canonical schema, sorted
     deterministically, written as a UTF-8 CSV, and confirmed to exist on disk.
 
     Parameters
     ----------
-    etlsegment_template : pd.DataFrame
-        Topology-free H2 pipeline ETLSegment template containing capacity and CAPEX
+    eos_template : pd.DataFrame
+        Topology-free H2 pipeline EOS investment template containing capacity and CAPEX
         bounds per kilometre.
     opex_template : pd.DataFrame
         Topology-free H2 pipeline fixed- and variable-OPEX coefficient template.
-    etlsegment_path : Path
-        Destination path for the ETLSegment template CSV.
+    eos_path : Path
+        Destination path for the cost_invest_eos template CSV.
     opex_path : Path
         Destination path for the OPEX coefficient CSV.
 
     Returns
     -------
     tuple[Path, Path]
-        Paths to the successfully created ETLSegment and OPEX CSV files.
+        Paths to the successfully created EOS investment and OPEX CSV files.
 
     Raises
     ------
@@ -1673,10 +1663,10 @@ def export_h2_pipeline_cost_templates(
         If either output file is not present after the export operation.
     """
 
-    missing_etl_columns = [
+    missing_eos_columns = [
         column
-        for column in ETLSEGMENT_TEMPLATE_COLUMNS
-        if column not in etlsegment_template.columns
+        for column in EOS_TEMPLATE_COLUMNS
+        if column not in eos_template.columns
     ]
 
     missing_opex_columns = [
@@ -1685,10 +1675,10 @@ def export_h2_pipeline_cost_templates(
         if column not in opex_template.columns
     ]
 
-    if missing_etl_columns:
+    if missing_eos_columns:
         raise ValueError(
-            "H2 pipeline ETLSegment template is missing required "
-            f"columns: {missing_etl_columns}"
+            "H2 pipeline cost_invest_eos template is missing required "
+            f"columns: {missing_eos_columns}"
         )
 
     if missing_opex_columns:
@@ -1697,8 +1687,8 @@ def export_h2_pipeline_cost_templates(
             f"columns: {missing_opex_columns}"
         )
 
-    etl_export = (
-        etlsegment_template[ETLSEGMENT_TEMPLATE_COLUMNS]
+    eos_export = (
+        eos_template[EOS_TEMPLATE_COLUMNS]
         .copy()
         .sort_values(["tech_or_group", "segment"])
         .reset_index(drop=True)
@@ -1711,9 +1701,9 @@ def export_h2_pipeline_cost_templates(
         .reset_index(drop=True)
     )
 
-    if etl_export.empty:
+    if eos_export.empty:
         raise ValueError(
-            "H2 pipeline ETLSegment template is empty."
+            "H2 pipeline cost_invest_eos template is empty."
         )
 
     if opex_export.empty:
@@ -1721,11 +1711,11 @@ def export_h2_pipeline_cost_templates(
             "H2 pipeline OPEX coefficient template is empty."
         )
 
-    if etl_export[
+    if eos_export[
         ["tech_or_group", "segment"]
     ].duplicated().any():
         raise ValueError(
-            "H2 pipeline ETLSegment export contains duplicate "
+            "H2 pipeline cost_invest_eos export contains duplicate "
             "technology-segment rows."
         )
 
@@ -1735,22 +1725,22 @@ def export_h2_pipeline_cost_templates(
         )
 
     if not (
-        etl_export["cap_upper"]
-        > etl_export["cap_lower"]
+        eos_export["capacity_upper"]
+        > eos_export["capacity_lower"]
     ).all():
         raise ValueError(
-            "ETLSegment export contains invalid capacity bounds."
+            "cost_invest_eos export contains invalid capacity bounds."
         )
 
     if not (
-        etl_export["cost_upper_per_km"]
-        > etl_export["cost_lower_per_km"]
+        eos_export["cost_upper_per_km"]
+        > eos_export["cost_lower_per_km"]
     ).all():
         raise ValueError(
-            "ETLSegment export contains invalid CAPEX bounds."
+            "cost_invest_eos export contains invalid CAPEX bounds."
         )
 
-    etlsegment_path.parent.mkdir(
+    eos_path.parent.mkdir(
         parents=True,
         exist_ok=True,
     )
@@ -1759,8 +1749,8 @@ def export_h2_pipeline_cost_templates(
         exist_ok=True,
     )
 
-    etl_export.to_csv(
-        etlsegment_path,
+    eos_export.to_csv(
+        eos_path,
         index=False,
         encoding="utf-8",
     )
@@ -1770,10 +1760,10 @@ def export_h2_pipeline_cost_templates(
         encoding="utf-8",
     )
 
-    if not etlsegment_path.exists():
+    if not eos_path.exists():
         raise OSError(
-            "H2 pipeline ETLSegment template was not created: "
-            f"{etlsegment_path}"
+            "H2 pipeline cost_invest_eos template was not created: "
+            f"{eos_path}"
         )
 
     if not opex_path.exists():
@@ -1782,7 +1772,7 @@ def export_h2_pipeline_cost_templates(
             f"{opex_path}"
         )
 
-    return etlsegment_path, opex_path
+    return eos_path, opex_path
 
 
 # =============================================================================
@@ -1792,11 +1782,11 @@ def export_h2_pipeline_cost_templates(
 def build_h2_pipeline_cost_models(
     input_path: Path,
     model_selection_path: Path,
-    etlsegment_template_path: Path,
+    eos_template_path: Path,
     opex_coefficient_path: Path,
     selected_model_types: dict[str, str] | None = None,
-    segment_count: int = DEFAULT_ETL_SEGMENT_COUNT,
-    spacing: str = DEFAULT_ETL_SPACING,
+    segment_count: int = DEFAULT_EOS_SEGMENT_COUNT,
+    spacing: str = DEFAULT_EOS_SPACING,
     data_id: str = DEFAULT_DATA_ID,
 ) -> tuple[
     pd.DataFrame,
@@ -1817,8 +1807,8 @@ def build_h2_pipeline_cost_models(
         Path to the normalized H2 pipeline capacity-cost CSV.
     model_selection_path : Path
         Destination path for the selected cost-model definition CSV.
-    etlsegment_template_path : Path
-        Destination path for the topology-free ETLSegment CAPEX template CSV.
+    eos_template_path : Path
+        Destination path for the topology-free EOS investment template CSV.
     opex_coefficient_path : Path
         Destination path for the topology-free fixed- and variable-OPEX
         coefficient CSV.
@@ -1826,11 +1816,11 @@ def build_h2_pipeline_cost_models(
         Mapping from cost-component names to selected regression forms. When
         omitted, ``SELECTED_MODEL_TYPES`` is used.
     segment_count : int, optional
-        Total number of ETLSegment intervals used to approximate the selected CAPEX
-        power model. Defaults to ``DEFAULT_ETL_SEGMENT_COUNT``.
+        Total number of EOS intervals used to approximate the selected CAPEX
+        power model. Defaults to ``DEFAULT_EOS_SEGMENT_COUNT``.
     spacing : str, optional
         Positive-capacity breakpoint spacing method, either ``"log"`` or
-        ``"linear"``. Defaults to ``DEFAULT_ETL_SPACING``.
+        ``"linear"``. Defaults to ``DEFAULT_EOS_SPACING``.
     data_id : str, optional
         Data-quality identifier assigned to generated schema-template rows.
         Defaults to ``DEFAULT_DATA_ID``.
@@ -1839,7 +1829,7 @@ def build_h2_pipeline_cost_models(
     -------
     tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]
         Candidate regression results, selected cost models, topology-free
-        ETLSegment CAPEX template, and topology-free OPEX coefficient template.
+        EOS investment template, and topology-free OPEX coefficient template.
 
     Raises
     ------
@@ -1882,11 +1872,10 @@ def build_h2_pipeline_cost_models(
         selected_model_types=model_selection,
     )
 
-    etlsegment_template = build_h2_etlsegment_template(
+    eos_template = build_h2_eos_template(
         selected_models=selected_models,
         segment_count=segment_count,
         spacing=spacing,
-        data_id=data_id,
     )
 
     opex_template = build_h2_pipeline_opex_coefficient_template(
@@ -1900,26 +1889,26 @@ def build_h2_pipeline_cost_models(
     )
 
     export_h2_pipeline_cost_templates(
-        etlsegment_template=etlsegment_template,
+        eos_template=eos_template,
         opex_template=opex_template,
-        etlsegment_path=etlsegment_template_path,
+        eos_path=eos_template_path,
         opex_path=opex_coefficient_path,
     )
 
     return (
         regressions,
         selected_models,
-        etlsegment_template,
+        eos_template,
         opex_template,
     )
 
 def run_h2_pipeline_cost_model_build(
     input_path: Path | None = None,
     model_selection_path: Path | None = None,
-    etlsegment_path: Path | None = None,
+    eos_path: Path | None = None,
     opex_path: Path | None = None,
-    segment_count: int = DEFAULT_ETL_SEGMENT_COUNT,
-    spacing: str = DEFAULT_ETL_SPACING,
+    segment_count: int = DEFAULT_EOS_SEGMENT_COUNT,
+    spacing: str = DEFAULT_EOS_SPACING,
     data_id: str = DEFAULT_DATA_ID,
 ) -> tuple[
     pd.DataFrame,
@@ -1932,7 +1921,7 @@ def run_h2_pipeline_cost_model_build(
     The workflow resolves the Geospatial-CANOE repository root, selects either
     user-supplied or canonical input and output paths, reports the active model
     configuration, fits candidate H2 pipeline cost functions, selects the
-    configured model forms, constructs topology-free ETLSegment and OPEX
+    configured model forms, constructs topology-free EOS investment and OPEX
     templates, and exports the resulting cost-model products.
 
     Parameters
@@ -1943,14 +1932,14 @@ def run_h2_pipeline_cost_model_build(
     model_selection_path : Path | None, optional
         Destination path for the selected cost-model CSV. When omitted, the
         canonical processed cost-model path is used.
-    etlsegment_path : Path | None, optional
-        Destination path for the topology-free ETLSegment template CSV. When
+    eos_path : Path | None, optional
+        Destination path for the topology-free EOS investment template CSV. When
         omitted, the canonical processed template path is used.
     opex_path : Path | None, optional
         Destination path for the topology-free OPEX coefficient CSV. When
         omitted, the canonical processed coefficient path is used.
     segment_count : int, optional
-        Number of ETLSegment intervals used to approximate the selected CAPEX
+        Number of EOS intervals used to approximate the selected CAPEX
         power model.
     spacing : str, optional
         Capacity-breakpoint spacing method, either ``"log"`` or ``"linear"``.
@@ -1961,7 +1950,7 @@ def run_h2_pipeline_cost_model_build(
     -------
     tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]
         Candidate regression results, selected cost models, topology-free
-        ETLSegment CAPEX template, and topology-free OPEX coefficient template.
+        EOS investment template, and topology-free OPEX coefficient template.
 
     Raises
     ------
@@ -1989,10 +1978,10 @@ def run_h2_pipeline_cost_model_build(
         else default_model_selection_path(project_root)
     )
 
-    etlsegment_path = (
-        etlsegment_path.resolve()
-        if etlsegment_path is not None
-        else default_etlsegment_template_path(project_root)
+    eos_path = (
+        eos_path.resolve()
+        if eos_path is not None
+        else default_eos_template_path(project_root)
     )
 
     opex_path = (
@@ -2007,21 +1996,21 @@ def run_h2_pipeline_cost_model_build(
     print(f"Project root:      {project_root}")
     print(f"Input CSV:         {input_path}")
     print(f"Model selection:   {model_selection_path}")
-    print(f"ETLSegment output: {etlsegment_path}")
+    print(f"cost_invest_eos output: {eos_path}")
     print(f"OPEX output:       {opex_path}")
-    print(f"ETL segments:      {segment_count}")
-    print(f"ETL spacing:       {spacing}")
+    print(f"EOS segments:      {segment_count}")
+    print(f"EOS spacing:       {spacing}")
     print(f"Data ID:           {data_id}")
 
     (
         regressions,
         selected_models,
-        etlsegment_template,
+        eos_template,
         opex_template,
     ) = build_h2_pipeline_cost_models(
         input_path=input_path,
         model_selection_path=model_selection_path,
-        etlsegment_template_path=etlsegment_path,
+        eos_template_path=eos_path,
         opex_coefficient_path=opex_path,
         segment_count=segment_count,
         spacing=spacing,
@@ -2055,23 +2044,23 @@ def run_h2_pipeline_cost_model_build(
         print(f"  {row.cost_type:<14} -> {row.model_type}")
 
     print("\nTopology-free templates built.")
-    print(f"  ETLSegment rows: {len(etlsegment_template):,}")
+    print(f"  cost_invest_eos rows: {len(eos_template):,}")
     print(f"  OPEX rows:       {len(opex_template):,}")
     print(
         "  Capacity range:  "
-        f"{etlsegment_template['cap_lower'].min():,.0f} to "
-        f"{etlsegment_template['cap_upper'].max():,.0f} t H2/year"
+        f"{eos_template['capacity_lower'].min():,.0f} to "
+        f"{eos_template['capacity_upper'].max():,.0f} t H2/year"
     )
 
     print("\nBuild complete.")
     print(f"  Model selection: {model_selection_path}")
-    print(f"  ETLSegment:      {etlsegment_path}")
+    print(f"  cost_invest_eos: {eos_path}")
     print(f"  OPEX:            {opex_path}")
 
     return (
         regressions,
         selected_models,
-        etlsegment_template,
+        eos_template,
         opex_template,
     )
 
@@ -2084,7 +2073,7 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the H2 pipeline cost-model workflow.
 
     The parser accepts optional overrides for the normalized input dataset and each
-    export destination, together with settings controlling the ETLSegment
+    export destination, together with settings controlling the EOS investment
     piecewise approximation and dataset identifier.
 
     Returns
@@ -2097,7 +2086,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Fit topology-independent H2 pipeline cost functions and build "
-            "schema-facing ETLSegment and OPEX templates."
+            "schema-facing EOS investment and OPEX templates."
         )
     )
 
@@ -2116,10 +2105,10 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--etlsegment-output",
+        "--eos-output",
         type=Path,
         default=None,
-        help="Optional topology-free ETLSegment template CSV path.",
+        help="Optional topology-free cost_invest_eos template CSV path.",
     )
 
     parser.add_argument(
@@ -2132,20 +2121,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--segment-count",
         type=int,
-        default=DEFAULT_ETL_SEGMENT_COUNT,
+        default=DEFAULT_EOS_SEGMENT_COUNT,
         help=(
             "Number of CAPEX piecewise intervals. "
-            f"Default: {DEFAULT_ETL_SEGMENT_COUNT}"
+            f"Default: {DEFAULT_EOS_SEGMENT_COUNT}"
         ),
     )
 
     parser.add_argument(
         "--spacing",
         choices=["log", "linear"],
-        default=DEFAULT_ETL_SPACING,
+        default=DEFAULT_EOS_SPACING,
         help=(
             "Capacity-breakpoint spacing method. "
-            f"Default: {DEFAULT_ETL_SPACING}"
+            f"Default: {DEFAULT_EOS_SPACING}"
         ),
     )
 
@@ -2166,7 +2155,7 @@ def main() -> None:
     run_h2_pipeline_cost_model_build(
         input_path=args.input,
         model_selection_path=args.model_selection_output,
-        etlsegment_path=args.etlsegment_output,
+        eos_path=args.eos_output,
         opex_path=args.opex_output,
         segment_count=args.segment_count,
         spacing=args.spacing,

@@ -89,8 +89,8 @@ pipelines_enabled = true
 # pipeline costs. Physical graph distance is always retained unchanged.
 # Supported values:
 #   "none"             - use physical distance for all pipeline costs;
-#   "etl_capex_only"   - weight pipeline CAPEX tables (CostInvest and/or
-#                        ETLSegment) only;
+#   "eos_capex_only"   - weight pipeline CAPEX tables (cost_invest and/or
+#                        cost_invest_eos) only;
 #   "all_km_dependent" - weight pipeline CAPEX tables plus fixed and variable
 #                        OPEX.
 impedance_scope = "none"

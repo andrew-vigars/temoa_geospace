@@ -12,6 +12,7 @@ from geocanoe.diagnostics.input.numeric import (
     DEFAULT_NUMERIC_RULES,
     check_numeric_columns,
 )
+from geocanoe.diagnostics.input.gate import check_eos_cost_curves
 from geocanoe.diagnostics.input.readiness import check_technology_readiness
 from geocanoe.diagnostics.input.units import check_table_units
 from geocanoe.diagnostics.models import DiagnosticReport
@@ -63,9 +64,10 @@ def run_schema_database_checks(
     tables = read_all_tables(resolved)
     readiness, readiness_results = check_technology_readiness(tables)
     numeric_results = check_numeric_columns(tables, DEFAULT_NUMERIC_RULES)
+    eos_results = check_eos_cost_curves(tables)
     unit_inventory, unit_results = check_table_units(tables, strict=strict_units)
     report = DiagnosticReport(
-        results=[*readiness_results, *numeric_results, *unit_results],
+        results=[*readiness_results, *numeric_results, *eos_results, *unit_results],
         metadata={"database": str(resolved), "strict_units": strict_units},
     )
     return SchemaDiagnosticRun(
