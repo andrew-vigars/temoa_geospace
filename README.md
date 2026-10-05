@@ -255,10 +255,30 @@ the canonical research workflow.
 
 #### Temporary local TEMOA v4 development override
 
-While the TEMOA v4 model-construction patches are being developed and
-validated, use the sibling `temoa-v4` checkout as an editable dependency. From
-the Geospatial-CANOE repository root, install Geospatial-CANOE and its remaining
-dependencies first, then install local TEMOA last:
+While the TEMOA v4 model-construction patches are being developed, reviewed,
+and prepared for an upstream release, use the
+[`refactor/pyomo-model-construction`](https://github.com/andrew-vigars/temoa/tree/refactor/pyomo-model-construction)
+branch from the temporary TEMOA fork as an editable dependency. Download that
+branch with **Code > Download ZIP**, extract it beside `temoa_geospace`, and
+rename the extracted `temoa-refactor-pyomo-model-construction` directory to
+`temoa-v4`. The two repositories must have this sibling layout:
+
+```text
+temoa-upstream/
+├── temoa_geospace/
+└── temoa-v4/
+```
+
+Cloning the same branch directly into the expected sibling directory is
+equivalent:
+
+```bash
+git clone --branch refactor/pyomo-model-construction --single-branch \
+    https://github.com/andrew-vigars/temoa.git ../temoa-v4
+```
+
+From the Geospatial-CANOE repository root, install Geospatial-CANOE and its
+remaining dependencies first, then install local TEMOA last:
 
 ```bash
 python -m pip install -e ".[dev]"
@@ -274,11 +294,14 @@ editable sibling checkout. Confirm the active source with:
 python -c "import temoa; print(temoa.__file__)"
 ```
 
-The printed path should be under the sibling `temoa-v4` repository. Changes to
-that checkout are then visible immediately without reinstalling. Repeat the
-local TEMOA command after rebuilding the environment or reinstalling
-Geospatial-CANOE. This override is temporary; `pyproject.toml` retains the
-pinned Git revision until the patched TEMOA version is stable and released.
+The printed path should be under the sibling `temoa-v4` directory. Changes to a
+Git checkout are then visible immediately without reinstalling; a ZIP-based
+copy can be replaced with a freshly downloaded branch snapshot when required.
+Repeat the local TEMOA command after rebuilding the environment or reinstalling
+Geospatial-CANOE, because reinstalling the root project may restore its declared
+TEMOA dependency. This override is temporary; `pyproject.toml` retains a
+portable Git revision until the patched TEMOA version is available from the
+upstream installation channel.
 
 Mypy is the canonical static type checker. Its project policy is stored in
 `pyproject.toml` and covers the importable package plus the compatibility CLI
