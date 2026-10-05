@@ -13,7 +13,7 @@ solved ``Output*`` tables for downstream inspection and analysis.
 Inputs
 ------
 data_files/processed/schema/*.sqlite
-temoa/data_files/my_configs/*
+config/temoav4/*.toml
 
 Outputs
 -------
@@ -42,6 +42,7 @@ from geocanoe.analysis.exports import export_output_tables
 from geocanoe.diagnostics.input.database import run_schema_database_checks
 from geocanoe.diagnostics.output.gate import run_output_database_checks
 from geocanoe.diagnostics.renderers import write_json_report
+from geocanoe.execution.temoa_backend import distribution_record, run_temoa
 from geocanoe.paths import find_project_root
 from geocanoe.schema.database import update_db_paths
 
@@ -53,8 +54,7 @@ from geocanoe.schema.database import update_db_paths
 
 PROJECT_ROOT = find_project_root()
 
-MAIN_PATH = PROJECT_ROOT / "temoa" / "main.py"
-CONFIG_DIR = PROJECT_ROOT / "temoa" / "data_files" / "my_configs"
+CONFIG_DIR = PROJECT_ROOT / "config" / "temoav4"
 SCHEMA_DIR = PROJECT_ROOT / "data_files" / "processed" / "schema"
 OUTPUT_ROOT = PROJECT_ROOT / "output_files"
 
@@ -169,9 +169,9 @@ def safe_name(path: Path) -> str:
 def validate_required_paths(db_path: Path, config_path: Path) -> None:
     """Validate the filesystem inputs required for a CANOE/TEMOA run.
 
-    The TEMOA entry-point script, selected SQLite database, and selected
-    configuration file are checked before model execution begins. Any missing paths
-    are printed to the console before a ``FileNotFoundError`` is raised.
+    The selected SQLite database and configuration file are checked before model
+    execution begins. Any missing paths are printed to the console before a
+    ``FileNotFoundError`` is raised.
 
     Parameters
     ----------
@@ -187,12 +187,10 @@ def validate_required_paths(db_path: Path, config_path: Path) -> None:
     Raises
     ------
     FileNotFoundError
-        If the TEMOA main script, selected database, or selected configuration file
-        does not exist.
+        If the selected database or configuration file does not exist.
     """
 
     required = {
-        "TEMOA main script": MAIN_PATH,
         "selected SQLite database": db_path,
         "selected config file": config_path,
     }
@@ -588,13 +586,14 @@ def main() -> None:
     working database for model execution.
 
     An effective configuration is copied into the run directory and updated to
-    reference the working database. TEMOA is executed as a subprocess, with its
-    confirmation prompt suppressed when non-interactive execution is requested.
+    reference the working database. The installed TEMOA v4 package is invoked
+    through its Python API, with confirmation suppressed when non-interactive
+    execution is requested.
 
-    A run manifest records the command, execution mode, environment, Git state,
-    tracked files, input hashes, configuration text, status, return code, and
-    elapsed time. Failed solver runs retain their output directory and working
-    database for inspection before the subprocess exception is re-raised. When
+    A run manifest records the imported backend, execution mode, environment, Git
+    state, tracked files, input hashes, configuration text, status, return code,
+    and elapsed time. Failed solver runs retain their output directory and working
+    database for inspection before the exception is re-raised. When
     diagnostics are enabled, pre-solve findings, post-solve validation, and any
     available failure postmortem are also recorded under the run directory.
 
@@ -613,10 +612,9 @@ def main() -> None:
         If required model, database, or configuration paths are unavailable.
     FileExistsError
         If the generated timestamped output directory already exists.
-    subprocess.CalledProcessError
-        If the TEMOA/CANOE subprocess exits with a nonzero return code.
     RuntimeError
-        If the solved output export does not produce exactly one Excel workbook.
+        If TEMOA is unavailable, the run is cancelled, or the solved output export
+        does not produce exactly one Excel workbook.
     """
 
     args = parse_args()
@@ -629,6 +627,7 @@ def main() -> None:
     db_path, config_path = resolve_run_inputs(args)
 
     validate_required_paths(db_path, config_path)
+    temoa_record = distribution_record()
 
     schema_tag = safe_name(db_path)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
@@ -645,6 +644,7 @@ def main() -> None:
     print(f"Config:          {config_path}")
     print(f"Non-interactive: {args.non_interactive}")
     print(f"Diagnostics:     {args.diagnostics}")
+    print(f"TEMOA version:   {temoa_record['version']}")
     print(f"Output:          {output_dir}")
 
     print_header("Preparing run")
@@ -668,18 +668,6 @@ def main() -> None:
         create_backup=False,
     )
 
-    command = [
-        sys.executable,
-        str(MAIN_PATH),
-        "--config",
-        str(effective_config_path),
-        "-o",
-        str(output_dir),
-    ]
-
-    if args.non_interactive:
-        command.append("-s")
-
     manifest_path = output_dir / "manifest.json"
 
     manifest = {
@@ -690,18 +678,19 @@ def main() -> None:
             "return_code": None,
             "wall_time_seconds": None,
             "output_dir": str(output_dir),
-            "command": command,
+            "backend": "python-import",
+            "entry_point": "geocanoe.execution.temoa_backend:run_temoa",
         },
         "environment": {
             "python_executable": sys.executable,
             "python_version": sys.version,
             "platform": platform.platform(),
+            "temoa": temoa_record,
         },
         "code": {
             "git": get_git_record(),
             "tracked_files": {
                 "main_run": file_record(Path(__file__).resolve()),
-                "temoa_main": file_record(MAIN_PATH),
             },
         },
         "inputs": {
@@ -789,20 +778,27 @@ def main() -> None:
             )
 
     print_header("Starting solver")
-    print("Command:")
-    print(" ".join(command))
+    print("Backend: imported TEMOA v4 Python API")
     print("\nTEMOA/CANOE output begins below.\n")
 
     start = time.perf_counter()
 
     try:
-        subprocess.run(command, check=True)
-    except subprocess.CalledProcessError as exc:
+        run_temoa(
+            effective_config_path,
+            output_dir,
+            silent=args.non_interactive,
+        )
+    except Exception as exc:
         elapsed = time.perf_counter() - start
 
         manifest["run"]["status"] = "failed"
-        manifest["run"]["return_code"] = exc.returncode
+        manifest["run"]["return_code"] = 1
         manifest["run"]["wall_time_seconds"] = elapsed
+        manifest["run"]["error"] = {
+            "type": type(exc).__name__,
+            "detail": str(exc),
+        }
 
         if args.diagnostics != "off":
             try:
@@ -826,7 +822,7 @@ def main() -> None:
         write_manifest(manifest_path, manifest)
 
         print_header("Run failed")
-        print(f"Solver exited with return code: {exc.returncode}")
+        print(f"Solver raised {type(exc).__name__}: {exc}")
         print(f"Elapsed time: {elapsed / 60:.2f} minutes")
         print(f"Output directory retained for inspection: {output_dir}")
         print(f"Manifest updated: {manifest_path.name}")

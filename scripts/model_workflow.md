@@ -174,7 +174,7 @@ flowchart TD
         S1["Resolve basemap, storage evidence, regional gasoline demand, graph, road layer, and connectivity"]
         S2["Build canonical node and edge regions"]
         S3["Snap and aggregate point inputs"]
-        S4["Rebuild technology, efficiency, cost, capacity, and ETLSegment tables"]
+        S4["Rebuild technology, efficiency, cost, capacity, and EOS cost tables"]
         S5["Validate and export encoded SQLite database"]
     end
 
@@ -202,7 +202,7 @@ flowchart TD
         RUN1["run.py<br/>Single-scenario execution"]
         BATCH["batch.py<br/>Ordered batch execution"]
         RUN2["Archive inputs and provenance"]
-        RUN3["temoa/main.py<br/>Solve LP/MILP"]
+        RUN3["Imported TEMOA v4 package<br/>Solve LP/MILP"]
         RUN4["Archive solved database"]
     end
 
@@ -236,7 +236,7 @@ flowchart TD
 
 The root `pyproject.toml` is the canonical installation interface. A normal
 installation provides the complete research environment: GeoCANOE's scientific
-and geospatial stack, the bundled CANOE/TEMOA runtime, and everything required
+and geospatial stack, the installed TEMOA v4 runtime, and everything required
 to execute the Bronze-to-analysis workflow shown above.
 
 ```bash
@@ -253,9 +253,9 @@ python -m pip install -e ".[dev]"
 
 Use the normal installation for research runs and the `dev` installation when
 changing code, running project checks, or working with development notebooks.
-Neither installation requires separately installing the requirement fragments:
-setuptools combines the root and bundled TEMOA dependency files through
-`pyproject.toml`.
+All direct dependencies and optional extras are declared in `pyproject.toml`;
+the requirements files are compatibility installers rather than independent
+dependency sources.
 
 ## CLI entry points
 

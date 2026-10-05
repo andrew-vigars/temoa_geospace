@@ -4,7 +4,7 @@
 #
 # A batch runs an ordered list of independent TEMOA solver configurations
 # (see geocanoe.execution.batch). Each [[runs]] entry points at a solver
-# config TOML like temoa/data_files/my_configs/*.toml; that file in turn names
+# config TOML like config/temoav4/*.toml; that file in turn names
 # the scenario and the input/output SQLite database it runs against.
 #
 # The entry below is a committed, always-resolvable disabled example using one

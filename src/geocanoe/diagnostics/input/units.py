@@ -37,11 +37,11 @@ UNIT_EXPECTATIONS = {
     expectation.table: expectation
     for expectation in [
         UnitExpectation(
-            "Demand",
+            "demand",
             frozenset({"mass", "energy", "mass_per_time", "energy_per_time"}),
         ),
         UnitExpectation(
-            "CostVariable",
+            "cost_variable",
             frozenset(
                 {
                     "currency_per_energy",
@@ -51,20 +51,38 @@ UNIT_EXPECTATIONS = {
             ),
         ),
         UnitExpectation(
-            "CostInvest",
+            "cost_invest",
             frozenset({"currency_per_capacity_unit"}),
         ),
         UnitExpectation(
-            "CostFixed",
+            "cost_fixed",
             frozenset({"currency_time_per_mass"}),
         ),
         UnitExpectation(
-            "LimitCapacity",
+            "limit_capacity",
             frozenset({"mass", "energy", "mass_per_time", "energy_per_time"}),
         ),
         UnitExpectation(
-            "ExistingCapacity",
+            "existing_capacity",
             frozenset({"mass", "energy", "mass_per_time", "energy_per_time"}),
+        ),
+        UnitExpectation(
+            "cost_invest_eos",
+            frozenset({"currency_per_capacity_unit"}),
+        ),
+        UnitExpectation(
+            "cost_fixed_eos",
+            frozenset({"currency_time_per_mass"}),
+        ),
+        UnitExpectation(
+            "cost_variable_eos",
+            frozenset(
+                {
+                    "currency_per_energy",
+                    "currency_per_mass",
+                    "currency_per_capacity_unit",
+                }
+            ),
         ),
     ]
 }

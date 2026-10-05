@@ -22,7 +22,7 @@ def test_classify_project_and_standard_units() -> None:
 
 def test_unit_checks_report_missing_unknown_and_incompatible_groups() -> None:
     tables = {
-        "Demand": pd.DataFrame(
+        "demand": pd.DataFrame(
             {"units": [None, "definitely_not_a_unit", "M$/MWh"]}
         )
     }
@@ -39,7 +39,7 @@ def test_unit_checks_report_missing_unknown_and_incompatible_groups() -> None:
 
 def test_strict_units_promote_findings_to_errors() -> None:
     _, results = check_table_units(
-        {"CostInvest": pd.DataFrame({"units": [None]})},
+        {"cost_invest": pd.DataFrame({"units": [None]})},
         strict=True,
     )
     report = DiagnosticReport(results=results)

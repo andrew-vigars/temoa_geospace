@@ -47,6 +47,7 @@ def resolve_schema_artifact_paths(
     build_id: str | None = None,
     scenario_id: str | None = None,
     fingerprint: str | None = None,
+    artifact_barcode: str | None = None,
 ) -> SchemaArtifactPaths:
     """Build the canonical Stage 1-4 and encoded-schema paths.
 
@@ -65,9 +66,21 @@ def resolve_schema_artifact_paths(
         raise ValueError(
             "build_id, scenario_id, and fingerprint must be provided together."
         )
+    if artifact_barcode is not None and (
+        len(artifact_barcode) != 8
+        or any(character not in "0123456789abcdef" for character in artifact_barcode)
+    ):
+        raise ValueError("artifact_barcode must contain eight lowercase hex characters.")
+    if artifact_barcode is not None and not all(identity_parts):
+        raise ValueError(
+            "artifact_barcode requires build_id, scenario_id, and fingerprint."
+        )
     if all(identity_parts):
+        identity = f"gold_{build_id}_{scenario_id}_{fingerprint}"
         schema_name = (
-            f"gold_{build_id}_{scenario_id}_{fingerprint}.sqlite"
+            f"{identity}_{artifact_barcode}.sqlite"
+            if artifact_barcode
+            else f"{identity}.sqlite"
         )
     else:
         schema_name = (
@@ -100,3 +113,18 @@ def resolve_schema_artifact_paths(
         ),
         schema=processed / "schema" / schema_name,
     )
+
+
+def resolve_latest_schema_artifact(canonical_path: Path) -> Path:
+    """Return the newest build instance matching a canonical schema identity."""
+    barcode_pattern = "[0-9a-f]" * 8
+    candidates = list(
+        canonical_path.parent.glob(
+            f"{canonical_path.stem}_{barcode_pattern}.sqlite"
+        )
+    )
+    if canonical_path.exists():
+        candidates.append(canonical_path)
+    if not candidates:
+        return canonical_path
+    return max(candidates, key=lambda path: path.stat().st_mtime_ns)

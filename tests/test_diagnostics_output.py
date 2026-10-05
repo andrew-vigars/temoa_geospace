@@ -6,7 +6,7 @@ import pandas as pd
 
 from geocanoe.diagnostics.output import (
     check_commodity_balance,
-    check_etl_defined_edge_flow_capacity,
+    check_eos_invest_defined_edge_flow_capacity,
     check_objective_cost_consistency,
 )
 from geocanoe.diagnostics.output.gate import read_optional_table, read_table, table_exists
@@ -78,14 +78,14 @@ def test_edge_capacity_check_can_apply_optional_strict_comparison() -> None:
         }
     )
 
-    ordinary_passed, ordinary_failures = check_etl_defined_edge_flow_capacity(
+    ordinary_passed, ordinary_failures = check_eos_invest_defined_edge_flow_capacity(
         flow_out,
         capacity,
         {"PIPE"},
         abs_tol=1e-6,
         strict_capacity_flow=False,
     )
-    strict_passed, strict_failures = check_etl_defined_edge_flow_capacity(
+    strict_passed, strict_failures = check_eos_invest_defined_edge_flow_capacity(
         flow_out,
         capacity,
         {"PIPE"},
@@ -97,7 +97,7 @@ def test_edge_capacity_check_can_apply_optional_strict_comparison() -> None:
     assert ordinary_failures.empty
     assert not strict_passed
     assert strict_failures.iloc[0]["failure_reason"] == (
-        "ETLSegment-defined edge flow exceeds reported capacity"
+        "cost_invest_eos-defined edge flow exceeds reported capacity"
     )
 
 

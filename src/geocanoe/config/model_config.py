@@ -19,7 +19,7 @@ SUPPORTED_EMISSIONS_PROJECTION_METHODS = {"constant"}
 SUPPORTED_BASEMAP_GRID_TYPES = {"geographic", "projected"}
 SUPPORTED_PIPELINE_IMPEDANCE_SCOPES = {
     "none",
-    "etl_capex_only",
+    "eos_capex_only",
     "all_km_dependent",
 }
 MODEL_SECTIONS = {
@@ -334,12 +334,13 @@ def load_model_config(
         "basemap",
     )
 
-    impedance_scope = pipeline_costs_raw.get("impedance_scope")
-    if impedance_scope not in SUPPORTED_PIPELINE_IMPEDANCE_SCOPES:
+    impedance_scope_raw = pipeline_costs_raw.get("impedance_scope")
+    if impedance_scope_raw not in SUPPORTED_PIPELINE_IMPEDANCE_SCOPES:
         raise ValueError(
             "[pipeline_costs].impedance_scope must be one of "
             f"{sorted(SUPPORTED_PIPELINE_IMPEDANCE_SCOPES)}."
         )
+    impedance_scope = impedance_scope_raw
 
     return ModelConfig(
         time=ModelTimeConfig(start_year=start_year, end_year=end_year),

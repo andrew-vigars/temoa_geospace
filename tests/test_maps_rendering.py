@@ -1,10 +1,54 @@
 """Regression coverage for map units and non-intercepting local context."""
+import sqlite3
+from pathlib import Path
+
 import geopandas as gpd
 import pandas as pd
 import pytest
 from shapely.geometry import box
 
 from geocanoe.analysis import maps
+
+
+@pytest.mark.parametrize(
+    ("flow_table", "demand_table", "capacity_table"),
+    [
+        ("OutputFlowOut", "Demand", "LimitCapacity"),
+        ("output_flow_out", "demand", "limit_capacity"),
+    ],
+)
+def test_load_model_tables_accepts_legacy_and_v4_names(
+    tmp_path: Path,
+    flow_table: str,
+    demand_table: str,
+    capacity_table: str,
+) -> None:
+    database_path = tmp_path / "solved.sqlite"
+    with sqlite3.connect(database_path) as connection:
+        pd.DataFrame(
+            [{"region": "R0", "tech": "ELC_GEN", "flow": 1.0}]
+        ).to_sql(flow_table, connection, index=False)
+        pd.DataFrame(
+            [{"region": "R0", "commodity": "d_gsl", "demand": 2.0}]
+        ).to_sql(demand_table, connection, index=False)
+        pd.DataFrame(
+            [{"region": "R0", "tech_or_group": "CO2_CAP", "capacity": 3.0}]
+        ).to_sql(capacity_table, connection, index=False)
+
+    tables = maps.load_model_tables(database_path)
+
+    assert tables.flow_out.loc[0, "flow"] == 1.0
+    assert tables.demand.loc[0, "demand"] == 2.0
+    assert tables.limit_capacity.loc[0, "capacity"] == 3.0
+
+
+def test_load_model_tables_reports_missing_required_table(tmp_path: Path) -> None:
+    database_path = tmp_path / "solved.sqlite"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("CREATE TABLE demand (region TEXT)")
+
+    with pytest.raises(KeyError, match="OutputFlowOut"):
+        maps.load_model_tables(database_path)
 
 
 @pytest.mark.parametrize("value,layer,expected", [

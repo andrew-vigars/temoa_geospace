@@ -8,12 +8,58 @@ version = "0.7.0"
 description = "Reproducible geospatial data, model-building, and execution workflows for CANOE/TEMOA"
 readme = "README.md"
 requires-python = ">=3.12"
-dynamic = ["dependencies", "optional-dependencies"]
+dependencies = [
+    "iam-units==2023.9.12",
+    "numpy==2.3.1",
+    "openpyxl==3.1.5",
+    "pandas==2.3.1",
+    "Pint==0.26.1",
+    "pyam-iamc==3.0.0",
+    "PyYAML==6.0.2",
+    "geopandas==1.1.3",
+    "geopy==2.4.1",
+    "pyogrio==0.12.1",
+    "pyproj==3.7.2",
+    "rasterio==1.4.3",
+    "requests==2.32.4",
+    "shapely==2.1.2",
+    "branca==0.8.2",
+    "contextily==1.7.0",
+    "folium==0.20.0",
+    "matplotlib==3.9.2",
+    "seaborn==0.13.2",
+    "xyzservices==2026.3.0",
+    "tqdm==4.68.3",
+    "tomlkit==0.15.1",
+    "gurobipy==12.0.3",
+    "temoa @ git+https://github.com/andrew-vigars/temoa.git@29f98f9f67f4645ff35f6a176933d86b2963e485",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.4.1",
+    "pytest-cov==6.2.1",
+    "mypy==1.17.0",
+    "ruff==0.12.3",
+    "pre-commit==4.2.0",
+    "ipykernel==6.29.5",
+    "jupyter==1.1.1",
+    "jupyterlab==4.4.4",
+    "lonboard==0.16.0",
+    "anywidget==0.9.21",
+    "pyarrow==25.0.1",
+    "psygnal==0.16.1",
+    "arro3-core==0.8.3",
+    "arro3-compute==0.8.3",
+    "arro3-io==0.8.2",
+    "geoarrow-rust-core==0.6.3",
+]
 
 [project.scripts]
 geocanoe-build-bronze = "geocanoe.execution.bronze:main"
 geocanoe-build-silver = "geocanoe.execution.silver:main"
 geocanoe-build-schema = "geocanoe.schema.build:main"
+geocanoe-init-temoa-config = "geocanoe.execution.temoa_config:main"
 geocanoe-run = "geocanoe.execution.run:main"
 geocanoe-batch = "geocanoe.execution.batch:main"
 geocanoe-diagnostics = "geocanoe.diagnostics.cli:main"
@@ -22,16 +68,6 @@ geocanoe-map = "geocanoe.analysis.maps:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-
-[tool.setuptools.dynamic]
-dependencies = {file = ["requirements.txt", "temoa/requirements.txt"]}
-
-[tool.setuptools.dynamic.optional-dependencies]
-dev = {file = [
-    "requirements.txt",
-    "requirements-dev.txt",
-    "temoa/requirements-dev.txt",
-]}
 
 [tool.setuptools.packages.find]
 where = ["src"]

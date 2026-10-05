@@ -2,7 +2,10 @@
 
 Geospatial-CANOE extends the CANOE/TEMOA energy-system modelling framework with a modular geospatial data, schema, execution, and analysis pipeline. It converts Canadian boundary, road, emissions, demand, technology, and cost data into a spatial graph, encodes that graph as a CANOE/TEMOA-compatible SQLite database, executes model scenarios, and provides post-solve exports and interactive maps.
 
-The repository is an active research codebase. The current implementation uses the TEMOA v3-compatible CANOE backend and introduces mixed-integer formulations where transport infrastructure requires economies of scale, particularly for pipelines. Migration to TEMOA v4 is planned after the geospatial workflow is stable.
+The repository is an active research codebase undergoing migration to the
+TEMOA v4 backend. New installations obtain a pinned TEMOA v4 revision through
+the root package metadata, and model execution uses the installed package's
+Python API rather than a vendored source tree.
 
 ## Release and handoff history
 
@@ -86,16 +89,18 @@ The tree below is intentionally curated. It shows the active project architectur
 ```text
 Geospatial-CANOE/
 ├── README.md
-├── pyproject.toml                 Package and dynamic dependency mapping
-├── requirements.txt               Geospatial runtime requirements
-├── requirements-dev.txt           Geospatial development requirements
+├── pyproject.toml                 Package metadata and authoritative dependencies
+├── requirements.txt               Compatibility installer for the base project
+├── requirements-dev.txt           Compatibility installer for the dev extra
 ├── requirements-lock.txt          Optional reproducibility constraints
 │
 ├── config/
 │   ├── build_profiles/
 │   │   └── *.toml                 Geospatial preprocessing profiles
-│   └── batch_profiles/
-│       └── *.toml                 Ordered model-run batches
+│   ├── batch_profiles/
+│   │   └── *.toml                 Ordered model-run batches
+│   └── temoav4/
+│       └── *.toml                 TEMOA v4 solver configurations
 │
 ├── data_files/
 │   ├── raw/                       External and downloaded source datasets
@@ -120,8 +125,8 @@ Geospatial-CANOE/
 │   │   ├── nrn/
 │   │   ├── road_connectivity/
 │   │   └── schema/
-│   ├── CANOE_geospatial.sqlite    Baseline CANOE/TEMOA database
-│   ├── canoe_dataset_schema.sql   Base relational schema
+│   ├── CANOE_geospatial.sqlite    Legacy v3 database retained for migration reference
+│   ├── canoe_dataset_schema.sql   Legacy v3 schema retained for migration reference
 │   └── *.csv                      Other model input tables
 │
 ├── registry/                      User-managed registered model inputs
@@ -166,29 +171,22 @@ Geospatial-CANOE/
 ├── notebooks/                    Exploratory and development notebooks
 ├── output_files/                 Timestamped optimization runs
 ├── legacy_workflow/              Superseded workflow implementations
-└── temoa/                        CANOE/TEMOA optimization backend
+└── requirements-lock.txt         Resolved direct and transitive environment
 ```
 
 Active reusable code belongs under `src/geocanoe/`. Generated intermediate products belong under `data_files/processed/`, while solved scenarios and run provenance belong under `output_files/`.
 
 ## Installation
 
-The root `pyproject.toml` is the canonical package and installation interface
-for Geospatial-CANOE. Setuptools dynamically combines the root requirement
-fragments with the corresponding files from the bundled TEMOA backend, so no
-separate requirements-file installation is needed.
+The root `pyproject.toml` is the canonical package and dependency interface for
+Geospatial-CANOE. Runtime dependencies, Gurobi's Python package, the pinned
+TEMOA v4 Git revision, and optional development dependencies are declared
+there. The two
+requirements files are compatibility installers only and do not duplicate the
+dependency lists. TEMOA is no longer vendored in this repository.
 
-The normal installation reads `requirements.txt` and `temoa/requirements.txt`.
-Together, these provide the complete research environment for acquiring and
-processing data, building and solving CANOE/TEMOA models, and analysing model
-outputs. The `dev` extra additionally reads `requirements-dev.txt` and
-`temoa/requirements-dev.txt`, extending that research environment with the
-deeper contributor, testing, and notebook toolchain. Updating the bundled TEMOA
-checkout therefore updates the backend dependency set used by the next
-installation.
-
-Dependencies imported directly by `geocanoe` are declared in the root runtime
-fragment even when TEMOA currently requires the same package. This keeps the
+Dependencies imported directly by `geocanoe` are declared in `pyproject.toml`
+even when TEMOA currently requires the same package. This keeps the
 GeoCANOE dependency boundary explicit and prevents a future TEMOA dependency
 change from silently removing a package that GeoCANOE still uses. Direct and
 transitive versions for the reproducible development environment are captured
@@ -197,7 +195,7 @@ in `requirements-lock.txt`.
 ### Standard research installation
 
 This is the normal installation for research use. It supports the complete
-Geospatial-CANOE workflow and bundled CANOE/TEMOA model, including data
+Geospatial-CANOE workflow and installed CANOE/TEMOA model, including data
 acquisition, preprocessing, schema construction, optimization, diagnostics,
 exports, and maps. It intentionally excludes contributor-only tools.
 
@@ -207,6 +205,10 @@ mode:
 ```bash
 python -m pip install -e .
 ```
+
+The default installation includes both Temoa's HiGHS backend and the Gurobi
+Python package because the committed solver configurations select Gurobi. A
+valid Gurobi licence remains an external prerequisite for those runs.
 
 A successful installation should make the package importable without modifying `PYTHONPATH`:
 
@@ -223,6 +225,7 @@ Installation also provides the canonical workflow commands:
 | `geocanoe-build-bronze` | Acquire Bronze source data |
 | `geocanoe-build-silver` | Validate and build Silver products |
 | `geocanoe-build-schema` | Encode a Gold CANOE/TEMOA database |
+| `geocanoe-init-temoa-config` | Generate the starter solver config from the installed TEMOA package |
 | `geocanoe-run` | Execute one encoded model scenario |
 | `geocanoe-batch` | Execute an ordered scenario batch |
 | `geocanoe-diagnostics` | Audit model inputs or solved outputs |
@@ -249,6 +252,56 @@ The `dev` extra preserves the complete research environment and adds testing,
 coverage, linting, type-checking, pre-commit, interactive Jupyter tooling, and
 notebook-oriented geospatial exploration packages. It is not required to run
 the canonical research workflow.
+
+#### Temporary local TEMOA v4 development override
+
+While the TEMOA v4 model-construction patches are being developed, reviewed,
+and prepared for an upstream release, use the
+[`refactor/pyomo-model-construction`](https://github.com/andrew-vigars/temoa/tree/refactor/pyomo-model-construction)
+branch from the temporary TEMOA fork as an editable dependency. Download that
+branch with **Code > Download ZIP**, extract it beside `temoa_geospace`, and
+rename the extracted `temoa-refactor-pyomo-model-construction` directory to
+`temoa-v4`. The two repositories must have this sibling layout:
+
+```text
+temoa-upstream/
+├── temoa_geospace/
+└── temoa-v4/
+```
+
+Cloning the same branch directly into the expected sibling directory is
+equivalent:
+
+```bash
+git clone --branch refactor/pyomo-model-construction --single-branch \
+    https://github.com/andrew-vigars/temoa.git ../temoa-v4
+```
+
+From the Geospatial-CANOE repository root, install Geospatial-CANOE and its
+remaining dependencies first, then install local TEMOA last:
+
+```bash
+python -m pip install -e ".[dev]"
+python -m pip install --no-deps -e "../temoa-v4"
+```
+
+Use `-e .` instead of `-e ".[dev]"` in the first command when contributor tools
+are not required. The order is significant because the second command replaces
+the pinned Git TEMOA installation in the active virtual environment with the
+editable sibling checkout. Confirm the active source with:
+
+```bash
+python -c "import temoa; print(temoa.__file__)"
+```
+
+The printed path should be under the sibling `temoa-v4` directory. Changes to a
+Git checkout are then visible immediately without reinstalling; a ZIP-based
+copy can be replaced with a freshly downloaded branch snapshot when required.
+Repeat the local TEMOA command after rebuilding the environment or reinstalling
+Geospatial-CANOE, because reinstalling the root project may restore its declared
+TEMOA dependency. This override is temporary; `pyproject.toml` retains a
+portable Git revision until the patched TEMOA version is available from the
+upstream installation channel.
 
 Mypy is the canonical static type checker. Its project policy is stored in
 `pyproject.toml` and covers the importable package plus the compatibility CLI
@@ -288,11 +341,11 @@ In general, use `-e .` for the complete research environment and
 `-e ".[dev]"` for contributor, testing, or notebook work. Add
 `-c requirements-lock.txt` when reproducing the currently pinned environment.
 
-When a direct dependency changes, update the appropriate root or TEMOA
-requirement fragment, regenerate `requirements-lock.txt`, install with the lock
-file as a constraint, and run `python -m pip check`. The release tag should be
-created only after the package version, importable `geocanoe.__version__`, lock
-file, lint checks, and agreed test suite are consistent.
+When a direct dependency or TEMOA revision changes, update `pyproject.toml`,
+regenerate `requirements-lock.txt`, install with the lock file as a constraint,
+and run `python -m pip check`. The release tag should be created only after the
+package version, importable `geocanoe.__version__`, lock file, lint checks, and
+agreed test suite are consistent.
 
 ## Configuration
 
@@ -405,8 +458,8 @@ with every directed ``Ri-Rj`` edge without changing the graph's physical
 ``distance_km``. The supported ``[pipeline_costs].impedance_scope`` values are:
 
 - ``none``: use physical distance for all pipeline costs;
-- ``etl_capex_only``: use weighted distance only for pipeline CAPEX tables
-  (``CostInvest`` and/or ``ETLSegment``); and
+- ``eos_capex_only``: use weighted distance only for pipeline EOS CAPEX tables
+  (``cost_invest`` and/or EOS ``cost_invest_eos``); and
 - ``all_km_dependent``: use weighted distance for pipeline CAPEX tables, fixed
   OPEX, and variable OPEX.
 
@@ -415,7 +468,7 @@ contains:
 
 ```toml
 [pipeline_costs]
-impedance_scope = "etl_capex_only"
+impedance_scope = "eos_capex_only"
 ```
 
 When weighting is enabled, schema construction requires exact one-to-one edge
@@ -846,34 +899,63 @@ validates the encoded database; and writes:
 
 ```text
 data_files/processed/schema/
-    gold_<build-id>_<scenario-id>_<fingerprint>.sqlite
-    gold_<build-id>_<scenario-id>_<fingerprint>.manifest.json
+    gold_<build-id>_<scenario-id>_<fingerprint>_<barcode>.sqlite
+    gold_<build-id>_<scenario-id>_<fingerprint>_<barcode>.manifest.json
 ```
 
 For example:
 
 ```text
-gold_onqc_baseline_a1b2c3d4.sqlite
-gold_onqc_baseline_a1b2c3d4.manifest.json
+gold_onqc_baseline_a1b2c3d4_deadbeef.sqlite
+gold_onqc_baseline_a1b2c3d4_deadbeef.manifest.json
 ```
 
 The eight-character fingerprint is deterministic and incorporates the complete
-normalized build profile, the selected basemap, and the effective merged model
-configuration. It prevents materially different builds from overwriting one
-another without making filenames excessively long. The adjacent manifest stores
-the full resolved paths and values needed to interpret or reproduce the artifact.
+normalized build profile, the selected basemap, the effective merged model
+configuration, and a digest of the GeoCANOE schema-builder and installed Temoa
+backend source. A builder or backend change therefore produces a different Gold
+filename even when the scenario and Silver configuration are unchanged. The
+adjacent manifest stores the full implementation digest, resolved paths, and
+values needed to interpret or reproduce the artifact. The final eight-character
+barcode is unique to each build invocation, so an otherwise identical rebuild is
+written beside earlier schemas instead of overwriting them.
 
 The current generalized pipeline assumption applies the processed
 hydrogen-pipeline capacity and cost representation to all pipeline technologies
 until commodity-specific pipeline cost layers are available. A scenario may
 apply the matching Silver edge-impedance multiplier to CAPEX only or to every
 kilometre-dependent pipeline cost table; physical graph distances remain
-unchanged. ``CostInvest`` and ``ETLSegment`` are commonly used as alternative
-CAPEX representations, but they may coexist when they encode different
-investment components. The current generated pipeline layer uses
-``ETLSegment`` for its piecewise economies-of-scale CAPEX curve.
+unchanged. TEMOA v4's ``cost_invest`` and EOS ``cost_invest_eos`` tables
+may coexist when they encode different investment components. The current
+generated pipeline layer uses ``cost_invest_eos`` for its piecewise
+economies-of-scale CAPEX curve.
 
 ### Single-scenario execution
+
+Generate the first TEMOA v4 run configuration after installing GeoCANOE:
+
+```bash
+geocanoe-init-temoa-config
+```
+
+The command reads the canonical `tutorial_assets/config_sample.toml` resource
+from the active TEMOA package (including the editable sibling checkout) and
+writes the adapted starter file to `config/temoav4/config_sample.toml`
+automatically. GeoCANOE does not maintain a second copy of TEMOA's complete
+configuration template and no changes to the TEMOA source checkout are
+required. The generated config enables EOS, selects Gurobi, applies a 1% MIP
+optimality gap (`MIPGap = 0.01`) over TEMOA's otherwise unchanged solver
+defaults, and disables dual output for the mixed-integer EOS model.
+`geocanoe-run` replaces its placeholder database paths with the selected
+isolated working database before solving.
+
+The generated file is intentionally ignored by Git. Regenerate it after
+updating or switching the active TEMOA checkout, or replace an existing
+generated copy, with:
+
+```bash
+geocanoe-init-temoa-config --force
+```
 
 Run CANOE/TEMOA from an encoded SQLite database:
 

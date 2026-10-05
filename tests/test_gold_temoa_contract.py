@@ -1,75 +1,95 @@
 from __future__ import annotations
 
-import sys
+import sqlite3
 from pathlib import Path
 
-from geocanoe.schema import database
-from geocanoe.schema.build import clear_output_tables, export_sqlite
+import pandas as pd
+
+from geocanoe.schema.build import (
+    clear_output_tables,
+    export_sqlite,
+    load_empty_temoa_v4_tables,
+)
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-TEMOA_ROOT = PROJECT_ROOT / "temoa"
+def test_installed_temoa_v4_and_eos_schemas_are_the_gold_contract() -> None:
+    tables = load_empty_temoa_v4_tables()
 
-
-def test_geocanoe_export_is_loadable_by_temoa_without_solver(
-    tmp_path: Path,
-) -> None:
-    # Temoa is intentionally vendored rather than installed as part of geocanoe.
-    sys.path.insert(0, str(TEMOA_ROOT))
-    try:
-        from temoa.temoa_model.temoa_mode import TemoaMode
-        from temoa.temoa_model.temoa_sequencer import TemoaSequencer
-    finally:
-        sys.path.remove(str(TEMOA_ROOT))
-
-    seed_database = tmp_path / "seed.sqlite"
-    empty_geocanoe_database = tmp_path / "empty-geocanoe.sqlite"
-    encoded_database = tmp_path / "geocanoe.sqlite"
-    source_sql = TEMOA_ROOT / "tests" / "testing_data" / "test_system.sql"
-    database.convert_sql_to_sqlite(source_sql, seed_database)
-    database.convert_sql_to_sqlite(
-        PROJECT_ROOT / "data_files" / "canoe_dataset_schema.sql",
-        empty_geocanoe_database,
-    )
-
-    upstream_tables = database.sqlite_to_dfs(seed_database)
-    geocanoe_schema = database.sqlite_to_dfs(empty_geocanoe_database)
-    tables = {
-        name: table
-        for name, table in upstream_tables.items()
-        if name in geocanoe_schema
-        and set(table.columns).issubset(geocanoe_schema[name].columns)
+    assert len(tables) == 77
+    assert tables["metadata"].set_index("element")["value"].to_dict() == {
+        "DB_MAJOR": 4,
+        "DB_MINOR": 0,
     }
-    # The Gold MVP is intentionally single-period, so its canonical SQL omits
-    # the legacy TimeSeason, TimeOfDay, and TimeSegmentFraction tables. Remove
-    # upstream fixture rows indexed by those absent sets so Temoa exercises
-    # its supported single-timeslice fallback. Multiperiod support is deferred
-    # until after the MVP establishes the design baseline for Paper 1.
-    for name, table in tables.items():
-        if {"season", "tod"}.intersection(table.columns):
-            tables[name] = table.iloc[0:0].copy()
+    assert list(tables["cost_invest_eos"].columns) == [
+        "region",
+        "tech_or_group",
+        "segment",
+        "capacity_lower",
+        "capacity_upper",
+        "cost_lower",
+        "cost_upper",
+        "units",
+        "notes",
+    ]
+    assert "ETLSegment" not in tables
+    assert "DataSet" not in tables
+
+
+def test_geocanoe_export_uses_only_v4_and_eos_tables(tmp_path: Path) -> None:
+    tables = load_empty_temoa_v4_tables()
+    tables["region"] = pd.DataFrame(
+        {"region": ["R1"], "notes": ["test region"]}
+    )
+    tables["commodity"] = pd.DataFrame(
+        {
+            "name": ["fuel"],
+            "flag": ["a"],
+            "description": ["test fuel"],
+            "data_id": ["legacy provenance is intentionally dropped"],
+        }
+    )
+    tables["cost_invest_eos"] = pd.DataFrame(
+        {
+            "region": ["R1"],
+            "tech_or_group": ["TECH"],
+            "segment": [0],
+            "capacity_lower": [0.0],
+            "capacity_upper": [10.0],
+            "cost_lower": [0.0],
+            "cost_upper": [20.0],
+            "units": [None],
+            "notes": ["test curve"],
+        }
+    )
     clear_output_tables(tables)
+
+    encoded_database = tmp_path / "geocanoe-v4.sqlite"
     export_sqlite(tables, encoded_database)
 
-    source_config = (
-        TEMOA_ROOT / "tests" / "testing_configs" / "config_test_system.toml"
-    )
-    effective_config = tmp_path / "temoa-build-only.toml"
-    effective_config.write_text(
-        source_config.read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
-    database.update_db_paths(
-        effective_config,
-        str(encoded_database),
-        create_backup=False,
-    )
+    with sqlite3.connect(encoded_database) as connection:
+        table_names = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        commodity_columns = [
+            row[1]
+            for row in connection.execute('PRAGMA table_info("commodity")')
+        ]
+        version = dict(
+            connection.execute(
+                "SELECT element, value FROM metadata "
+                "WHERE element IN ('DB_MAJOR', 'DB_MINOR')"
+            ).fetchall()
+        )
 
-    instance = TemoaSequencer(
-        config_file=effective_config,
-        output_path=tmp_path,
-        mode_override=TemoaMode.BUILD_ONLY,
-        silent=True,
-    ).start()
-
-    assert instance is not None
+    assert version == {"DB_MAJOR": 4, "DB_MINOR": 0}
+    assert commodity_columns == ["name", "flag", "description", "units"]
+    assert {
+        "cost_invest_eos",
+        "cost_fixed_eos",
+        "cost_variable_eos",
+    }.issubset(table_names)
+    assert "ETLSegment" not in table_names
+    assert "DataSet" not in table_names

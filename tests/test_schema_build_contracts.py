@@ -7,22 +7,25 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import geocanoe.schema.build as schema_build
 from geocanoe.config import load_geospatial_build_config, load_model_config
 from geocanoe.schema.build import (
     ResolvedSchemaConfig,
-    assign_etl_curve_to_regions,
+    assign_eos_investment_curve_to_regions,
     attach_pipeline_cost_distances,
     build_canonical_links,
-    build_etl_curve,
-    build_generalized_pipeline_etl_segments,
+    build_eos_investment_curve,
+    build_generalized_pipeline_eos_investment_curves,
     build_generalized_pipeline_opex_rows,
     build_transport_costvariable,
     build_transport_efficiency,
     build_tech_specs,
     build_schema_fingerprint,
     clear_output_tables,
+    load_empty_temoa_v4_tables,
     rebuild_capacity_limits,
     rebuild_demand,
+    rebuild_node_costs,
     rebuild_static_supporting_tables,
     rebuild_storage_activity_limit,
     rebuild_storage_efficiency,
@@ -36,6 +39,35 @@ from geocanoe.schema.build import (
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_backup_gasoline_costs_are_limited_to_demand_regions() -> None:
+    tables = load_empty_temoa_v4_tables()
+    site_attributes = pd.DataFrame(
+        {
+            "region": ["R0", "R1", "R2"],
+            "demand": [0.0, 10.0, 0.0],
+            "LCOE": [1.0, 2.0, 3.0],
+            "co2_cost": [4.0, 5.0, 6.0],
+        }
+    )
+
+    rebuild_node_costs(tables, site_attributes, model_period=2025)
+
+    node_costs = tables["cost_variable"]
+    assert set(node_costs.loc[node_costs["tech"] == "GSL_BACKUP", "region"]) == {
+        "R1"
+    }
+    assert set(node_costs.loc[node_costs["tech"] == "ELC_GEN", "region"]) == {
+        "R0",
+        "R1",
+        "R2",
+    }
+    assert set(node_costs.loc[node_costs["tech"] == "CO2_CAP", "region"]) == {
+        "R0",
+        "R1",
+        "R2",
+    }
 
 
 def test_co2_registry_flags_balance_captured_co2_only() -> None:
@@ -78,7 +110,7 @@ minimum_cumulative_activity = 7_500_000_000
 id = "weighted-pipeline"
 
 [pipeline_costs]
-impedance_scope = "etl_capex_only"
+impedance_scope = "eos_capex_only"
 """,
         encoding="utf-8",
     )
@@ -90,27 +122,56 @@ impedance_scope = "etl_capex_only"
     baseline_hash = build_schema_fingerprint(
         build_config,
         baseline,
-        "sample_basemap_25km_centroid",
+        "sample_basemap_50km_centroid",
     )
     assert len(baseline_hash) == 8
     assert baseline_hash == build_schema_fingerprint(
         build_config,
         baseline,
-        "sample_basemap_25km_centroid",
+        "sample_basemap_50km_centroid",
     )
     assert baseline_hash != build_schema_fingerprint(
         build_config,
         alternate,
-        "sample_basemap_25km_centroid",
+        "sample_basemap_50km_centroid",
     )
     assert baseline_hash != build_schema_fingerprint(
         build_config,
         weighted,
-        "sample_basemap_25km_centroid",
+        "sample_basemap_50km_centroid",
+    )
+    assert baseline_hash != build_schema_fingerprint(
+        build_config,
+        baseline,
+        "sample_basemap_50km_centroid",
+        implementation_digest="different-backend-state",
     )
 
 
-def test_basemap_selection_matches_configured_resolution() -> None:
+def write_sample_basemap(path: Path, resolution: float) -> None:
+    basemap = gpd.GeoDataFrame(
+        {
+            "study_area": ["provinces_only"],
+            "grid_type": ["projected"],
+            "resolution": [resolution],
+            "resolution_unit": ["km"],
+            "keep_method": ["centroid"],
+        },
+        geometry=gpd.points_from_xy([0.0], [0.0]),
+        crs="EPSG:3347",
+    )
+    basemap.to_file(path, driver="GPKG")
+
+
+def test_basemap_selection_matches_configured_resolution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(schema_build, "PROCESSED_BASEMAPS", tmp_path)
+    write_sample_basemap(
+        tmp_path / "provinces_only_basemap_50km_centroid.gpkg",
+        resolution=50.0,
+    )
     build_config = load_geospatial_build_config(
         PROJECT_ROOT / "config" / "build_profiles" / "sample_build_profile.toml"
     )
@@ -121,12 +182,21 @@ def test_basemap_selection_matches_configured_resolution() -> None:
 
     basemap_stem = select_basemap_stem_for_resolution(build_config, model_config)
 
-    assert basemap_stem == "provinces_only_basemap_25km_centroid"
+    assert build_config.basemaps.projected_resolutions_km == (50.0,)
+    assert basemap_stem == "provinces_only_basemap_50km_centroid"
 
 
 def test_basemap_selection_rejects_ungenerated_resolution(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    processed_basemaps = tmp_path / "basemaps"
+    processed_basemaps.mkdir()
+    monkeypatch.setattr(schema_build, "PROCESSED_BASEMAPS", processed_basemaps)
+    write_sample_basemap(
+        processed_basemaps / "provinces_only_basemap_50km_centroid.gpkg",
+        resolution=50.0,
+    )
     build_config = load_geospatial_build_config(
         PROJECT_ROOT / "config" / "build_profiles" / "sample_build_profile.toml"
     )
@@ -150,40 +220,40 @@ resolution = 999
         select_basemap_stem_for_resolution(build_config, model_config)
 
 
-def test_etl_curve_is_contiguous_and_monotonic() -> None:
-    curve = build_etl_curve("ELC_TRANS", resolution=5, spacing="linear")
+def test_eos_investment_curve_is_contiguous_and_monotonic() -> None:
+    curve = build_eos_investment_curve("ELC_TRANS", resolution=5, spacing="linear")
 
     assert len(curve) == 4
-    assert curve.iloc[0]["cap_lower"] == 0
-    assert np.allclose(curve["cap_upper"].iloc[:-1], curve["cap_lower"].iloc[1:])
+    assert curve.iloc[0]["capacity_lower"] == 0
+    assert np.allclose(curve["capacity_upper"].iloc[:-1], curve["capacity_lower"].iloc[1:])
     assert np.allclose(
         curve["cost_upper"].iloc[:-1],
         curve["cost_lower"].iloc[1:],
     )
-    assert (curve["cap_upper"] > curve["cap_lower"]).all()
+    assert (curve["capacity_upper"] > curve["capacity_lower"]).all()
     assert (curve["cost_upper"] > curve["cost_lower"]).all()
 
 
 @pytest.mark.parametrize(
     ("technology", "resolution", "spacing", "message"),
     [
-        ("UNKNOWN", 5, "linear", "Missing ETL cost parameters"),
+        ("UNKNOWN", 5, "linear", "Missing EOS investment cost parameters"),
         ("ELC_TRANS", 1, "linear", "at least 2"),
         ("ELC_TRANS", 5, "quadratic", "must be 'log' or 'linear'"),
     ],
 )
-def test_etl_curve_rejects_invalid_requests(
+def test_eos_investment_curve_rejects_invalid_requests(
     technology: str,
     resolution: int,
     spacing: str,
     message: str,
 ) -> None:
     with pytest.raises(ValueError, match=message):
-        build_etl_curve(technology, resolution=resolution, spacing=spacing)
+        build_eos_investment_curve(technology, resolution=resolution, spacing=spacing)
 
 
-def test_etl_region_assignment_scales_cost_by_distance() -> None:
-    assigned = assign_etl_curve_to_regions(
+def test_eos_region_assignment_scales_cost_by_distance() -> None:
+    assigned = assign_eos_investment_curve_to_regions(
         pd.Series(["R0-R1", "R1-R2"]),
         "ELC_TRANS",
         pd.Series([1.0, 2.0]),
@@ -193,7 +263,7 @@ def test_etl_region_assignment_scales_cost_by_distance() -> None:
 
     assert len(first) == len(second)
     assert np.allclose(second["cost_upper"], first["cost_upper"] * 2)
-    assert np.allclose(second["cap_upper"], first["cap_upper"])
+    assert np.allclose(second["capacity_upper"], first["capacity_upper"])
 
 
 def test_transport_tables_expand_links_by_technology() -> None:
@@ -301,7 +371,7 @@ def _pipeline_impedance() -> pd.DataFrame:
     ("scope", "expected_capex", "expected_fixed_opex", "expected_variable_opex"),
     [
         ("none", 10.0, 10.0, 10.0),
-        ("etl_capex_only", 15.0, 10.0, 10.0),
+        ("eos_capex_only", 15.0, 10.0, 10.0),
         ("all_km_dependent", 15.0, 15.0, 15.0),
     ],
 )
@@ -334,11 +404,11 @@ def test_pipeline_impedance_requires_exact_edge_coverage() -> None:
         attach_pipeline_cost_distances(
             _pipeline_graph_edges(),
             impedance,
-            "etl_capex_only",
+            "eos_capex_only",
         )
 
 
-def test_pipeline_etl_and_opex_use_separate_cost_distances() -> None:
+def test_pipeline_eos_and_opex_use_separate_cost_distances() -> None:
     links = attach_pipeline_cost_distances(
         _pipeline_graph_edges(),
         _pipeline_impedance(),
@@ -346,15 +416,14 @@ def test_pipeline_etl_and_opex_use_separate_cost_distances() -> None:
     )
     links["canoe_region"] = links["edge_region"]
     tech_specs = pd.DataFrame({"tech": ["H2_PIPE"]})
-    etl_template = pd.DataFrame(
+    eos_template = pd.DataFrame(
         {
             "tech_or_group": ["H2_PIPE"],
             "segment": [0],
-            "cap_lower": [0.0],
-            "cap_upper": [100.0],
+            "capacity_lower": [0.0],
+            "capacity_upper": [100.0],
             "cost_lower_per_km": [0.0],
             "cost_upper_per_km": [2.0],
-            "data_id": ["GEO001"],
         }
     )
     opex_coefficients = pd.DataFrame(
@@ -367,10 +436,10 @@ def test_pipeline_etl_and_opex_use_separate_cost_distances() -> None:
         }
     )
 
-    etl = build_generalized_pipeline_etl_segments(
+    eos_rows = build_generalized_pipeline_eos_investment_curves(
         links,
         tech_specs,
-        etl_template,
+        eos_template,
     )
     fixed, variable = build_generalized_pipeline_opex_rows(
         links,
@@ -392,7 +461,9 @@ def test_pipeline_etl_and_opex_use_separate_cost_distances() -> None:
         2025,
     )
 
-    assert etl["cost_upper"].eq(30.0).all()
+    assert len(eos_rows) == 1
+    assert eos_rows["region"].tolist() == ["R0-R1"]
+    assert eos_rows["cost_upper"].eq(30.0).all()
     assert fixed["cost"].eq(45.0).all()
     assert variable["cost"].eq(60.0).all()
     assert transmission["cost"].eq(20.0).all()
@@ -548,7 +619,7 @@ def test_storage_efficiency_exactly_covers_accessible_regions() -> None:
         columns=columns,
     )
     db_encoded = {
-        "Efficiency": pd.concat([ordinary, stale_storage], ignore_index=True)
+        "efficiency": pd.concat([ordinary, stale_storage], ignore_index=True)
     }
     storage_regions = pd.DataFrame(
         {
@@ -559,8 +630,8 @@ def test_storage_efficiency_exactly_covers_accessible_regions() -> None:
 
     rebuild_storage_efficiency(db_encoded, storage_regions, 2025)
 
-    encoded = db_encoded["Efficiency"].loc[
-        db_encoded["Efficiency"]["tech"] == "CO2_INJECT"
+    encoded = db_encoded["efficiency"].loc[
+        db_encoded["efficiency"]["tech"] == "CO2_INJECT"
     ]
     assert set(encoded["region"]) == {"R0", "R2"}
     assert len(encoded) == 2
@@ -568,8 +639,8 @@ def test_storage_efficiency_exactly_covers_accessible_regions() -> None:
     assert encoded["output_comm"].eq("co2_stored").all()
     assert encoded["efficiency"].eq(1.0).all()
     assert encoded["vintage"].eq(2025).all()
-    assert not db_encoded["Efficiency"].loc[
-        db_encoded["Efficiency"]["tech"] == "ELC_GEN"
+    assert not db_encoded["efficiency"].loc[
+        db_encoded["efficiency"]["tech"] == "ELC_GEN"
     ].empty
 
 
@@ -617,8 +688,8 @@ def test_capacity_limits_keep_emissions_as_annual_representative_capacity() -> N
         emissions_projection_method="constant",
     )
 
-    co2_limits = db_encoded["LimitCapacity"].loc[
-        db_encoded["LimitCapacity"]["tech_or_group"] == "CO2_CAP"
+    co2_limits = db_encoded["limit_capacity"].loc[
+        db_encoded["limit_capacity"]["tech_or_group"] == "CO2_CAP"
     ]
     assert co2_limits["capacity"].tolist() == [1_000.0, 0.0]
     assert set(co2_limits["units"]) == {"t CO2e/year"}
@@ -639,7 +710,7 @@ def test_demand_is_encoded_as_annual_tonnes() -> None:
         model_period=2025,
     )
 
-    assert db_encoded["Demand"][
+    assert db_encoded["demand"][
         ["region", "period", "commodity", "demand", "units"]
     ].to_dict("records") == [
         {
@@ -651,7 +722,7 @@ def test_demand_is_encoded_as_annual_tonnes() -> None:
         }
     ]
     assert "Silver gasoline-demand workflow" in (
-        db_encoded["Demand"].iloc[0]["notes"]
+        db_encoded["demand"].iloc[0]["notes"]
     )
 
 
@@ -680,14 +751,14 @@ def test_storage_minimum_cumulative_activity_encodes_annual_equivalent() -> None
         "data_id",
     ]
     db_encoded = {
-        "LimitActivity": pd.DataFrame(
+        "limit_activity": pd.DataFrame(
             [
                 ["R0", 1, "ELC_GEN", "le", 10.0] + [None] * 9,
                 ["R9", 1, "CO2_INJECT", "le", 5.0] + [None] * 9,
             ],
             columns=limit_columns,
         ),
-        "Efficiency": pd.DataFrame(
+        "efficiency": pd.DataFrame(
             {"region": ["R1"], "tech": ["CO2_INJECT"]}
         ),
     }
@@ -700,8 +771,8 @@ def test_storage_minimum_cumulative_activity_encodes_annual_equivalent() -> None
         period_years=25,
     )
 
-    encoded = db_encoded["LimitActivity"].loc[
-        db_encoded["LimitActivity"]["tech_or_group"] == "CO2_INJECT"
+    encoded = db_encoded["limit_activity"].loc[
+        db_encoded["limit_activity"]["tech_or_group"] == "CO2_INJECT"
     ]
     assert encoded[
         ["region", "period", "operator", "activity", "units"]
@@ -714,7 +785,7 @@ def test_storage_minimum_cumulative_activity_encodes_annual_equivalent() -> None
             "units": "t CO2e/year",
         }
     ]
-    assert set(db_encoded["LimitActivity"]["tech_or_group"]) == {
+    assert set(db_encoded["limit_activity"]["tech_or_group"]) == {
         "ELC_GEN",
         "CO2_INJECT",
     }
@@ -722,26 +793,26 @@ def test_storage_minimum_cumulative_activity_encodes_annual_equivalent() -> None
 
 def test_storage_requirement_none_removes_stale_injection_constraint() -> None:
     db_encoded = {
-        "LimitActivity": pd.DataFrame(
+        "limit_activity": pd.DataFrame(
             {
                 "tech_or_group": ["CO2_INJECT", "ELC_GEN"],
             }
         ),
-        "Efficiency": pd.DataFrame(
+        "efficiency": pd.DataFrame(
             {"region": ["R1"], "tech": ["CO2_INJECT"]}
         ),
     }
 
     rebuild_storage_activity_limit(db_encoded, "none", 0.0, 2025, 25)
 
-    assert db_encoded["LimitActivity"]["tech_or_group"].tolist() == [
+    assert db_encoded["limit_activity"]["tech_or_group"].tolist() == [
         "ELC_GEN"
     ]
 
 
 def test_static_tables_encode_one_25_year_period_and_finance() -> None:
     db_encoded = {
-        "MetaDataReal": pd.DataFrame(
+        "metadata_real": pd.DataFrame(
             {
                 "element": ["global_discount_rate", "default_loan_rate"],
                 "value": [0.05, 0.05],
@@ -762,25 +833,35 @@ def test_static_tables_encode_one_25_year_period_and_finance() -> None:
         default_loan_rate=0.03,
     )
 
-    assert db_encoded["TimePeriod"].to_dict("records") == [
+    assert db_encoded["time_period"].to_dict("records") == [
         {"sequence": 1, "period": 2025, "flag": "f"},
         {"sequence": 2, "period": 2050, "flag": "f"},
     ]
-    finance = db_encoded["MetaDataReal"].set_index("element")["value"]
+    assert db_encoded["time_season"][
+        ["sequence", "season", "segment_fraction"]
+    ].to_dict("records") == [
+        {"sequence": 1, "season": "S", "segment_fraction": 1.0}
+    ]
+    assert db_encoded["time_of_day"][
+        ["sequence", "tod", "hours"]
+    ].to_dict("records") == [
+        {"sequence": 1, "tod": "D", "hours": 24.0}
+    ]
+    finance = db_encoded["metadata_real"].set_index("element")["value"]
     assert finance["global_discount_rate"] == 0.03
     assert finance["default_loan_rate"] == 0.03
 
 
 def test_clear_output_tables_preserves_schema() -> None:
     tables = {
-        "Technology": pd.DataFrame({"tech": ["A"]}),
-        "OutputFlowOut": pd.DataFrame({"scenario": ["S"], "flow": [1.0]}),
-        "OutputCost": pd.DataFrame({"scenario": ["S"], "cost": [2.0]}),
+        "technology": pd.DataFrame({"tech": ["A"]}),
+        "output_flow_out": pd.DataFrame({"scenario": ["S"], "flow": [1.0]}),
+        "output_cost": pd.DataFrame({"scenario": ["S"], "cost": [2.0]}),
     }
 
     clear_output_tables(tables)
 
-    assert tables["Technology"].to_dict("records") == [{"tech": "A"}]
-    assert tables["OutputFlowOut"].empty
-    assert list(tables["OutputFlowOut"].columns) == ["scenario", "flow"]
-    assert tables["OutputCost"].empty
+    assert tables["technology"].to_dict("records") == [{"tech": "A"}]
+    assert tables["output_flow_out"].empty
+    assert list(tables["output_flow_out"].columns) == ["scenario", "flow"]
+    assert tables["output_cost"].empty

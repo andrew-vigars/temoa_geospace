@@ -20,13 +20,13 @@ def _write_tables(path: Path, tables: dict[str, pd.DataFrame]) -> None:
 
 def _valid_input_tables() -> dict[str, pd.DataFrame]:
     return {
-        "Technology": pd.DataFrame(
+        "technology": pd.DataFrame(
             {"tech": ["READY"], "exchange": [0], "unlim_cap": [0]}
         ),
-        "Commodity": pd.DataFrame(
+        "commodity": pd.DataFrame(
             {"name": ["feed", "product"], "flag": ["s", "d"]}
         ),
-        "Efficiency": pd.DataFrame(
+        "efficiency": pd.DataFrame(
             {
                 "tech": ["READY"],
                 "input_comm": ["feed"],
@@ -34,27 +34,41 @@ def _valid_input_tables() -> dict[str, pd.DataFrame]:
                 "efficiency": [1.0],
             }
         ),
-        "CostVariable": pd.DataFrame({"tech": ["READY"], "cost": [1.0]}),
-        "CostInvest": pd.DataFrame({"tech": ["READY"], "cost": [1.0]}),
-        "Demand": pd.DataFrame({"demand": [1.0]}),
-        "ETLSegment": pd.DataFrame(
+        "cost_variable": pd.DataFrame({"tech": ["READY"], "cost": [1.0]}),
+        "cost_invest": pd.DataFrame({"tech": ["READY"], "cost": [1.0]}),
+        "demand": pd.DataFrame({"demand": [1.0]}),
+        "cost_invest_eos": pd.DataFrame(
             {
+                "region": ["R1"],
                 "tech_or_group": ["READY"],
-                "cap_lower": [0.0],
-                "cap_upper": [1.0],
+                "segment": [0],
+                "capacity_lower": [0.0],
+                "capacity_upper": [1.0],
                 "cost_lower": [0.0],
                 "cost_upper": [1.0],
             }
+        ),
+        "cost_fixed_eos": pd.DataFrame(
+            columns=[
+                "region", "period", "tech_or_group", "segment",
+                "capacity_lower", "capacity_upper", "cost_lower", "cost_upper",
+            ]
+        ),
+        "cost_variable_eos": pd.DataFrame(
+            columns=[
+                "region", "period", "tech_or_group", "segment",
+                "activity_lower", "activity_upper", "cost_lower", "cost_upper",
+            ]
         ),
     }
 
 
 def _valid_output_tables() -> dict[str, pd.DataFrame]:
     return {
-        "OutputFlowIn": pd.DataFrame(
+        "output_flow_in": pd.DataFrame(
             columns=["scenario", "region", "period", "tech", "vintage", "input_comm", "flow"]
         ),
-        "OutputFlowOut": pd.DataFrame(
+        "output_flow_out": pd.DataFrame(
             {
                 "scenario": ["S"],
                 "region": ["R1"],
@@ -65,14 +79,14 @@ def _valid_output_tables() -> dict[str, pd.DataFrame]:
                 "flow": [10.0],
             }
         ),
-        "Demand": pd.DataFrame(
+        "demand": pd.DataFrame(
             {"region": ["R1"], "period": [1], "commodity": ["elc"], "demand": [10.0]}
         ),
-        "Commodity": pd.DataFrame({"name": ["elc"], "flag": ["d"]}),
-        "OutputObjective": pd.DataFrame(
+        "commodity": pd.DataFrame({"name": ["elc"], "flag": ["d"]}),
+        "output_objective": pd.DataFrame(
             {"scenario": ["S"], "objective_name": ["TotalCost"], "total_system_cost": [6.0]}
         ),
-        "OutputCost": pd.DataFrame(
+        "output_cost": pd.DataFrame(
             {
                 "scenario": ["S"],
                 "d_invest": [1.0],
@@ -104,7 +118,7 @@ def test_schema_database_adapter_reports_missing_required_table(
 ) -> None:
     database = tmp_path / "inputs.sqlite"
     tables = _valid_input_tables()
-    del tables["Technology"]
+    del tables["technology"]
     _write_tables(database, tables)
 
     run = run_schema_database_checks(database)
@@ -131,8 +145,8 @@ def test_output_database_adapter_reports_physical_and_cost_failures(
 ) -> None:
     database = tmp_path / "solved.sqlite"
     tables = _valid_output_tables()
-    tables["Demand"]["demand"] = 12.0
-    tables["OutputObjective"]["total_system_cost"] = 7.0
+    tables["demand"]["demand"] = 12.0
+    tables["output_objective"]["total_system_cost"] = 7.0
     _write_tables(database, tables)
 
     run = run_output_database_checks(database)

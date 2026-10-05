@@ -8,12 +8,15 @@ from geocanoe.diagnostics.models import DiagnosticResult, DiagnosticStage
 
 
 TECH_PARAMETER_COLUMNS = {
-    "Efficiency": "tech",
-    "CostVariable": "tech",
-    "CostInvest": "tech",
-    "ETLSegment": "tech_or_group",
-    "LimitCapacity": "tech_or_group",
-    "ExistingCapacity": "tech",
+    "efficiency": "tech",
+    "cost_variable": "tech",
+    "cost_invest": "tech",
+    "cost_fixed": "tech",
+    "cost_invest_eos": "tech_or_group",
+    "cost_fixed_eos": "tech_or_group",
+    "cost_variable_eos": "tech_or_group",
+    "limit_capacity": "tech_or_group",
+    "existing_capacity": "tech",
 }
 
 
@@ -62,19 +65,18 @@ def check_technology_readiness(
     """Build a technology coverage matrix and evaluate minimum readiness.
 
     All declared technologies require an efficiency representation. Technologies
-    with bounded capacity require either ordinary investment-cost rows or an ETL
-    cost curve. Every technology except an inferred zero-cost demand sink requires
-    at least one cost representation in ``CostVariable``, ``CostInvest``, or
-    ``ETLSegment``.
+    with bounded capacity require either ordinary investment-cost rows or an EOS
+    investment-cost curve. Every technology except an inferred zero-cost demand
+    sink requires at least one flat or EOS cost representation.
     """
 
-    technology = tables.get("Technology", pd.DataFrame())
+    technology = tables.get("technology", pd.DataFrame())
     if technology.empty or "tech" not in technology.columns:
         failure = DiagnosticResult(
             name="Technology readiness matrix can be built",
             passed=False,
             severity="ERROR",
-            detail="Technology table or Technology.tech column is missing",
+            detail="technology table or technology.tech column is missing",
             ran=False,
             check_id="INPUT.TECH.READINESS_AVAILABLE",
             stage=DiagnosticStage.INPUT,
@@ -86,8 +88,8 @@ def check_technology_readiness(
         for table_name, tech_col in TECH_PARAMETER_COLUMNS.items()
     }
     demand_sinks = _demand_sink_technologies(
-        tables.get("Efficiency", pd.DataFrame()),
-        tables.get("Commodity", pd.DataFrame()),
+        tables.get("efficiency", pd.DataFrame()),
+        tables.get("commodity", pd.DataFrame()),
     )
 
     matrix = technology[
@@ -110,12 +112,15 @@ def check_technology_readiness(
     matrix["is_demand_sink"] = matrix["tech"].isin(demand_sinks)
     matrix["requires_capacity_cost"] = ~unlimited
     matrix["has_any_cost"] = (
-        matrix["has_costvariable"]
-        | matrix["has_costinvest"]
-        | matrix["has_etlsegment"]
+        matrix["has_cost_variable"]
+        | matrix["has_cost_invest"]
+        | matrix["has_cost_fixed"]
+        | matrix["has_cost_invest_eos"]
+        | matrix["has_cost_fixed_eos"]
+        | matrix["has_cost_variable_eos"]
     )
     matrix["has_capacity_cost"] = (
-        matrix["has_costinvest"] | matrix["has_etlsegment"]
+        matrix["has_cost_invest"] | matrix["has_cost_invest_eos"]
     )
     matrix["missing_efficiency"] = ~matrix["has_efficiency"]
     matrix["missing_cost_representation"] = (
@@ -143,13 +148,13 @@ def check_technology_readiness(
             "INPUT.TECH.COST_REPRESENTATION_MISSING",
             "Every non-demand technology has a cost representation",
             "missing_cost_representation",
-            "Represent technology costs in CostVariable, CostInvest, or ETLSegment.",
+            "Represent technology costs in a flat cost table or an EOS cost table.",
         ),
         (
             "INPUT.TECH.CAPACITY_COST_MISSING",
             "Every bounded technology has a capacity-cost representation",
             "missing_capacity_cost",
-            "Add CostInvest rows or an ETLSegment curve, or explicitly mark the technology as unlimited capacity.",
+            "Add cost_invest rows or a cost_invest_eos curve, or explicitly mark the technology as unlimited capacity.",
         ),
     ]
 
