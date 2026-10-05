@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import geocanoe.schema.build as schema_build
 from geocanoe.config import load_geospatial_build_config, load_model_config
 from geocanoe.schema.build import (
     ResolvedSchemaConfig,
@@ -121,33 +122,56 @@ impedance_scope = "eos_capex_only"
     baseline_hash = build_schema_fingerprint(
         build_config,
         baseline,
-        "sample_basemap_25km_centroid",
+        "sample_basemap_50km_centroid",
     )
     assert len(baseline_hash) == 8
     assert baseline_hash == build_schema_fingerprint(
         build_config,
         baseline,
-        "sample_basemap_25km_centroid",
+        "sample_basemap_50km_centroid",
     )
     assert baseline_hash != build_schema_fingerprint(
         build_config,
         alternate,
-        "sample_basemap_25km_centroid",
+        "sample_basemap_50km_centroid",
     )
     assert baseline_hash != build_schema_fingerprint(
         build_config,
         weighted,
-        "sample_basemap_25km_centroid",
+        "sample_basemap_50km_centroid",
     )
     assert baseline_hash != build_schema_fingerprint(
         build_config,
         baseline,
-        "sample_basemap_25km_centroid",
+        "sample_basemap_50km_centroid",
         implementation_digest="different-backend-state",
     )
 
 
-def test_basemap_selection_matches_configured_resolution() -> None:
+def write_sample_basemap(path: Path, resolution: float) -> None:
+    basemap = gpd.GeoDataFrame(
+        {
+            "study_area": ["provinces_only"],
+            "grid_type": ["projected"],
+            "resolution": [resolution],
+            "resolution_unit": ["km"],
+            "keep_method": ["centroid"],
+        },
+        geometry=gpd.points_from_xy([0.0], [0.0]),
+        crs="EPSG:3347",
+    )
+    basemap.to_file(path, driver="GPKG")
+
+
+def test_basemap_selection_matches_configured_resolution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(schema_build, "PROCESSED_BASEMAPS", tmp_path)
+    write_sample_basemap(
+        tmp_path / "provinces_only_basemap_50km_centroid.gpkg",
+        resolution=50.0,
+    )
     build_config = load_geospatial_build_config(
         PROJECT_ROOT / "config" / "build_profiles" / "sample_build_profile.toml"
     )
@@ -158,12 +182,21 @@ def test_basemap_selection_matches_configured_resolution() -> None:
 
     basemap_stem = select_basemap_stem_for_resolution(build_config, model_config)
 
-    assert basemap_stem == "provinces_only_basemap_25km_centroid"
+    assert build_config.basemaps.projected_resolutions_km == (50.0,)
+    assert basemap_stem == "provinces_only_basemap_50km_centroid"
 
 
 def test_basemap_selection_rejects_ungenerated_resolution(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    processed_basemaps = tmp_path / "basemaps"
+    processed_basemaps.mkdir()
+    monkeypatch.setattr(schema_build, "PROCESSED_BASEMAPS", processed_basemaps)
+    write_sample_basemap(
+        processed_basemaps / "provinces_only_basemap_50km_centroid.gpkg",
+        resolution=50.0,
+    )
     build_config = load_geospatial_build_config(
         PROJECT_ROOT / "config" / "build_profiles" / "sample_build_profile.toml"
     )

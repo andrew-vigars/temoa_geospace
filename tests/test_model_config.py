@@ -26,11 +26,11 @@ def test_committed_model_registry_is_single_period_2025_to_2050() -> None:
     assert config.storage.requirement == "none"
     assert config.storage.minimum_cumulative_activity == 0.0
     assert config.basemap.grid_type == "projected"
-    assert config.basemap.resolution == 25.0
+    assert config.basemap.resolution == 50.0
     assert config.transport_modes.roads_enabled is True
     assert config.transport_modes.pipelines_enabled is True
-    assert config.pipeline_costs.impedance_scope == "none"
-    assert config.scenario.scenario_id == "baseline-25km"
+    assert config.pipeline_costs.impedance_scope == "all_km_dependent"
+    assert config.scenario.scenario_id == "validate-50km"
 
 
 def test_scenario_overrides_global_model_defaults(tmp_path: Path) -> None:
