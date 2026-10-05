@@ -10,6 +10,7 @@ from geocanoe.diagnostics.renderers import render_console_result, write_json_rep
 from geocanoe.diagnostics.runner import run_checks
 from geocanoe.schema.artifacts import (
     resolve_gasoline_demand_artifact_path,
+    resolve_latest_schema_artifact,
     resolve_schema_artifact_paths,
 )
 
@@ -100,6 +101,20 @@ def test_schema_artifact_paths_include_road_layer() -> None:
     )
     assert identified.schema.name == "gold_onqc_baseline_a1b2c3d4.sqlite"
 
+    build_instance = resolve_schema_artifact_paths(
+        project_root=Path("C:/example/geocanoe"),
+        basemap_stem="on_qc_basemap_25km_centroid",
+        road_layer="freight_access",
+        connection_method="strong",
+        build_id="onqc",
+        scenario_id="baseline",
+        fingerprint="a1b2c3d4",
+        artifact_barcode="deadbeef",
+    )
+    assert build_instance.schema.name == (
+        "gold_onqc_baseline_a1b2c3d4_deadbeef.sqlite"
+    )
+
     gasoline = resolve_gasoline_demand_artifact_path(
         Path("C:/example/geocanoe"),
         "onqc",
@@ -114,3 +129,11 @@ def test_schema_artifact_paths_include_road_layer() -> None:
         / "basemaps"
         / "on_qc_basemap_25km_centroid_gasoline_demand.gpkg"
     )
+
+
+def test_latest_schema_artifact_finds_build_barcode(tmp_path: Path) -> None:
+    canonical = tmp_path / "gold_onqc_baseline_a1b2c3d4.sqlite"
+    build_instance = tmp_path / "gold_onqc_baseline_a1b2c3d4_deadbeef.sqlite"
+    build_instance.touch()
+
+    assert resolve_latest_schema_artifact(canonical) == build_instance

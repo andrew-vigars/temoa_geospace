@@ -73,6 +73,7 @@ from geocanoe.paths import find_project_root
 from geocanoe.regions import PROVINCE_NAME_TO_CODE
 from geocanoe.schema.artifacts import (
     resolve_gasoline_demand_artifact_path,
+    resolve_latest_schema_artifact,
     resolve_schema_artifact_paths,
 )
 from geocanoe.schema.build import (
@@ -387,7 +388,7 @@ def build_audit_config(
         fingerprint=fingerprint,
     )
 
-    default_schema_path = artifacts.schema
+    default_schema_path = resolve_latest_schema_artifact(artifacts.schema)
 
     schema_path = schema_override if schema_override is not None else default_schema_path
 

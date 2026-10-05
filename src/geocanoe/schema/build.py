@@ -46,7 +46,7 @@ Processed cost inputs:
 Outputs
 -------
 data_files/processed/schema/
-    gold_{BUILD_ID}_{SCENARIO_ID}_{FINGERPRINT}.sqlite
+    gold_{BUILD_ID}_{SCENARIO_ID}_{FINGERPRINT}_{BARCODE}.sqlite
 """
 
 import argparse
@@ -56,6 +56,7 @@ from importlib import resources
 import json
 import math
 from pathlib import Path
+import secrets
 import sqlite3
 from time import perf_counter
 
@@ -211,7 +212,12 @@ class ResolvedSchemaConfig:
     scenario_description : str
         Human-readable explanation from the selected scenario.
     fingerprint : str
-        Deterministic eight-character hash of effective Silver and model inputs.
+        Deterministic eight-character hash of effective Silver and model inputs
+        plus the GeoCANOE and Temoa implementation state.
+    implementation_digest : str
+        Full digest of schema-relevant GeoCANOE and Temoa source files.
+    artifact_barcode : str
+        Unique eight-character identifier for this individual build invocation.
     basemap_stem : str
         Stem of the selected Stage 1 basemap file.
     road_layer : str
@@ -304,6 +310,8 @@ class ResolvedSchemaConfig:
     legacy_gasoline_enabled: bool
     legacy_gasoline_years_of_demand: float
     output_sqlite_path: Path
+    implementation_digest: str = ""
+    artifact_barcode: str = ""
     roads_enabled: bool = True
     pipelines_enabled: bool = True
     pipeline_impedance_scope: str = "none"
@@ -763,20 +771,28 @@ def resolve_schema_configuration(
             "configured road-connectivity stage."
         )
 
+    implementation_digest = build_schema_implementation_digest()
     fingerprint = build_schema_fingerprint(
         build_config=build_config,
         model_config=model_config,
         basemap_stem=basemap_stem,
+        implementation_digest=implementation_digest,
     )
-    artifacts = resolve_schema_artifact_paths(
-        project_root=PROJECT_ROOT,
-        basemap_stem=basemap_stem,
-        road_layer=road_layer,
-        connection_method=connection_method,
-        build_id=build_config.build_id,
-        scenario_id=model_config.scenario.scenario_id,
-        fingerprint=fingerprint,
-    )
+    while True:
+        artifact_barcode = secrets.token_hex(4)
+        artifacts = resolve_schema_artifact_paths(
+            project_root=PROJECT_ROOT,
+            basemap_stem=basemap_stem,
+            road_layer=road_layer,
+            connection_method=connection_method,
+            build_id=build_config.build_id,
+            scenario_id=model_config.scenario.scenario_id,
+            fingerprint=fingerprint,
+            artifact_barcode=artifact_barcode,
+        )
+        manifest_path = artifacts.schema.with_suffix(".manifest.json")
+        if not artifacts.schema.exists() and not manifest_path.exists():
+            break
     gasoline_demand_path = resolve_gasoline_demand_artifact_path(
         project_root=PROJECT_ROOT,
         build_id=build_config.build_id,
@@ -819,6 +835,8 @@ def resolve_schema_configuration(
             model_config.legacy_gasoline.years_of_demand
         ),
         output_sqlite_path=artifacts.schema,
+        implementation_digest=implementation_digest,
+        artifact_barcode=artifact_barcode,
         roads_enabled=model_config.transport_modes.roads_enabled,
         pipelines_enabled=model_config.transport_modes.pipelines_enabled,
         pipeline_impedance_scope=pipeline_impedance_scope,
@@ -830,16 +848,53 @@ def resolve_schema_configuration(
     return config
 
 
+def build_schema_implementation_digest() -> str:
+    """Hash GeoCANOE schema code and the installed Temoa backend source.
+
+    The schema filename must change when implementation changes can alter either
+    the encoded database or how Temoa interprets it. Only source and SQL contract
+    files are included; caches and generated artifacts are intentionally excluded.
+    """
+    source_roots = {
+        "geocanoe": Path(__file__).resolve().parents[1],
+        "temoa": Path(str(resources.files("temoa"))).resolve(),
+    }
+    included_suffixes = {".py", ".sql"}
+    digest = hashlib.sha256()
+
+    for label, root in sorted(source_roots.items()):
+        if not root.is_dir():
+            raise FileNotFoundError(
+                f"Cannot fingerprint {label} implementation source: {root}"
+            )
+        source_files = sorted(
+            path
+            for path in root.rglob("*")
+            if path.is_file() and path.suffix.lower() in included_suffixes
+        )
+        for source_path in source_files:
+            relative_path = source_path.relative_to(root).as_posix()
+            digest.update(f"{label}:{relative_path}\0".encode("utf-8"))
+            digest.update(source_path.read_bytes())
+            digest.update(b"\0")
+
+    return digest.hexdigest()
+
+
 def build_schema_fingerprint(
     build_config: GeospatialBuildConfig,
     model_config: ModelConfig,
     basemap_stem: str,
+    implementation_digest: str | None = None,
 ) -> str:
-    """Hash normalized effective Silver and model settings for artifact identity."""
+    """Hash effective configuration and implementation for artifact identity."""
 
     silver = asdict(build_config)
     silver.pop("source_path", None)
     payload = {
+        "implementation": (
+            implementation_digest or build_schema_implementation_digest()
+        ),
         "silver": silver,
         "selected_basemap_stem": basemap_stem,
         "model": {
@@ -3949,6 +4004,52 @@ def assign_eos_investment_curve_to_regions(
     ].copy()
 
 
+def canonicalize_capacity_cost_links(
+    links: pd.DataFrame,
+    distance_column: str,
+) -> pd.DataFrame:
+    """Return one canonical cost owner for each bidirectional corridor.
+
+    Pipeline and transmission capacity is shared by both directed exchange-region
+    identifiers. Capacity-driven EOS investment cost must therefore be attached to
+    only one orientation, while directional efficiency and operating-cost rows remain
+    unchanged.
+    """
+    required_columns = {"canoe_region", distance_column}
+    missing_columns = required_columns - set(links.columns)
+    if missing_columns:
+        raise ValueError(
+            "Capacity-cost links are missing required columns: "
+            f"{sorted(missing_columns)}"
+        )
+
+    canonical = links[["canoe_region", distance_column]].copy()
+    endpoints = canonical["canoe_region"].astype(str).str.split("-", expand=True)
+    if endpoints.shape[1] != 2 or endpoints.isna().any(axis=None):
+        raise ValueError(
+            "Capacity-cost exchange regions must contain exactly two endpoints."
+        )
+
+    canonical["region"] = endpoints.apply(
+        lambda row: "-".join(sorted((str(row.iloc[0]), str(row.iloc[1])))),
+        axis=1,
+    )
+    distance_counts = canonical.groupby("region")[distance_column].nunique(dropna=False)
+    inconsistent_regions = distance_counts[distance_counts != 1].index.tolist()
+    if inconsistent_regions:
+        raise ValueError(
+            "Reverse orientations have inconsistent capacity-cost distances for "
+            f"corridors: {inconsistent_regions[:10]}"
+        )
+
+    return (
+        canonical[["region", distance_column]]
+        .drop_duplicates(subset=["region"])
+        .sort_values("region")
+        .reset_index(drop=True)
+    )
+
+
 def build_legacy_eos_investment_curves(
     site_attributes: pd.DataFrame,
     canonical: CanonicalLinks,
@@ -4009,10 +4110,9 @@ def build_legacy_eos_investment_curves(
         f"{reference_distance_km:.2f} km"
     )
 
-    edge_frame = (
-        canonical.pipeline_links[["canoe_region", "distance_km"]]
-        .rename(columns={"canoe_region": "region"})
-        .copy()
+    edge_frame = canonicalize_capacity_cost_links(
+        canonical.pipeline_links,
+        "distance_km",
     )
     distance_factor = edge_frame["distance_km"] / reference_distance_km
 
@@ -4057,8 +4157,9 @@ def build_generalized_pipeline_eos_investment_curves(
 ) -> pd.DataFrame:
     """Map the generalized H2-derived pipeline EOS investment curve to all links.
 
-    The topology-free EOS investment template is replicated across every canonical
-    pipeline edge and every configured pipeline technology. Template technology
+    The topology-free EOS investment template is replicated across one canonical
+    orientation of every capacity-tied corridor and every configured pipeline
+    technology. Template technology
     labels are replaced with the target pipeline technology, while per-kilometre
     lower and upper CAPEX bounds are multiplied by each edge's distance to produce
     link-specific investment-cost segments.
@@ -4092,10 +4193,9 @@ def build_generalized_pipeline_eos_investment_curves(
         are produced.
     """
 
-    edge_frame = (
-        pipeline_links[["canoe_region", "pipeline_capex_distance_km"]]
-        .rename(columns={"canoe_region": "region"})
-        .copy()
+    edge_frame = canonicalize_capacity_cost_links(
+        pipeline_links,
+        "pipeline_capex_distance_km",
     )
     if edge_frame.empty:
         raise ValueError("No canonical pipeline links are available.")
@@ -5110,9 +5210,9 @@ def validate_encoded_region_coverage(
     set or the valid road-edge set.
 
     The function also validates transport-specific coverage assumptions:
-    pipeline technologies must have matching region coverage in
-    ``cost_invest_eos`` and ``efficiency``, while truck technologies must not
-    receive EOS investment rows.
+    pipeline technologies must have one canonical ``cost_invest_eos`` orientation
+    for every bidirectional corridor covered by ``efficiency``, while truck
+    technologies must not receive EOS investment rows.
 
     Parameters
     ----------
@@ -5175,10 +5275,21 @@ def validate_encoded_region_coverage(
             "region",
         ].astype(str)
     )
-    assert pipeline_eos_regions == pipeline_eff_regions, (
-        "Pipeline cost_invest_eos region coverage does not match pipeline "
-        "efficiency region coverage."
+    expected_pipeline_eos_regions = (
+        set(
+            canonicalize_capacity_cost_links(
+                canonical.pipeline_links,
+                "pipeline_capex_distance_km",
+            )["region"]
+        )
+        if specs.pipe_techs
+        else set()
     )
+    assert pipeline_eos_regions == expected_pipeline_eos_regions, (
+        "Pipeline cost_invest_eos region coverage does not match the canonical "
+        "capacity-corridor coverage."
+    )
+    assert pipeline_eos_regions <= pipeline_eff_regions
 
     truck_eos_regions = set(
         db_encoded["cost_invest_eos"].loc[
@@ -5203,9 +5314,9 @@ def validate_generalized_pipeline_cost_layer(
     """Validate generalized pipeline topology, CAPEX, and OPEX encoding.
 
     For every configured pipeline technology, this function verifies that the
-    encoded ``efficiency``, ``cost_invest_eos``, ``cost_fixed``, and
-    ``cost_variable``
-    rows cover the complete canonical pipeline-edge set with the expected number of
+    encoded ``efficiency``, ``cost_fixed``, and ``cost_variable`` rows cover both
+    directions of the pipeline-edge set, while ``cost_invest_eos`` covers one
+    canonical orientation per capacity-tied corridor with the expected number of
     records. It also confirms that no inherited ordinary ``CostInvest`` rows remain
     because this build represents its generalized pipeline CAPEX component through
     ``cost_invest_eos``.
@@ -5244,11 +5355,16 @@ def validate_generalized_pipeline_cost_layer(
     """
 
     expected_regions = canonical.valid_pipeline_edge_regions
+    canonical_capex_links = canonicalize_capacity_cost_links(
+        canonical.pipeline_links,
+        "pipeline_capex_distance_km",
+    )
+    expected_eos_regions = set(canonical_capex_links["region"])
     expected_edges = len(canonical.pipeline_links)
+    expected_corridors = len(canonical_capex_links)
     expected_segments = len(h2_eos_template)
     capex_distance_lookup = (
-        canonical.pipeline_links[["canoe_region", "pipeline_capex_distance_km"]]
-        .rename(columns={"canoe_region": "region"})
+        canonical_capex_links[["region", "pipeline_capex_distance_km"]]
         .set_index("region")["pipeline_capex_distance_km"]
     )
     fixed_opex_distance_lookup = (
@@ -5299,12 +5415,12 @@ def validate_generalized_pipeline_cost_layer(
         ].copy()
 
         assert set(efficiency["region"]) == expected_regions
-        assert set(eos_rows["region"]) == expected_regions
+        assert set(eos_rows["region"]) == expected_eos_regions
         assert set(fixed["region"]) == expected_regions
         assert set(variable["region"]) == expected_regions
         assert invest.empty
         assert len(efficiency) == expected_edges
-        assert len(eos_rows) == expected_edges * expected_segments
+        assert len(eos_rows) == expected_corridors * expected_segments
         assert len(fixed) == expected_edges
         assert len(variable) == expected_edges
 
@@ -5466,6 +5582,8 @@ def write_schema_manifest(
             "build_id": config.build_id,
             "scenario_id": config.scenario_id,
             "fingerprint": config.fingerprint,
+            "implementation_digest": config.implementation_digest,
+            "artifact_barcode": config.artifact_barcode,
         },
         "silver_build_profile": build_values,
         "resolved_gold_configuration": resolved_values,
@@ -5736,6 +5854,8 @@ def run_schema_build(
     if config.scenario_description:
         print(f"Scenario: {config.scenario_description}")
     print(f"Configuration fingerprint: {config.fingerprint}")
+    print(f"Implementation digest: {config.implementation_digest[:12]}")
+    print(f"Artifact barcode: {config.artifact_barcode}")
     print(f"Basemap: {config.basemap_stem}")
     print(f"Road layer: {config.road_layer}")
     print(f"Road connection method: {config.connection_method}")

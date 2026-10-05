@@ -139,6 +139,12 @@ impedance_scope = "eos_capex_only"
         weighted,
         "sample_basemap_25km_centroid",
     )
+    assert baseline_hash != build_schema_fingerprint(
+        build_config,
+        baseline,
+        "sample_basemap_25km_centroid",
+        implementation_digest="different-backend-state",
+    )
 
 
 def test_basemap_selection_matches_configured_resolution() -> None:
@@ -422,6 +428,8 @@ def test_pipeline_eos_and_opex_use_separate_cost_distances() -> None:
         2025,
     )
 
+    assert len(eos_rows) == 1
+    assert eos_rows["region"].tolist() == ["R0-R1"]
     assert eos_rows["cost_upper"].eq(30.0).all()
     assert fixed["cost"].eq(45.0).all()
     assert variable["cost"].eq(60.0).all()

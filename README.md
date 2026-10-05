@@ -876,22 +876,26 @@ validates the encoded database; and writes:
 
 ```text
 data_files/processed/schema/
-    gold_<build-id>_<scenario-id>_<fingerprint>.sqlite
-    gold_<build-id>_<scenario-id>_<fingerprint>.manifest.json
+    gold_<build-id>_<scenario-id>_<fingerprint>_<barcode>.sqlite
+    gold_<build-id>_<scenario-id>_<fingerprint>_<barcode>.manifest.json
 ```
 
 For example:
 
 ```text
-gold_onqc_baseline_a1b2c3d4.sqlite
-gold_onqc_baseline_a1b2c3d4.manifest.json
+gold_onqc_baseline_a1b2c3d4_deadbeef.sqlite
+gold_onqc_baseline_a1b2c3d4_deadbeef.manifest.json
 ```
 
 The eight-character fingerprint is deterministic and incorporates the complete
-normalized build profile, the selected basemap, and the effective merged model
-configuration. It prevents materially different builds from overwriting one
-another without making filenames excessively long. The adjacent manifest stores
-the full resolved paths and values needed to interpret or reproduce the artifact.
+normalized build profile, the selected basemap, the effective merged model
+configuration, and a digest of the GeoCANOE schema-builder and installed Temoa
+backend source. A builder or backend change therefore produces a different Gold
+filename even when the scenario and Silver configuration are unchanged. The
+adjacent manifest stores the full implementation digest, resolved paths, and
+values needed to interpret or reproduce the artifact. The final eight-character
+barcode is unique to each build invocation, so an otherwise identical rebuild is
+written beside earlier schemas instead of overwriting them.
 
 The current generalized pipeline assumption applies the processed
 hydrogen-pipeline capacity and cost representation to all pipeline technologies
