@@ -7,6 +7,7 @@ import pytest
 
 from geocanoe.execution.batch import (
     BatchRun,
+    load_batch_config,
     load_solver_config,
     validate_batch_runs,
 )
@@ -17,6 +18,9 @@ from geocanoe.execution.run import (
     safe_name,
 )
 from geocanoe.schema.database import update_db_paths
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.mark.parametrize("mode", ["off", "report", "strict"])
@@ -94,3 +98,26 @@ def test_batch_still_rejects_missing_files(tmp_path: Path, missing: str) -> None
         database.touch()
     with pytest.raises(FileNotFoundError, match=f"Run {missing} not found"):
         validate_batch_runs([BatchRun(0, config, database, "standard_run", True)])
+
+
+def test_committed_pipeline_stack_batch_order_and_inputs() -> None:
+    settings, runs = load_batch_config(
+        PROJECT_ROOT / "config" / "batch_profiles" / "batch_run.toml"
+    )
+
+    assert settings.name == "co2_pipeline_stack_sweep"
+    assert settings.continue_on_failure is True
+    assert settings.skip_completed is True
+    assert settings.retry_failed is False
+    assert [run.scenario for run in runs] == [
+        "provinces_net_zero_co2_1x_25km",
+        "provinces_net_zero_co2_2x_25km",
+        "provinces_net_zero_co2_3x_25km",
+        "provinces_net_zero_co2_3x_no_trucks_25km",
+        "provinces_baseline_co2_1x_25km",
+        "provinces_baseline_co2_2x_25km",
+        "provinces_baseline_co2_3x_25km",
+        "provinces_baseline_co2_3x_no_trucks_25km",
+    ]
+    assert all(run.enabled for run in runs)
+    validate_batch_runs(runs)

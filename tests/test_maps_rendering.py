@@ -51,6 +51,108 @@ def test_load_model_tables_reports_missing_required_table(tmp_path: Path) -> Non
         maps.load_model_tables(database_path)
 
 
+def test_pipeline_count_is_loaded_and_attached_to_map_links(tmp_path: Path) -> None:
+    database_path = tmp_path / "solved.sqlite"
+    with sqlite3.connect(database_path) as connection:
+        pd.DataFrame(
+            [{"region": "A-B", "tech": "CO2_PIPE", "flow": 10.0}]
+        ).to_sql("output_flow_out", connection, index=False)
+        pd.DataFrame(
+            [{"region": "A", "commodity": "d_gsl", "demand": 2.0}]
+        ).to_sql("demand", connection, index=False)
+        pd.DataFrame(
+            [{"region": "A", "tech_or_group": "CO2_CAP", "capacity": 3.0}]
+        ).to_sql("limit_capacity", connection, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "scenario": "S",
+                    "period": 2030,
+                    "region": region,
+                    "tech": "CO2_PIPE",
+                    "vintage": 2030,
+                    "capacity": 81.0,
+                    "units": "kt/year",
+                }
+                for region in ["A-B", "B-A"]
+            ]
+        ).to_sql("output_net_capacity", connection, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "tech_or_group": "CO2_PIPE",
+                    "segment": segment,
+                    "capacity_lower": lower,
+                    "capacity_upper": upper,
+                }
+                for segment, (lower, upper) in enumerate(
+                    [(0, 10), (10, 30), (30, 40), (40, 60), (60, 70), (70, 90)]
+                )
+            ]
+        ).to_sql("cost_invest_eos", connection, index=False)
+
+    tables = maps.load_model_tables(database_path)
+    edges = pd.DataFrame(
+        [
+            {
+                "edge_region": "A-B",
+                "region_from": "A",
+                "region_to": "B",
+                "lon_from": -80.0,
+                "lat_from": 45.0,
+                "lon_to": -79.0,
+                "lat_to": 46.0,
+            }
+        ]
+    )
+    links = maps.build_transport_layers(
+        tables.flow_out,
+        edges,
+        tables.pipeline_capacity,
+    )["CO2 pipeline"][0]
+
+    assert tables.pipeline_capacity.loc[0, "eos_pipeline_count"] == pytest.approx(2.7)
+    assert links.loc[0, "eos_pipeline_count"] == pytest.approx(2.7)
+
+
+def test_folium_pipeline_popup_displays_fractional_eos_count() -> None:
+    link = pd.DataFrame(
+        [
+            {
+                "region": "A-B",
+                "tech": "CO2_PIPE",
+                "region_from": "A",
+                "region_to": "B",
+                "lon_from": -80.0,
+                "lat_from": 45.0,
+                "lon_to": -79.0,
+                "lat_to": 46.0,
+                "flow": 10.0,
+                "pipeline_capacity": 81.0,
+                "eos_base_capacity": 30.0,
+                "eos_pipeline_count": 2.7,
+            }
+        ]
+    )
+    layers = maps.PlotLayers(
+        {},
+        {"CO2 pipeline": (link, "#777777", "-", 2.5)},
+        pd.DataFrame(columns=["lon", "lat", "demand"]),
+        pd.Series(dtype=float),
+    )
+    model_map = maps.folium.Map(location=[45.5, -79.5])
+
+    maps.add_transport_layers_folium(
+        model_map,
+        layers,
+        maps.PlotSpacing(True, 1.0, 0.0, 100.0, 500.0),
+    )
+    html = model_map.get_root().render()
+
+    assert "EoS pipeline count" in html
+    assert "EoS pipelines: 2.7" in html
+
+
 @pytest.mark.parametrize("value,layer,expected", [
     (2500000, "H2", "2.5 Mt"),
     (2500000, "Electricity transmission", "2.5 TWh"),

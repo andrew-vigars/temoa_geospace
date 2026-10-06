@@ -10,7 +10,7 @@
 # Scenario Name (Mandatory)
 # This scenario name is used to label results within the output .sqlite file
 # (cannot contain "-" dash)
-scenario = "zulu"
+scenario = "provinces_net_zero_co2_2x_25km"
 
 # Scenario Mode (Mandatory)
 # See documentation for explanations.  A standard single run is "perfect_foresight"
@@ -25,13 +25,13 @@ scenario_mode = "perfect_foresight"
 extensions = ["eos"]
 
 # Input database (Mandatory)
-input_database = "data_files/processed/schema/CANOE_geospatial.sqlite"
+input_database = "data_files/processed/schema/gold_prov-orbits_net-zero-co2-2x_c9b8b8b2_92c89769.sqlite"
 
 # Output file (Mandatory)
 # The output file must be an existing .sqlite file
 # For Perfect Foresight, the user may target the same input file or a separate /
 # copied sqlite file in a different location.  Myopic, MGA require that input_database = output_database
-output_database = "data_files/processed/schema/CANOE_geospatial.sqlite"
+output_database = "data_files/processed/schema/gold_prov-orbits_net-zero-co2-2x_c9b8b8b2_92c89769.sqlite"
 
 # ------------------------------------
 #        DATABASE CONFIGURATION
@@ -77,7 +77,7 @@ neos = false
 # Depending on what client machine has installed.
 #  [appsi_highs, cbc, gurobi, cplex, ...]  (any solver available through pyomo's SolverFactory)
 # Either a solver name, which uses Temoa's default options for that solver:
-solver = { name = "gurobi", options = { MIPGap = 0.01 } }
+solver = {name = "gurobi", options = {MIPGap = 0.01}}
 # or a name plus options passed through to the solver, which are merged over Temoa's defaults
 # (use an inline table here, as a [solver] table header would capture the keys that follow it):
 # solver = { name = "gurobi", options = { Method = 2, Crossover = 0, BarConvTol = 1.0e-3, FeasibilityTol = 1.0e-4, BarOrder = -1 } }

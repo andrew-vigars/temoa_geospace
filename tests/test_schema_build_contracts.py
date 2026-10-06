@@ -10,7 +10,9 @@ import pytest
 import geocanoe.schema.build as schema_build
 from geocanoe.config import load_geospatial_build_config, load_model_config
 from geocanoe.schema.build import (
+    CanonicalLinks,
     ResolvedSchemaConfig,
+    TechSpecs,
     assign_eos_investment_curve_to_regions,
     attach_pipeline_cost_distances,
     build_canonical_links,
@@ -32,8 +34,10 @@ from geocanoe.schema.build import (
     select_basemap_stem_for_resolution,
     select_enabled_transport_tech_specs,
     select_storage_eligible_regions,
+    stack_pipeline_eos_template,
     validate_storage_capacity_bound_setting,
     validate_gasoline_demand_region_coverage,
+    validate_generalized_pipeline_cost_layer,
     validate_storage_region_coverage,
 )
 
@@ -118,6 +122,20 @@ impedance_scope = "eos_capex_only"
         PROJECT_ROOT / "registry" / "model.toml",
         weighted_path,
     )
+    stacked_path = tmp_path / "stacked-pipeline.toml"
+    stacked_path.write_text(
+        """[scenario]
+id = "stacked-pipeline"
+
+[pipeline_costs.eos_stack_counts]
+CO2_PIPE = 3
+""",
+        encoding="utf-8",
+    )
+    stacked = load_model_config(
+        PROJECT_ROOT / "registry" / "model.toml",
+        stacked_path,
+    )
 
     baseline_hash = build_schema_fingerprint(
         build_config,
@@ -138,6 +156,11 @@ impedance_scope = "eos_capex_only"
     assert baseline_hash != build_schema_fingerprint(
         build_config,
         weighted,
+        "sample_basemap_50km_centroid",
+    )
+    assert baseline_hash != build_schema_fingerprint(
+        build_config,
+        stacked,
         "sample_basemap_50km_centroid",
     )
     assert baseline_hash != build_schema_fingerprint(
@@ -469,6 +492,145 @@ def test_pipeline_eos_and_opex_use_separate_cost_distances() -> None:
     assert transmission["cost"].eq(20.0).all()
 
 
+def test_pipeline_eos_template_stacks_complete_curves_contiguously() -> None:
+    template = pd.DataFrame(
+        {
+            "tech_or_group": ["H2_PIPE", "H2_PIPE"],
+            "segment": [0, 1],
+            "capacity_lower": [0.0, 10.0],
+            "capacity_upper": [10.0, 30.0],
+            "cost_lower_per_km": [0.0, 100.0],
+            "cost_upper_per_km": [100.0, 160.0],
+        }
+    )
+
+    stacked = stack_pipeline_eos_template(template, 3)
+
+    assert stacked["segment"].tolist() == list(range(6))
+    assert stacked["capacity_lower"].tolist() == [0, 10, 30, 40, 60, 70]
+    assert stacked["capacity_upper"].tolist() == [10, 30, 40, 60, 70, 90]
+    assert stacked["cost_lower_per_km"].tolist() == [0, 100, 160, 260, 320, 420]
+    assert stacked["cost_upper_per_km"].tolist() == [100, 160, 260, 320, 420, 480]
+    assert np.allclose(
+        stacked["capacity_upper"].iloc[:-1],
+        stacked["capacity_lower"].iloc[1:],
+    )
+    assert np.allclose(
+        stacked["cost_upper_per_km"].iloc[:-1],
+        stacked["cost_lower_per_km"].iloc[1:],
+    )
+
+
+def test_pipeline_eos_mapping_applies_stack_counts_by_technology() -> None:
+    links = _pipeline_graph_edges().rename(columns={"edge_region": "canoe_region"})
+    links["pipeline_capex_distance_km"] = links["distance_km"]
+    template = pd.DataFrame(
+        {
+            "tech_or_group": ["H2_PIPE"],
+            "segment": [0],
+            "capacity_lower": [0.0],
+            "capacity_upper": [100.0],
+            "cost_lower_per_km": [0.0],
+            "cost_upper_per_km": [2.0],
+        }
+    )
+
+    rows = build_generalized_pipeline_eos_investment_curves(
+        links,
+        pd.DataFrame({"tech": ["CO2_PIPE", "H2_PIPE"]}),
+        template,
+        eos_stack_counts={"CO2_PIPE": 3, "H2_PIPE": 1},
+    )
+
+    co2 = rows.loc[rows["tech_or_group"] == "CO2_PIPE"]
+    h2 = rows.loc[rows["tech_or_group"] == "H2_PIPE"]
+    assert len(co2) == 3
+    assert co2["capacity_upper"].tolist() == [100.0, 200.0, 300.0]
+    assert co2["cost_upper"].tolist() == [20.0, 40.0, 60.0]
+    assert len(h2) == 1
+    assert h2["capacity_upper"].tolist() == [100.0]
+
+
+def test_pipeline_cost_layer_validation_accepts_per_technology_stacks() -> None:
+    links = _pipeline_graph_edges().rename(columns={"edge_region": "canoe_region"})
+    links["pipeline_capex_distance_km"] = links["distance_km"]
+    links["pipeline_fixed_opex_distance_km"] = links["distance_km"]
+    links["pipeline_variable_opex_distance_km"] = links["distance_km"]
+    tech_specs = pd.DataFrame({"tech": ["CO2_PIPE", "H2_PIPE"]})
+    eos_template = pd.DataFrame(
+        {
+            "tech_or_group": ["H2_PIPE"],
+            "segment": [0],
+            "capacity_lower": [0.0],
+            "capacity_upper": [100.0],
+            "cost_lower_per_km": [0.0],
+            "cost_upper_per_km": [2.0],
+        }
+    )
+    opex_coefficients = pd.DataFrame(
+        {
+            "technology": ["H2_PIPE", "H2_PIPE"],
+            "cost_type": ["fixed_opex", "variable_opex"],
+            "coefficient_per_km": [3.0, 4.0],
+            "intercept_cost": [0.0, 0.0],
+            "data_id": ["GEO001", "GEO001"],
+        }
+    )
+    stack_counts = {"CO2_PIPE": 2, "H2_PIPE": 1}
+    eos_rows = build_generalized_pipeline_eos_investment_curves(
+        links,
+        tech_specs,
+        eos_template,
+        eos_stack_counts=stack_counts,
+    )
+    fixed, variable = build_generalized_pipeline_opex_rows(
+        links,
+        tech_specs,
+        opex_coefficients,
+        2025,
+        impedance_scope="all_km_dependent",
+    )
+    efficiency = pd.DataFrame(
+        [
+            {"region": region, "tech": tech}
+            for tech in tech_specs["tech"]
+            for region in links["canoe_region"]
+        ]
+    )
+    canonical = CanonicalLinks(
+        region_table=pd.DataFrame(),
+        pipeline_links=links,
+        road_links=pd.DataFrame(),
+        valid_node_regions=set(),
+        valid_pipeline_edge_regions=set(links["canoe_region"]),
+        valid_road_edge_regions=set(),
+    )
+    specs = TechSpecs(
+        pipeline_tech_specs=tech_specs,
+        truck_tech_specs=pd.DataFrame(),
+        transmission_tech_specs=pd.DataFrame(),
+        pipe_techs=set(tech_specs["tech"]),
+        truck_techs=set(),
+        trans_techs=set(),
+        transport_techs=set(tech_specs["tech"]),
+    )
+
+    validate_generalized_pipeline_cost_layer(
+        db_encoded={
+            "efficiency": efficiency,
+            "cost_invest_eos": eos_rows,
+            "cost_fixed": fixed,
+            "cost_variable": variable,
+            "cost_invest": pd.DataFrame(columns=["tech"]),
+        },
+        canonical=canonical,
+        specs=specs,
+        h2_eos_template=eos_template,
+        h2_opex_coefficients=opex_coefficients,
+        pipeline_eos_stack_counts=stack_counts,
+    )
+
+
 def test_canonical_links_separate_all_edges_from_road_edges() -> None:
     graph_nodes = gpd.GeoDataFrame({"region": ["R0", "R1", "R2"]})
     graph_edges = pd.DataFrame(
@@ -524,6 +686,12 @@ def test_canonical_links_separate_all_edges_from_road_edges() -> None:
         storage_minimum_cumulative_activity=0.0,
         legacy_gasoline_enabled=False,
         legacy_gasoline_years_of_demand=0.0,
+        pipeline_eos_stack_counts={
+            "CO2_PIPE": 1,
+            "GSL_PIPE": 1,
+            "H2_PIPE": 1,
+            "METOH_PIPE": 1,
+        },
         output_sqlite_path=placeholder,
     )
 

@@ -30,7 +30,7 @@ id = "baseline-25km"
 
 # Optional human-readable explanation recorded in the resolved scenario.
 # Changing only this description does not change model behaviour.
-description = "Canonical baseline using all global model defaults"
+description = "Baseline without a cumulative CO2 storage target, with trucks"
 
 
 # -----------------------------------------------------------------------------
@@ -152,7 +152,7 @@ description = "Canonical baseline using all global model defaults"
 # transmission continues to use the graph-edge topology independently.
 #
 [transport_modes]
-roads_enabled = false
+roads_enabled = true
 pipelines_enabled = true
 
 
@@ -172,3 +172,9 @@ pipelines_enabled = true
 #
 [pipeline_costs]
 impedance_scope = "all_km_dependent"
+
+[pipeline_costs.eos_stack_counts]
+CO2_PIPE = 1
+GSL_PIPE = 1
+H2_PIPE = 1
+METOH_PIPE = 1

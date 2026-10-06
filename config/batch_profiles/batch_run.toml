@@ -7,22 +7,52 @@
 # config TOML like config/temoav4/*.toml; that file in turn names
 # the scenario and the input/output SQLite database it runs against.
 #
-# The entry below is a committed, always-resolvable disabled example using one
-# of TEMOA's test configurations. Running this batch file as committed performs
-# no solve. Copy the block, point "config" at a solver TOML created for a
-# GeoCANOE build-profile/scenario pair, and set enabled = true for a real run.
+# Runs are ordered from the expected faster cases toward the larger and
+# potentially infeasible pipeline-only cases. Net-zero cases run first,
+# followed by the matching baseline sequence.
 
 [batch]
-name = "sample_batch"
+name = "co2_pipeline_stack_sweep"
 continue_on_failure = true
 skip_completed = true
 retry_failed = false
 
 # =============================================================================
-# Sample run (disabled) — replace with real solver configs before executing
+# Net-zero CO2 target: 1x -> 2x -> 3x -> 3x without trucks
 # =============================================================================
 
+[[runs]]
+config = "config/temoav4/provinces_net_zero_co2_1x_25km.toml"
+enabled = true
 
 [[runs]]
-config = "temoa/tests/testing_configs/config_utopia.toml"
-enabled = false
+config = "config/temoav4/provinces_net_zero_co2_2x_25km.toml"
+enabled = true
+
+[[runs]]
+config = "config/temoav4/provinces_net_zero_co2_3x_25km.toml"
+enabled = true
+
+[[runs]]
+config = "config/temoav4/provinces_net_zero_co2_3x_no_trucks_25km.toml"
+enabled = true
+
+# =============================================================================
+# Baseline: 1x -> 2x -> 3x -> 3x without trucks
+# =============================================================================
+
+[[runs]]
+config = "config/temoav4/provinces_baseline_co2_1x_25km.toml"
+enabled = true
+
+[[runs]]
+config = "config/temoav4/provinces_baseline_co2_2x_25km.toml"
+enabled = true
+
+[[runs]]
+config = "config/temoav4/provinces_baseline_co2_3x_25km.toml"
+enabled = true
+
+[[runs]]
+config = "config/temoav4/provinces_baseline_co2_3x_no_trucks_25km.toml"
+enabled = true

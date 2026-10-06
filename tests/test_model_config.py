@@ -30,7 +30,89 @@ def test_committed_model_registry_is_single_period_2025_to_2050() -> None:
     assert config.transport_modes.roads_enabled is True
     assert config.transport_modes.pipelines_enabled is True
     assert config.pipeline_costs.impedance_scope == "all_km_dependent"
+    assert config.pipeline_costs.eos_stack_counts == {
+        "CO2_PIPE": 1,
+        "GSL_PIPE": 1,
+        "H2_PIPE": 1,
+        "METOH_PIPE": 1,
+    }
     assert config.scenario.scenario_id == "validate-50km"
+
+
+@pytest.mark.parametrize(
+    ("filename", "scenario_id", "co2_stacks", "roads_enabled"),
+    [
+        ("net_zero.toml", "net-zero-25km", 1, True),
+        ("net_zero_co2_2x.toml", "net-zero-co2-2x", 2, True),
+        ("net_zero_co2_3x.toml", "net-zero-co2-3x", 3, True),
+        (
+            "net_zero_co2_3x_no_trucks.toml",
+            "nz-co2-3x-no-truck",
+            3,
+            False,
+        ),
+    ],
+)
+def test_committed_net_zero_pipeline_scenarios(
+    filename: str,
+    scenario_id: str,
+    co2_stacks: int,
+    roads_enabled: bool,
+) -> None:
+    config = load_model_config(
+        MODEL_CONFIG_PATH,
+        PROJECT_ROOT / "registry" / "scenarios" / filename,
+    )
+
+    assert config.scenario.scenario_id == scenario_id
+    assert config.storage.requirement == "minimum_cumulative_activity"
+    assert config.storage.minimum_cumulative_activity == 6_800_000_000.0
+    assert config.transport_modes.roads_enabled is roads_enabled
+    assert config.transport_modes.pipelines_enabled is True
+    assert config.pipeline_costs.eos_stack_counts == {
+        "CO2_PIPE": co2_stacks,
+        "GSL_PIPE": 1,
+        "H2_PIPE": 1,
+        "METOH_PIPE": 1,
+    }
+
+
+@pytest.mark.parametrize(
+    ("filename", "scenario_id", "co2_stacks", "roads_enabled"),
+    [
+        ("baseline.toml", "baseline-25km", 1, True),
+        ("baseline_co2_2x.toml", "baseline-co2-2x", 2, True),
+        ("baseline_co2_3x.toml", "baseline-co2-3x", 3, True),
+        (
+            "baseline_co2_3x_no_trucks.toml",
+            "base-co2-3x-no-truck",
+            3,
+            False,
+        ),
+    ],
+)
+def test_committed_baseline_pipeline_scenarios(
+    filename: str,
+    scenario_id: str,
+    co2_stacks: int,
+    roads_enabled: bool,
+) -> None:
+    config = load_model_config(
+        MODEL_CONFIG_PATH,
+        PROJECT_ROOT / "registry" / "scenarios" / filename,
+    )
+
+    assert config.scenario.scenario_id == scenario_id
+    assert config.storage.requirement == "none"
+    assert config.storage.minimum_cumulative_activity == 0.0
+    assert config.transport_modes.roads_enabled is roads_enabled
+    assert config.transport_modes.pipelines_enabled is True
+    assert config.pipeline_costs.eos_stack_counts == {
+        "CO2_PIPE": co2_stacks,
+        "GSL_PIPE": 1,
+        "H2_PIPE": 1,
+        "METOH_PIPE": 1,
+    }
 
 
 def test_scenario_overrides_global_model_defaults(tmp_path: Path) -> None:
@@ -155,6 +237,47 @@ def test_model_registry_rejects_invalid_pipeline_impedance_scope(
     )
 
     with pytest.raises(ValueError, match="impedance_scope"):
+        load_model_config(path)
+
+
+def test_scenario_overrides_one_pipeline_eos_stack_count(
+    tmp_path: Path,
+) -> None:
+    scenario_path = tmp_path / "triple-co2-pipeline.toml"
+    scenario_path.write_text(
+        '''[scenario]
+id = "triple-co2"
+
+[pipeline_costs.eos_stack_counts]
+CO2_PIPE = 3
+''',
+        encoding="utf-8",
+    )
+
+    config = load_model_config(MODEL_CONFIG_PATH, scenario_path)
+
+    assert config.pipeline_costs.eos_stack_counts == {
+        "CO2_PIPE": 3,
+        "GSL_PIPE": 1,
+        "H2_PIPE": 1,
+        "METOH_PIPE": 1,
+    }
+
+
+@pytest.mark.parametrize("invalid_count", [0, -1, True, 1.5])
+def test_model_registry_rejects_invalid_pipeline_eos_stack_count(
+    tmp_path: Path,
+    invalid_count: object,
+) -> None:
+    source = MODEL_CONFIG_PATH.read_text(encoding="utf-8")
+    rendered_count = str(invalid_count).lower()
+    path = tmp_path / "invalid-pipeline-stack-count.toml"
+    path.write_text(
+        source.replace("CO2_PIPE = 1", f"CO2_PIPE = {rendered_count}", 1),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="CO2_PIPE"):
         load_model_config(path)
 
 

@@ -26,6 +26,7 @@ from pathlib import Path
 import pandas as pd
 from openpyxl.utils import get_column_letter
 
+from geocanoe.analysis.pipeline_capacity import build_pipeline_capacity_summary
 from geocanoe.paths import find_project_root
 
 
@@ -60,6 +61,13 @@ DEFAULT_WORKBOOK_NAME = "output_tables.xlsx"
 EXCEL_MAX_ROWS = 1_048_576
 EXCEL_MAX_COLUMNS = 16_384
 CO2_STORAGE_SUMMARY_SHEET = "CO2StorageSummary"
+PIPELINE_CAPACITY_SUMMARY_SHEET = "PipelineCapacitySummary"
+
+
+def _normalized_table_name(name: str) -> str:
+    """Normalize legacy and TEMOA v4 table-name conventions."""
+
+    return re.sub(r"[^a-z0-9]", "", name.casefold())
 
 
 # =============================================================================
@@ -500,8 +508,16 @@ def export_output_tables(
     used_sheet_names: set[str] = set()
     written_tables = 0
     flow_out_for_storage_summary: pd.DataFrame | None = None
+    net_capacity_for_pipeline_summary: pd.DataFrame | None = None
 
     with sqlite3.connect(db_path) as connection:
+        all_table_names = [
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'"
+            )
+        ]
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
             for table in selected_tables:
                 if table not in existing_tables:
@@ -510,8 +526,11 @@ def export_output_tables(
 
                 df = pd.read_sql_query(f'SELECT * FROM "{table}"', connection)
 
-                if table == "OutputFlowOut":
+                normalized_table = _normalized_table_name(table)
+                if normalized_table == "outputflowout":
                     flow_out_for_storage_summary = df.copy()
+                if normalized_table == "outputnetcapacity":
+                    net_capacity_for_pipeline_summary = df.copy()
 
                 if df.empty and skip_empty:
                     print(f"[Skip] Empty table: {table}")
@@ -556,6 +575,49 @@ def export_output_tables(
                     print(
                         f"[Exported] {CO2_STORAGE_SUMMARY_SHEET}: "
                         f"{len(storage_summary):,} row(s) "
+                        f"→ {output_path.name} [{sheet_name}]"
+                    )
+
+            eos_matches = [
+                name
+                for name in all_table_names
+                if _normalized_table_name(name) == "costinvesteos"
+            ]
+            if net_capacity_for_pipeline_summary is not None and len(eos_matches) == 1:
+                quoted_eos = eos_matches[0].replace('"', '""')
+                eos_capacity = pd.read_sql_query(
+                    "SELECT tech_or_group, segment, "
+                    "MIN(capacity_lower) AS capacity_lower, "
+                    "MAX(capacity_upper) AS capacity_upper "
+                    f'FROM "{quoted_eos}" '
+                    "WHERE tech_or_group LIKE '%_PIPE' "
+                    "GROUP BY tech_or_group, segment "
+                    "ORDER BY tech_or_group, segment",
+                    connection,
+                )
+                pipeline_summary = build_pipeline_capacity_summary(
+                    net_capacity_for_pipeline_summary,
+                    eos_capacity,
+                )
+                if not pipeline_summary.empty or not skip_empty:
+                    validate_excel_sheet_size(
+                        PIPELINE_CAPACITY_SUMMARY_SHEET,
+                        pipeline_summary,
+                    )
+                    sheet_name = make_excel_sheet_name(
+                        PIPELINE_CAPACITY_SUMMARY_SHEET,
+                        used_sheet_names,
+                    )
+                    pipeline_summary.to_excel(
+                        writer,
+                        sheet_name=sheet_name,
+                        index=False,
+                    )
+                    format_excel_sheet(writer, sheet_name, pipeline_summary)
+                    written_tables += 1
+                    print(
+                        f"[Exported] {PIPELINE_CAPACITY_SUMMARY_SHEET}: "
+                        f"{len(pipeline_summary):,} row(s) "
                         f"→ {output_path.name} [{sheet_name}]"
                     )
 

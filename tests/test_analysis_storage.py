@@ -47,12 +47,44 @@ def test_output_workbook_includes_co2_storage_summary(tmp_path: Path) -> None:
     )
     with sqlite3.connect(database_path) as connection:
         flow_out.to_sql("OutputFlowOut", connection, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "scenario": "S",
+                    "period": 1,
+                    "region": region,
+                    "tech": "CO2_PIPE",
+                    "vintage": 1,
+                    "capacity": 81.0,
+                    "units": "kt/year",
+                }
+                for region in ["A-B", "B-A"]
+            ]
+        ).to_sql("OutputNetCapacity", connection, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "tech_or_group": "CO2_PIPE",
+                    "segment": segment,
+                    "capacity_lower": lower,
+                    "capacity_upper": upper,
+                }
+                for segment, (lower, upper) in enumerate(
+                    [(0, 10), (10, 30), (30, 40), (40, 60), (60, 70), (70, 90)]
+                )
+            ]
+        ).to_sql("cost_invest_eos", connection, index=False)
 
     [workbook_path] = export_output_tables(database_path, tmp_path)
 
     with pd.ExcelFile(workbook_path) as workbook:
         assert "CO2StorageSummary" in workbook.sheet_names
+        assert "PipelineCapacitySummary" in workbook.sheet_names
         summary = pd.read_excel(workbook, sheet_name="CO2StorageSummary")
+        pipeline_summary = pd.read_excel(
+            workbook,
+            sheet_name="PipelineCapacitySummary",
+        )
     assert summary[["region", "tech", "output_comm", "flow"]].to_dict(
         "records"
     ) == [
@@ -63,3 +95,6 @@ def test_output_workbook_includes_co2_storage_summary(tmp_path: Path) -> None:
             "flow": 4,
         }
     ]
+    assert pipeline_summary.loc[0, "region"] == "A-B"
+    assert pipeline_summary.loc[0, "capacity"] == 81
+    assert pipeline_summary.loc[0, "eos_pipeline_count"] == 2.7

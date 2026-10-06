@@ -1,10 +1,10 @@
 # =============================================================================
-# GeoCANOE Gold-model scenario template — COMMITTED SAMPLE
+# GeoCANOE Gold-model scenario — NET-ZERO CO2 TARGET
 # =============================================================================
 #
-# This file is the committed, always-resolvable sample scenario. It is a copy
-# of the baseline scenario, kept here under a stable "sample_*" name so it is
-# never overwritten by edits to the real, policy-specific scenarios.
+# This is the canonical one-curve net-zero comparison case. It retains truck
+# and pipeline transport while requiring 6.8 billion tonnes of cumulative CO2
+# storage over the model period.
 #
 # registry/scenarios/*.toml (other than this file) are local, policy-specific
 # and are gitignored: they are not committed. To create your own scenario,
@@ -19,7 +19,7 @@
 #   4. Silver evidence layers are never modified or rebuilt by a scenario.
 #
 # Supported override sections are [time], [finance], [emissions], [storage],
-# [legacy_gasoline], [basemap], [transport_modes], and [pipeline_costs]. Unknown sections,
+# [legacy_gasoline], [basemap], and [pipeline_costs]. Unknown sections,
 # unknown keys, invalid values, and
 # inconsistent combinations fail validation before schema construction.
 
@@ -28,11 +28,11 @@
 # Required artifact identity. Use 1-20 lowercase letters, numbers, or hyphens.
 # It must start and end with a letter or number. The ID appears in the compact
 # Gold filename: gold_<build-id>_<scenario-id>_<fingerprint>.sqlite
-id = "validate-50km"
+id = "net-zero-25km"
 
 # Optional human-readable explanation recorded in the resolved scenario.
 # Changing only this description does not change model behaviour.
-description = "Canonical baseline using all global model defaults"
+description = "Net-zero CO2 target with one EOS pipeline curve and trucks"
 
 
 # -----------------------------------------------------------------------------
@@ -122,9 +122,9 @@ description = "Canonical baseline using all global model defaults"
 #
 # Example B — cumulative storage target:
 #
-# [storage]
-# requirement = "minimum_cumulative_activity"
-# minimum_cumulative_activity = 6_800_000_000
+[storage]
+requirement = "minimum_cumulative_activity"
+minimum_cumulative_activity = 6_800_000_000
 
 
 # -----------------------------------------------------------------------------
@@ -140,9 +140,9 @@ description = "Canonical baseline using all global model defaults"
 # may generate several resolutions; if the requested one was not generated,
 # construction fails with a ValueError listing what is actually available.
 #
-[basemap]
-grid_type = "projected"
-resolution = 50
+# [basemap]
+# grid_type = "projected"
+# resolution = 25
 
 
 # -----------------------------------------------------------------------------
@@ -153,9 +153,9 @@ resolution = 50
 # pipeline-impedance products remain available for later scenarios. Electricity
 # transmission continues to use the graph-edge topology independently.
 #
-# [transport_modes]
-# roads_enabled = true
-# pipelines_enabled = true
+[transport_modes]
+roads_enabled = true
+pipelines_enabled = true
 
 
 # -----------------------------------------------------------------------------
@@ -167,10 +167,9 @@ resolution = 50
 #
 # Supported scopes:
 #   "none"             - physical distance for all pipeline costs;
-#   "eos_capex_only"   - weighted distance for pipeline EOS CAPEX tables
-#                        (cost_invest and/or cost_invest_eos) only;
-#   "all_km_dependent" - weighted distance for pipeline CAPEX tables, fixed
-#                        OPEX, and variable OPEX.
+#   "etl_capex_only"   - weighted distance for ETLSegment CAPEX only;
+#   "all_km_dependent" - weighted distance for ETLSegment CAPEX, fixed OPEX,
+#                        and variable OPEX.
 #
 [pipeline_costs]
 impedance_scope = "all_km_dependent"

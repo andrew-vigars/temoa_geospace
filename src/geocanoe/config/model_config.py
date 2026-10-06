@@ -22,6 +22,12 @@ SUPPORTED_PIPELINE_IMPEDANCE_SCOPES = {
     "eos_capex_only",
     "all_km_dependent",
 }
+PIPELINE_EOS_STACK_TECHNOLOGIES = {
+    "CO2_PIPE",
+    "GSL_PIPE",
+    "H2_PIPE",
+    "METOH_PIPE",
+}
 MODEL_SECTIONS = {
     "time",
     "finance",
@@ -117,9 +123,10 @@ class ModelTransportModesConfig:
 
 @dataclass(frozen=True)
 class ModelPipelineCostsConfig:
-    """Application scope for Silver pipeline cost-distance impedance."""
+    """Pipeline cost-distance impedance and EOS capacity representation."""
 
     impedance_scope: str
+    eos_stack_counts: dict[str, int]
 
 
 @dataclass(frozen=True)
@@ -220,7 +227,18 @@ def _apply_scenario_overrides(
                 f"Scenario [{section}] contains unsupported settings: "
                 f"{sorted(unknown_keys)}."
             )
-        effective[section].update(overrides)
+        for key, value in overrides.items():
+            base_value = effective[section].get(key)
+            if isinstance(base_value, dict) and isinstance(value, dict):
+                unknown_nested_keys = set(value) - set(base_value)
+                if unknown_nested_keys:
+                    raise ValueError(
+                        f"Scenario [{section}].{key} contains unsupported "
+                        f"settings: {sorted(unknown_nested_keys)}."
+                    )
+                base_value.update(value)
+            else:
+                effective[section][key] = value
 
     return effective, ModelScenarioConfig(
         scenario_id=scenario_id,
@@ -342,6 +360,34 @@ def load_model_config(
         )
     impedance_scope = impedance_scope_raw
 
+    eos_stack_counts_raw = pipeline_costs_raw.get("eos_stack_counts")
+    if not isinstance(eos_stack_counts_raw, dict):
+        raise ValueError(
+            "[pipeline_costs].eos_stack_counts must be a table."
+        )
+    configured_stack_techs = set(eos_stack_counts_raw)
+    if configured_stack_techs != PIPELINE_EOS_STACK_TECHNOLOGIES:
+        missing = sorted(
+            PIPELINE_EOS_STACK_TECHNOLOGIES - configured_stack_techs
+        )
+        unknown = sorted(
+            configured_stack_techs - PIPELINE_EOS_STACK_TECHNOLOGIES
+        )
+        raise ValueError(
+            "[pipeline_costs].eos_stack_counts must define exactly the "
+            "supported pipeline technologies. "
+            f"Missing: {missing}; unsupported: {unknown}."
+        )
+    eos_stack_counts = {
+        tech: require_int(
+            eos_stack_counts_raw,
+            tech,
+            "pipeline_costs.eos_stack_counts",
+            minimum=1,
+        )
+        for tech in sorted(PIPELINE_EOS_STACK_TECHNOLOGIES)
+    }
+
     return ModelConfig(
         time=ModelTimeConfig(start_year=start_year, end_year=end_year),
         finance=ModelFinanceConfig(
@@ -385,6 +431,7 @@ def load_model_config(
         ),
         pipeline_costs=ModelPipelineCostsConfig(
             impedance_scope=impedance_scope,
+            eos_stack_counts=eos_stack_counts,
         ),
         scenario=scenario,
         source_path=config_path,

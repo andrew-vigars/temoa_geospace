@@ -476,6 +476,23 @@ coverage from the matching Silver artifact under
 ``data_files/processed/pipeline_impedance/<build-id>/edges/``. Truck and
 electricity-transmission costs always retain physical distance.
 
+Pipeline capacity ceilings can be increased independently by technology by
+tiling the complete H2-derived EOS capacity-cost curve end-to-end. The default
+count of one preserves the original curve. A scenario can override only the
+technologies under study; unspecified technologies retain their global counts:
+
+```toml
+[pipeline_costs.eos_stack_counts]
+CO2_PIPE = 3
+```
+
+For a count of three, the second and third copies are offset by one and two
+times the original curve's terminal capacity and cumulative cost. This produces
+one continuous EOS curve with three times the capacity ceiling. It does not add
+an integer pipeline-count variable: solved capacity divided by the original
+terminal capacity is a post-processed pipeline-equivalent count. Each repeated
+segment continues to use TEMOA's existing EOS binary selection.
+
 The two time boundaries define exactly one optimization period, `[2025, 2050)`,
 with a 25-year duration. Temoa optimizes one representative year and assumes its
 capacity and activity repeat in every year of that period. Accordingly, the
@@ -1057,7 +1074,12 @@ python -m geocanoe.analysis.exports
 
 The exporter writes each selected table to a separate worksheet in a single
 Excel workbook, adds a `CO2StorageSummary` worksheet when solved `CO2_INJECT`
-flows are present, and validates worksheet dimensions against Excel limits.
+flows are present, and validates worksheet dimensions against Excel limits. If
+`OutputNetCapacity` and `cost_invest_eos` are available, it also writes a
+`PipelineCapacitySummary` worksheet. That derived table reports installed
+capacity, the original one-curve EoS capacity, and their ratio as a fractional
+`eos_pipeline_count` (for example, `2.7`). Reverse transport orientations are
+canonicalized before capacity is counted.
 
 ### Interactive mapping
 
@@ -1077,7 +1099,9 @@ The mapping workflow infers the associated geospatial products from the selected
 solved database, decodes transport pseudo-regions back to graph edges, separates
 parallel active transport corridors for visualization, and exports an interactive
 Leaflet/Folium HTML map with layer controls, tooltips, and popups. Solved
-`CO2_INJECT` output appears as a purple `CO2 storage` node layer.
+`CO2_INJECT` output appears as a purple `CO2 storage` node layer. Pipeline
+tooltips and popups include the same fractional EoS pipeline count when the
+solved net-capacity and EoS curve tables are present.
 
 ## Canonical execution order
 

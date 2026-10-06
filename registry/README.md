@@ -23,8 +23,8 @@ optional orchestration layer. Neither axis knows about the other:
   and minimum source area/length thresholds for the Silver build.
 
 - **Model design** — `registry/model.toml` (global defaults) optionally
-  overlaid by one `registry/scenarios/*.toml` file (e.g. `baseline.toml`, or
-  a future `net_zero_2050.toml`). Controls non-spatial policy: the
+  overlaid by one `registry/scenarios/*.toml` file (e.g. `baseline.toml` or
+  `net_zero.toml`). Controls non-spatial policy: the
   optimization time horizon, discounting/financing rates, the emissions
   projection method, the geological CO2 storage requirement, and master
   switches for road/truck and pipeline transport representations. A scenario
@@ -40,6 +40,25 @@ uncomment only the sections that should differ — see the comments in that
 file for the supported override sections (`[time]`, `[finance]`,
   `[emissions]`, `[storage]`, `[legacy_gasoline]`, `[basemap]`,
   `[transport_modes]`, and `[pipeline_costs]`).
+
+The committed net-zero CO2 network cases form an ordered capacity and
+feasibility comparison. All retain the 6.8-billion-tonne cumulative storage
+target from `net_zero.toml`:
+
+- `net_zero.toml`: one CO2 EOS curve with trucks;
+- `net_zero_co2_2x.toml`: two CO2 EOS curves with trucks;
+- `net_zero_co2_3x.toml`: three CO2 EOS curves with trucks; and
+- `net_zero_co2_3x_no_trucks.toml`: three CO2 EOS curves with all truck
+  technologies disabled.
+
+The baseline cases mirror that transport matrix without a required cumulative
+storage target:
+
+- `baseline.toml`: one CO2 EOS curve with trucks;
+- `baseline_co2_2x.toml`: two CO2 EOS curves with trucks;
+- `baseline_co2_3x.toml`: three CO2 EOS curves with trucks; and
+- `baseline_co2_3x_no_trucks.toml`: three CO2 EOS curves with all truck
+  technologies disabled.
 
 - **Orchestration (optional)** — `config/batch_profiles/*.toml` names an
   ordered list of already-built TEMOA solver configurations (each naming its

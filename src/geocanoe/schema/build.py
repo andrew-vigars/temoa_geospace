@@ -277,6 +277,9 @@ class ResolvedSchemaConfig:
         Equivalent years of a node's annual gasoline demand assumed already
         available as existing legacy supply when ``legacy_gasoline_enabled``
         is true.
+    pipeline_eos_stack_counts : dict[str, int]
+        Number of complete EOS capacity-cost curves tiled end-to-end for each
+        pipeline technology on every canonical corridor.
     output_sqlite_path : Path
         Path where the encoded CANOE/TEMOA SQLite database will be written.
     """
@@ -309,6 +312,7 @@ class ResolvedSchemaConfig:
     storage_minimum_cumulative_activity: float
     legacy_gasoline_enabled: bool
     legacy_gasoline_years_of_demand: float
+    pipeline_eos_stack_counts: dict[str, int]
     output_sqlite_path: Path
     implementation_digest: str = ""
     artifact_barcode: str = ""
@@ -833,6 +837,9 @@ def resolve_schema_configuration(
         legacy_gasoline_enabled=model_config.legacy_gasoline.enabled,
         legacy_gasoline_years_of_demand=(
             model_config.legacy_gasoline.years_of_demand
+        ),
+        pipeline_eos_stack_counts=dict(
+            model_config.pipeline_costs.eos_stack_counts
         ),
         output_sqlite_path=artifacts.schema,
         implementation_digest=implementation_digest,
@@ -4150,10 +4157,55 @@ def build_legacy_eos_investment_curves(
     return legacy_eos
 
 
+def stack_pipeline_eos_template(
+    eos_template: pd.DataFrame,
+    stack_count: int,
+) -> pd.DataFrame:
+    """Tile a complete pipeline EOS curve end-to-end.
+
+    Each additional copy is offset by the original curve's terminal capacity
+    and cumulative cost. The result remains one continuous piecewise-linear
+    cumulative cost curve, so it uses the existing TEMOA EOS formulation while
+    raising the capacity ceiling by ``stack_count``.
+    """
+
+    if isinstance(stack_count, bool) or not isinstance(stack_count, int):
+        raise ValueError("Pipeline EOS stack_count must be an integer.")
+    if stack_count < 1:
+        raise ValueError("Pipeline EOS stack_count must be at least 1.")
+    if eos_template.empty:
+        raise ValueError("Cannot stack an empty pipeline EOS template.")
+
+    template = eos_template.sort_values("segment").reset_index(drop=True).copy()
+    capacity_offset = float(template["capacity_upper"].iloc[-1])
+    cost_offset = float(template["cost_upper_per_km"].iloc[-1])
+    if capacity_offset <= 0 or cost_offset <= 0:
+        raise ValueError(
+            "Pipeline EOS terminal capacity and cost must be positive."
+        )
+
+    copies: list[pd.DataFrame] = []
+    segment_count = len(template)
+    for copy_index in range(stack_count):
+        curve_copy = template.copy()
+        curve_copy["segment"] = (
+            curve_copy["segment"].astype(int)
+            + copy_index * segment_count
+        )
+        curve_copy["capacity_lower"] += copy_index * capacity_offset
+        curve_copy["capacity_upper"] += copy_index * capacity_offset
+        curve_copy["cost_lower_per_km"] += copy_index * cost_offset
+        curve_copy["cost_upper_per_km"] += copy_index * cost_offset
+        copies.append(curve_copy)
+
+    return pd.concat(copies, ignore_index=True)
+
+
 def build_generalized_pipeline_eos_investment_curves(
     pipeline_links: pd.DataFrame,
     pipeline_tech_specs: pd.DataFrame,
     eos_template: pd.DataFrame,
+    eos_stack_counts: dict[str, int] | None = None,
 ) -> pd.DataFrame:
     """Map the generalized H2-derived pipeline EOS investment curve to all links.
 
@@ -4210,9 +4262,23 @@ def build_generalized_pipeline_eos_investment_curves(
     if not pipeline_techs:
         raise ValueError("No pipeline technologies are available for cost mapping.")
 
+    if eos_stack_counts is None:
+        stack_counts = {tech: 1 for tech in pipeline_techs}
+    else:
+        missing_stack_counts = sorted(set(pipeline_techs) - set(eos_stack_counts))
+        if missing_stack_counts:
+            raise ValueError(
+                "Missing pipeline EOS stack counts for technologies: "
+                f"{missing_stack_counts}."
+            )
+        stack_counts = eos_stack_counts
+
     mapped_rows: list[pd.DataFrame] = []
     for tech in pipeline_techs:
-        tech_template = template.copy()
+        tech_template = stack_pipeline_eos_template(
+            template,
+            stack_counts[tech],
+        )
         tech_template["tech_or_group"] = tech
 
         edge_work = edge_frame.copy()
@@ -4238,7 +4304,9 @@ def build_generalized_pipeline_eos_investment_curves(
         )
 
     output = pd.concat(mapped_rows, ignore_index=True)
-    expected_rows = len(edge_frame) * len(template) * len(pipeline_techs)
+    expected_rows = len(edge_frame) * len(template) * sum(
+        stack_counts[tech] for tech in pipeline_techs
+    )
     if len(output) != expected_rows:
         raise ValueError(
             "Generalized pipeline EOS investment mapping produced an unexpected "
@@ -4257,6 +4325,7 @@ def rebuild_cost_invest_eos(
     canonical: CanonicalLinks,
     specs: TechSpecs,
     h2_eos_template: pd.DataFrame,
+    pipeline_eos_stack_counts: dict[str, int],
 ) -> None:
     """Rebuild the TEMOA v4 EOS investment-cost table.
 
@@ -4310,6 +4379,7 @@ def rebuild_cost_invest_eos(
             pipeline_links=canonical.pipeline_links,
             pipeline_tech_specs=specs.pipeline_tech_specs,
             eos_template=h2_eos_template,
+            eos_stack_counts=pipeline_eos_stack_counts,
         )
         if specs.pipe_techs
         else pd.DataFrame(columns=legacy_eos.columns)
@@ -5310,6 +5380,7 @@ def validate_generalized_pipeline_cost_layer(
     specs: TechSpecs,
     h2_eos_template: pd.DataFrame,
     h2_opex_coefficients: pd.DataFrame,
+    pipeline_eos_stack_counts: dict[str, int],
 ) -> None:
     """Validate generalized pipeline topology, CAPEX, and OPEX encoding.
 
@@ -5340,6 +5411,9 @@ def validate_generalized_pipeline_cost_layer(
         Validated topology-free H2-derived pipeline EOS investment template.
     h2_opex_coefficients : pd.DataFrame
         Validated H2-derived fixed- and variable-OPEX coefficient table.
+    pipeline_eos_stack_counts : dict[str, int]
+        Validated number of complete EOS curves assigned to each pipeline
+        technology.
 
     Returns
     -------
@@ -5362,7 +5436,6 @@ def validate_generalized_pipeline_cost_layer(
     expected_eos_regions = set(canonical_capex_links["region"])
     expected_edges = len(canonical.pipeline_links)
     expected_corridors = len(canonical_capex_links)
-    expected_segments = len(h2_eos_template)
     capex_distance_lookup = (
         canonical_capex_links[["region", "pipeline_capex_distance_km"]]
         .set_index("region")["pipeline_capex_distance_km"]
@@ -5393,11 +5466,18 @@ def validate_generalized_pipeline_cost_layer(
             "coefficient_per_km",
         ].iloc[0]
     )
-    template_lookup = h2_eos_template.set_index("segment")[[
-        "cost_lower_per_km", "cost_upper_per_km"
-    ]]
-
     for tech in sorted(specs.pipe_techs):
+        stacked_template = stack_pipeline_eos_template(
+            h2_eos_template,
+            pipeline_eos_stack_counts[tech],
+        )
+        expected_segments = len(stacked_template)
+        template_lookup = stacked_template.set_index("segment")[[
+            "capacity_lower",
+            "capacity_upper",
+            "cost_lower_per_km",
+            "cost_upper_per_km",
+        ]]
         efficiency = db_encoded["efficiency"].loc[
             db_encoded["efficiency"]["tech"] == tech
         ].copy()
@@ -5438,6 +5518,12 @@ def validate_generalized_pipeline_cost_layer(
         )
 
         eos_distances = eos_rows["region"].map(capex_distance_lookup)
+        expected_capacity_lower = eos_rows["segment"].map(
+            template_lookup["capacity_lower"]
+        ).to_numpy(dtype=float)
+        expected_capacity_upper = eos_rows["segment"].map(
+            template_lookup["capacity_upper"]
+        ).to_numpy(dtype=float)
         expected_lower = (
             eos_rows["segment"].map(template_lookup["cost_lower_per_km"])
             .to_numpy(dtype=float)
@@ -5447,6 +5533,14 @@ def validate_generalized_pipeline_cost_layer(
             eos_rows["segment"].map(template_lookup["cost_upper_per_km"])
             .to_numpy(dtype=float)
             * eos_distances.to_numpy(dtype=float)
+        )
+        assert np.allclose(
+            eos_rows["capacity_lower"].to_numpy(dtype=float),
+            expected_capacity_lower,
+        )
+        assert np.allclose(
+            eos_rows["capacity_upper"].to_numpy(dtype=float),
+            expected_capacity_upper,
         )
         assert np.allclose(eos_rows["cost_lower"].to_numpy(dtype=float), expected_lower)
         assert np.allclose(eos_rows["cost_upper"].to_numpy(dtype=float), expected_upper)
@@ -5884,6 +5978,7 @@ def run_schema_build(
     print(f"Road transport enabled: {config.roads_enabled}")
     print(f"Pipeline transport enabled: {config.pipelines_enabled}")
     print(f"Pipeline impedance scope: {config.pipeline_impedance_scope}")
+    print(f"Pipeline EOS stack counts: {config.pipeline_eos_stack_counts}")
     print(f"Output SQLite: {config.output_sqlite_path.name}")
 
     inputs = load_inputs(config)
@@ -5989,6 +6084,7 @@ def run_schema_build(
         canonical=canonical,
         specs=specs,
         h2_eos_template=inputs.h2_eos_template,
+        pipeline_eos_stack_counts=config.pipeline_eos_stack_counts,
     )
     rebuild_legacy_transport_costvariable(
         db_encoded=db_encoded,
@@ -6059,6 +6155,7 @@ def run_schema_build(
         specs=specs,
         h2_eos_template=inputs.h2_eos_template,
         h2_opex_coefficients=inputs.h2_opex_coefficients,
+        pipeline_eos_stack_counts=config.pipeline_eos_stack_counts,
     )
 
     clear_output_tables(db_encoded)

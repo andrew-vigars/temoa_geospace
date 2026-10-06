@@ -41,6 +41,10 @@ from rasterio.errors import RasterioError
 from shapely.geometry import LineString
 from xyzservices import providers
 
+from geocanoe.analysis.pipeline_capacity import (
+    PIPELINE_CAPACITY_SUMMARY_COLUMNS,
+    build_pipeline_capacity_summary,
+)
 from geocanoe.paths import find_project_root
 
 # =============================================================================
@@ -196,11 +200,14 @@ class ModelTables:
         Demand table used to identify and size gasoline demand markers.
     limit_capacity : pd.DataFrame
         Capacity-limit table used to locate available CO2 capture capacity.
+    pipeline_capacity : pd.DataFrame
+        Derived installed pipeline capacity and fractional EoS pipeline counts.
     """
 
     flow_out: pd.DataFrame
     demand: pd.DataFrame
     limit_capacity: pd.DataFrame
+    pipeline_capacity: pd.DataFrame
 
 
 @dataclass
@@ -790,9 +797,10 @@ def _resolve_table_name(table_names: Sequence[str], required_name: str) -> str:
 def load_model_tables(db_path: Path) -> ModelTables:
     """Load CANOE/TEMOA tables required by the mapping workflow.
 
-    Reads the output-flow, demand, and capacity-limit tables used to construct
-    process-point, demand-point, and transport-flow map layers. Table names are
-    resolved across legacy CamelCase and TEMOA v4 snake_case conventions.
+    Reads the output-flow, net-capacity, demand, capacity-limit, and compact EoS
+    curve data used to construct process-point, demand-point, transport-flow,
+    and pseudo-parallel pipeline map layers. Table names are resolved across
+    legacy CamelCase and TEMOA v4 snake_case conventions.
 
     Parameters
     ----------
@@ -829,10 +837,45 @@ def load_model_tables(db_path: Path) -> ModelTables:
                 connection,
             )
 
+        def read_optional_table(required_name: str) -> pd.DataFrame | None:
+            try:
+                return read_required_table(required_name)
+            except KeyError:
+                return None
+
+        net_capacity = read_optional_table("OutputNetCapacity")
+        eos_capacity = None
+        try:
+            eos_table = _resolve_table_name(table_names, "CostInvestEos")
+        except KeyError:
+            pass
+        else:
+            quoted_eos = eos_table.replace('"', '""')
+            eos_capacity = pd.read_sql_query(
+                "SELECT tech_or_group, segment, "
+                "MIN(capacity_lower) AS capacity_lower, "
+                "MAX(capacity_upper) AS capacity_upper "
+                f'FROM "{quoted_eos}" '
+                "WHERE tech_or_group LIKE '%_PIPE' "
+                "GROUP BY tech_or_group, segment "
+                "ORDER BY tech_or_group, segment",
+                connection,
+            )
+
+        pipeline_capacity = pd.DataFrame(
+            columns=PIPELINE_CAPACITY_SUMMARY_COLUMNS
+        )
+        if net_capacity is not None and eos_capacity is not None:
+            pipeline_capacity = build_pipeline_capacity_summary(
+                net_capacity,
+                eos_capacity,
+            )
+
         return ModelTables(
             flow_out=read_required_table("OutputFlowOut"),
             demand=read_required_table("Demand"),
             limit_capacity=read_required_table("LimitCapacity"),
+            pipeline_capacity=pipeline_capacity,
         )
 
 
@@ -1512,6 +1555,7 @@ def build_node_layers(tables: ModelTables, geodata: GeospatialData) -> dict[str,
 def build_transport_layers(
     flow_out: pd.DataFrame,
     edges: pd.DataFrame,
+    pipeline_capacity: pd.DataFrame | None = None,
 ) -> dict[str, TechStyle]:
     """Build transport-flow layers and plotting styles.
 
@@ -1528,6 +1572,10 @@ def build_transport_layers(
     edges : pd.DataFrame
         Graph-edge table used to map transport pseudo-regions to source and
         target model-region coordinates.
+    pipeline_capacity : pd.DataFrame | None, default=None
+        Derived pipeline capacity summary. When available, its installed
+        capacity and fractional EoS pipeline count are attached to pipeline
+        links for map display.
 
     Returns
     -------
@@ -1537,16 +1585,53 @@ def build_transport_layers(
         width factor.
     """
 
-    h2_pipe = add_from_to_coords(flow_out.loc[flow_out.tech == "H2_PIPE"], edges)
+    def attach_capacity(links: pd.DataFrame) -> pd.DataFrame:
+        if links.empty or pipeline_capacity is None or pipeline_capacity.empty:
+            return links
+
+        metrics = pipeline_capacity.copy()
+        metrics = (
+            metrics.groupby(["region", "tech"], as_index=False, dropna=False)
+            .agg(
+                pipeline_capacity=("capacity", "max"),
+                eos_base_capacity=("eos_base_capacity", "max"),
+                eos_pipeline_count=("eos_pipeline_count", "max"),
+            )
+        )
+        output = links.copy()
+        output["capacity_region"] = output.apply(
+            lambda row: "-".join(
+                sorted([str(row["region_from"]), str(row["region_to"])])
+            ),
+            axis=1,
+        )
+        return output.merge(
+            metrics,
+            left_on=["capacity_region", "tech"],
+            right_on=["region", "tech"],
+            how="left",
+            suffixes=("", "_capacity"),
+            validate="many_to_one",
+        ).drop(columns=["capacity_region", "region_capacity"])
+
+    h2_pipe = attach_capacity(
+        add_from_to_coords(flow_out.loc[flow_out.tech == "H2_PIPE"], edges)
+    )
     h2_truck = add_from_to_coords(flow_out.loc[flow_out.tech == "H2_TRUCK"], edges)
 
-    gsl_pipe = add_from_to_coords(flow_out.loc[flow_out.tech == "GSL_PIPE"], edges)
+    gsl_pipe = attach_capacity(
+        add_from_to_coords(flow_out.loc[flow_out.tech == "GSL_PIPE"], edges)
+    )
     gsl_truck = add_from_to_coords(flow_out.loc[flow_out.tech == "GSL_TRUCK"], edges)
 
-    meth_pipe = add_from_to_coords(flow_out.loc[flow_out.tech == "METOH_PIPE"], edges)
+    meth_pipe = attach_capacity(
+        add_from_to_coords(flow_out.loc[flow_out.tech == "METOH_PIPE"], edges)
+    )
     meth_truck = add_from_to_coords(flow_out.loc[flow_out.tech == "METOH_TRUCK"], edges)
 
-    co2_pipe = add_from_to_coords(flow_out.loc[flow_out.tech == "CO2_PIPE"], edges)
+    co2_pipe = attach_capacity(
+        add_from_to_coords(flow_out.loc[flow_out.tech == "CO2_PIPE"], edges)
+    )
     co2_truck = add_from_to_coords(flow_out.loc[flow_out.tech == "CO2_TRUCK"], edges)
 
     elc_trans = add_from_to_coords(flow_out.loc[flow_out.tech == "ELC_TRANS"], edges)
@@ -1634,7 +1719,11 @@ def build_plot_layers(tables: ModelTables, geodata: GeospatialData) -> PlotLayer
     """
 
     tech_points = build_node_layers(tables, geodata)
-    tech_links = build_transport_layers(tables.flow_out, geodata.edges)
+    tech_links = build_transport_layers(
+        tables.flow_out,
+        geodata.edges,
+        tables.pipeline_capacity,
+    )
     demand_pts, size_demand = build_demand_layer(tables, geodata)
 
     return PlotLayers(
@@ -1809,7 +1898,18 @@ def combined_transport_links(
             print(f"Skipping {display_name}; missing columns: {missing_cols}")
             continue
 
-        layer = links[required_cols].dropna().copy()
+        capacity_cols = [
+            column
+            for column in [
+                "pipeline_capacity",
+                "eos_base_capacity",
+                "eos_pipeline_count",
+            ]
+            if column in links.columns
+        ]
+        layer = links[[*required_cols, *capacity_cols]].dropna(
+            subset=required_cols
+        ).copy()
         layer["flow"] = pd.to_numeric(layer["flow"], errors="coerce")
         layer = layer.loc[layer["flow"] > 0].copy()
         if layer.empty:
@@ -1850,11 +1950,15 @@ def combined_transport_links(
         "lon_to",
         "lat_to",
     ]
-    combined = (
-        combined
-        .groupby(group_cols, as_index=False)
-        .agg(flow=("flow", "sum"))
-    )
+    aggregations: dict[str, tuple[str, str]] = {"flow": ("flow", "sum")}
+    for column in [
+        "pipeline_capacity",
+        "eos_base_capacity",
+        "eos_pipeline_count",
+    ]:
+        if column in combined.columns:
+            aggregations[column] = (column, "max")
+    combined = combined.groupby(group_cols, as_index=False).agg(**aggregations)
 
     tech_order = {
         "Electricity transmission": 0,
@@ -3136,7 +3240,7 @@ def add_transport_layers_folium(
                 f"Flow: {format_map_value(row.flow, display_name)} | "
                 f"{_html_escape(row.region_from)} → {_html_escape(row.region_to)}"
             )
-            popup = _popup_table([
+            popup_rows = [
                 ("Layer", row.display_name),
                 ("Technology", row.tech),
                 ("Transport region", row.region),
@@ -3145,7 +3249,23 @@ def add_transport_layers_folium(
                 ("Flow", format_map_value(row.flow, display_name)),
                 ("Parallel layers", int(row.parallel_count)),
                 ("Parallel offset (m)", f"{float(row.offset_m):,.0f}"),
-            ])
+            ]
+            eos_count = getattr(row, "eos_pipeline_count", np.nan)
+            if pd.notna(eos_count):
+                count_text = f"{float(eos_count):.3f}".rstrip("0").rstrip(".")
+                tooltip += f" | EoS pipelines: {count_text}"
+                popup_rows.extend([
+                    (
+                        "Net pipeline capacity",
+                        f"{float(row.pipeline_capacity):,.3f}",
+                    ),
+                    (
+                        "One EoS curve capacity",
+                        f"{float(row.eos_base_capacity):,.3f}",
+                    ),
+                    ("EoS pipeline count", count_text),
+                ])
+            popup = _popup_table(popup_rows)
 
             folium.PolyLine(
                 locations=coordinates,

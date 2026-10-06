@@ -1,0 +1,24 @@
+# Net-zero stress test with three H2-derived EOS curves available to CO2
+# pipelines. Truck transport remains enabled to measure substitution as the
+# pipeline capacity ceiling increases.
+
+[scenario]
+id = "net-zero-co2-3x"
+description = "Net-zero CO2 network with three EOS pipeline curves and trucks"
+
+[storage]
+requirement = "minimum_cumulative_activity"
+minimum_cumulative_activity = 6_800_000_000
+
+[transport_modes]
+roads_enabled = true
+pipelines_enabled = true
+
+[pipeline_costs]
+impedance_scope = "all_km_dependent"
+
+[pipeline_costs.eos_stack_counts]
+CO2_PIPE = 3
+GSL_PIPE = 1
+H2_PIPE = 1
+METOH_PIPE = 1
