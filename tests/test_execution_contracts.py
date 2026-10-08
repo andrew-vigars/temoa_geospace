@@ -105,19 +105,21 @@ def test_committed_pipeline_stack_batch_order_and_inputs() -> None:
         PROJECT_ROOT / "config" / "batch_profiles" / "batch_run.toml"
     )
 
-    assert settings.name == "co2_pipeline_stack_sweep"
+    assert settings.name == "prov_quant_co2_sweep"
     assert settings.continue_on_failure is True
     assert settings.skip_completed is True
     assert settings.retry_failed is False
     assert [run.scenario for run in runs] == [
-        "provinces_net_zero_co2_1x_25km",
-        "provinces_net_zero_co2_2x_25km",
-        "provinces_net_zero_co2_3x_25km",
-        "provinces_net_zero_co2_3x_no_trucks_25km",
-        "provinces_baseline_co2_1x_25km",
-        "provinces_baseline_co2_2x_25km",
-        "provinces_baseline_co2_3x_25km",
-        "provinces_baseline_co2_3x_no_trucks_25km",
+        "quant_base",
+        "quant_nz",
+        "quant_base4",
+        "quant_nz4",
+        "quant_base5",
+        "quant_nz5",
+        "quant_base4nt",
+        "quant_nz4nt",
+        "quant_base5nt",
+        "quant_nz5nt",
     ]
     assert all(run.enabled for run in runs)
     validate_batch_runs(runs)

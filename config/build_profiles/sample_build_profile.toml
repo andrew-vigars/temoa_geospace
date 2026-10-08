@@ -208,8 +208,17 @@ max_snap_distance_factor = 2.0
 #   "qualitative"  -> has_qualitative_storage_evidence
 eligibility = "all_mapped"
 
-# Numerical regional capacity bounds are not yet available in the Silver product.
-use_capacity_bound = false
+[storage.all_mapped]
+# sources = ["NATCARB", "BC_STORAGE_ATLAS", "ATLANTIC_COS"]  # default
+
+[storage.quantitative]
+# Optional: include NATCARB, BC_STORAGE_ATLAS, or both (the default).
+# sources = ["NATCARB", "BC_STORAGE_ATLAS"]
+# P50 caps: equal_weighted (per cell) or shared (system-wide pool).
+capacity_mapping = "unlimited"
+
+[storage.qualitative]
+# sources = ["ATLANTIC_COS"]  # default; no numerical capacity option
 
 
 # -----------------------------------------------------------------------------

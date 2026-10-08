@@ -150,7 +150,7 @@ def resolve_h2_eos_template_path() -> Path:
 
 STORAGE_ELIGIBILITY_COLUMNS = {
     "all_mapped": "storage_accessible",
-    "quantitative": "has_quantitative_storage_evidence",
+    "quantitative": "has_p50_capacity",
     "qualitative": "has_qualitative_storage_evidence",
 }
 
@@ -320,6 +320,8 @@ class ResolvedSchemaConfig:
     pipelines_enabled: bool = True
     pipeline_impedance_scope: str = "none"
     pipeline_impedance_path: Path | None = None
+    storage_capacity_mapping: str = "unlimited"
+    storage_sources: tuple[str, ...] = ()
 
 
 @dataclass
@@ -385,6 +387,7 @@ class LoadedInputs:
     h2_eos_template: pd.DataFrame
     h2_opex_coefficients: pd.DataFrame
     pipeline_edge_impedance: pd.DataFrame | None = None
+    storage_capacity_budgets: pd.DataFrame | None = None
 
 
 @dataclass
@@ -739,7 +742,9 @@ def resolve_schema_configuration(
         raise ValueError("Schema builds require an explicit model scenario.")
 
     validate_storage_capacity_bound_setting(
-        build_config.storage.use_capacity_bound
+        build_config.storage.use_capacity_bound,
+        build_config.storage.capacity_mapping,
+        build_config.storage.eligibility,
     )
     basemap_stem = select_basemap_stem_for_resolution(build_config, model_config)
 
@@ -821,6 +826,8 @@ def resolve_schema_configuration(
         gasoline_demand_path=gasoline_demand_path,
         storage_eligibility=build_config.storage.eligibility,
         storage_use_capacity_bound=build_config.storage.use_capacity_bound,
+        storage_capacity_mapping=build_config.storage.capacity_mapping,
+        storage_sources=build_config.storage.sources,
         model_config_path=model_config.source_path,
         scenario_config_path=scenario_config_path,
         model_start_year=model_config.time.start_year,
@@ -1215,15 +1222,55 @@ def validate_gasoline_demand_region_coverage(
 
 def validate_storage_capacity_bound_setting(
     use_capacity_bound: bool,
+    capacity_mapping: str = "unlimited",
+    eligibility: str = "quantitative",
 ) -> None:
-    """Reject unsupported numerical storage-capacity bounds early."""
-    if use_capacity_bound:
+    """Reject inconsistent or non-quantitative capacity settings early."""
+    if capacity_mapping not in {"unlimited", "equal_weighted", "shared"}:
+        raise ValueError("Unknown storage capacity_mapping.")
+    if use_capacity_bound and capacity_mapping == "unlimited":
         raise ValueError(
-            "storage.use_capacity_bound=true is not supported by the current "
-            "Silver product because it has no allocated numerical regional "
-            "CO2 storage-capacity field. Keep it false until that field is "
-            "available."
+            "No allocated numerical regional storage mapping selected; "
+            "choose equal_weighted or shared."
         )
+    if use_capacity_bound != (capacity_mapping != "unlimited"):
+        raise ValueError("Storage capacity bound and mapping are inconsistent.")
+    if use_capacity_bound and eligibility != "quantitative":
+        raise ValueError("Storage capacity bounds require quantitative eligibility.")
+
+
+def validate_storage_build_settings(
+    path: Path, eligibility: str, sources: tuple[str, ...],
+) -> None:
+    """Prevent a shared Silver filename from silently using different sources."""
+    connection = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
+    try:
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='storage_build_settings'"
+        ).fetchone()
+        if not exists:
+            defaults = {"quantitative": {"NATCARB", "BC_STORAGE_ATLAS"},
+                        "qualitative": {"ATLANTIC_COS"},
+                        "all_mapped": {"NATCARB", "BC_STORAGE_ATLAS", "ATLANTIC_COS"}}
+            if sources and set(sources) != defaults[eligibility]:
+                raise ValueError("Selected storage sources require rebuilt Silver source metadata.")
+            return
+        row = connection.execute("SELECT eligibility, sources FROM storage_build_settings").fetchone()
+        if row is None or row[0] != eligibility or set(json.loads(row[1])) != set(sources):
+            raise ValueError("Silver storage eligibility/sources differ from this profile; rebuild Silver first.")
+    finally:
+        connection.close()
+
+
+def load_storage_capacity_budgets(path: Path) -> pd.DataFrame:
+    """Require the numerical Silver table for capped builds."""
+    with sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True) as connection:
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='storage_capacity_mapping'"
+        ).fetchone()
+        if not exists:
+            raise ValueError("Capped storage requires storage_capacity_mapping; rebuild Silver first.")
+        return pd.read_sql_query("SELECT * FROM storage_capacity_mapping", connection)
 
 
 def select_storage_eligible_regions(
@@ -1655,6 +1702,11 @@ def load_inputs(config: ResolvedSchemaConfig) -> LoadedInputs:
         )
 
     validate_clean_emissions(inputs.co2_raw)
+    validate_storage_build_settings(
+        config.co2_storage_path, config.storage_eligibility, config.storage_sources
+    )
+    if config.storage_use_capacity_bound:
+        inputs.storage_capacity_budgets = load_storage_capacity_budgets(config.co2_storage_path)
     validate_storage_region_coverage(
         inputs.storage_regions,
         inputs.graph_nodes,
@@ -3047,6 +3099,66 @@ def rebuild_capacity_limits(
     assert len(db_encoded["limit_capacity"]) == 2 * len(site_attributes)
 
     print(f"LimitCapacity rows: {len(db_encoded['limit_capacity']):,}")
+
+
+def rebuild_storage_capacity_limits(
+    db_encoded: dict[str, pd.DataFrame],
+    budgets: pd.DataFrame | None,
+    mapping: str,
+    model_period: int,
+    period_years: int,
+) -> None:
+    """Cap cumulative storage through annual-equivalent single-period limits.
+
+    Shared pools unique assessment P50 totals globally. Equal weighting sums
+    each assessment's equal cell shares at each model region. Neither option
+    imposes an independently estimated injection-rate constraint.
+    """
+    if mapping == "unlimited":
+        return
+    if mapping not in {"equal_weighted", "shared"}:
+        raise ValueError("Unknown storage capacity mapping.")
+    if budgets is None or budgets.empty:
+        raise ValueError("Capped storage requires nonempty Silver P50 capacity budgets.")
+    if period_years <= 0:
+        raise ValueError("Storage capacity period_years must be positive.")
+    required = {"storage_assessment_id", "region", "p50_tonnes", "equal_weighted_p50_tonnes"}
+    if not required.issubset(budgets.columns):
+        raise ValueError("Silver storage capacity mapping is missing required columns.")
+    if budgets.duplicated(["storage_assessment_id", "region"]).any():
+        raise ValueError("Duplicate assessment-region capacity budgets.")
+    for field in ["p50_tonnes", "equal_weighted_p50_tonnes"]:
+        values = pd.to_numeric(budgets[field], errors="coerce")
+        if not (values.gt(0) & values.lt(float("inf"))).all():
+            raise ValueError("Silver capacity budgets must be finite and positive.")
+    grouped = budgets.groupby("storage_assessment_id")
+    if grouped["p50_tonnes"].nunique().ne(1).any():
+        raise ValueError("Inconsistent P50 totals within an assessment.")
+    totals = grouped["p50_tonnes"].first()
+    shares = grouped["equal_weighted_p50_tonnes"].sum()
+    if not np.allclose(totals, shares):
+        raise ValueError("Equal capacity shares do not conserve assessment P50 totals.")
+    eligible = set(db_encoded["efficiency"].loc[
+        db_encoded["efficiency"]["tech"].eq("CO2_INJECT"), "region"
+    ])
+    if set(budgets["region"]) != eligible:
+        raise ValueError("Silver capacity budgets do not match eligible injection regions.")
+    if mapping == "shared":
+        capacities = pd.Series({"global": totals.sum()})
+    else:
+        capacities = budgets.groupby("region")["equal_weighted_p50_tonnes"].sum()
+    rows = [
+        {"region": region, "period": model_period, "tech_or_group": "CO2_INJECT",
+         "operator": "le", "activity": float(capacity / period_years),
+         "units": "t CO2/year", "notes": f"P50 {mapping} cumulative capacity over {period_years} years",
+         "data_id": DATA_ID}
+        for region, capacity in capacities.items()
+    ]
+    limits = pd.DataFrame(rows, columns=db_encoded["limit_activity"].columns)
+    existing = db_encoded["limit_activity"]
+    db_encoded["limit_activity"] = (
+        limits if existing.empty else pd.concat([existing, limits], ignore_index=True)
+    )
 
 
 def rebuild_storage_activity_limit(
@@ -6126,6 +6238,13 @@ def run_schema_build(
         db_encoded,
         config.storage_requirement,
         config.storage_minimum_cumulative_activity,
+        config.model_start_year,
+        config.model_end_year - config.model_start_year,
+    )
+    rebuild_storage_capacity_limits(
+        db_encoded,
+        inputs.storage_capacity_budgets,
+        config.storage_capacity_mapping,
         config.model_start_year,
         config.model_end_year - config.model_start_year,
     )

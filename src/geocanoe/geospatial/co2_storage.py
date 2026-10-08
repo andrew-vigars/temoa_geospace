@@ -1,5 +1,7 @@
 """Map unified CanCO2 storage evidence onto onshore GeoCANOE basemaps.
 
+Source footprints are filtered by the profile's storage eligibility before
+mapping; quantitative eligibility requires finite positive P50 evidence.
 This Silver transformation preserves two products for every configured basemap:
 
 ``regional_storage_evidence``
@@ -8,8 +10,8 @@ This Silver transformation preserves two products for every configured basemap:
 
 ``storage_region_crosswalk``
     The many-to-many storage-feature to model-region spatial relationship with
-    overlap areas and fractions.  Geological capacity is deliberately not
-    allocated or summed by region.
+    overlap areas and fractions. The companion ``storage_capacity_mapping``
+    attribute table preserves unique P50 budgets and equal model-cell shares.
 
 The current implementation covers the onshore basemap domain only. Offshore
 mapping requires an offshore model-region product and is outside this stage.
@@ -18,8 +20,8 @@ mapping requires an offshore model-region product and is outside this stage.
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
-import shutil
 import sqlite3
 
 import geopandas as gpd
@@ -197,7 +199,10 @@ def build_feature_capacity_flags(
         assessments[source_column] = pd.to_numeric(
             assessments[source_column], errors="coerce"
         )
-        assessments[flag_column] = assessments[source_column].fillna(0).gt(0)
+        assessments[flag_column] = (
+            assessments[source_column].gt(0)
+            & assessments[source_column].lt(float("inf"))
+        )
 
     feature_scoped = assessments.loc[
         assessments["assessment_scope"].eq("feature")
@@ -314,8 +319,6 @@ def build_storage_region_intersections(
     intersections = intersections.loc[
         intersections["intersection_area_m2"].gt(0)
     ].copy()
-    if intersections.empty:
-        raise ValueError("No positive-area storage intersections were found.")
 
     intersections["region_overlap_fraction"] = (
         intersections["intersection_area_m2"] / intersections["region_area_m2"]
@@ -376,12 +379,9 @@ def build_regional_storage_evidence(
         regional[coverage_field] = regional[coverage_field].fillna(0.0).clip(0, 1)
         regional[flag] = regional[coverage_field].gt(0)
 
-    regional["has_quantitative_storage_evidence"] = (
-        regional["has_natcarb"] | regional["has_bc_storage_atlas"]
-    )
     regional["has_qualitative_storage_evidence"] = regional["has_atlantic_cos"]
     regional["storage_accessible"] = (
-        regional["has_quantitative_storage_evidence"]
+        regional["has_natcarb"] | regional["has_bc_storage_atlas"]
         | regional["has_qualitative_storage_evidence"]
     )
     regional["storage_accessibility"] = regional["storage_accessible"].astype("int8")
@@ -414,6 +414,7 @@ def build_regional_storage_evidence(
         .fillna(False)
         .astype(bool)
     )
+    regional["has_quantitative_storage_evidence"] = regional["has_p50_capacity"]
 
     positive = flagged_intersections.loc[
         flagged_intersections["has_any_capacity_evidence"],
@@ -456,16 +457,94 @@ def build_regional_storage_evidence(
     return gpd.GeoDataFrame(regional, geometry="geometry", crs=regions.crs)
 
 
+def select_storage_features(
+    storage_features: gpd.GeoDataFrame,
+    feature_capacity_flags: pd.DataFrame,
+    eligibility: str,
+    sources: tuple[str, ...] = (),
+) -> gpd.GeoDataFrame:
+    """Select source footprints using assessment evidence before spatial mapping."""
+    if sources:
+        storage_features = storage_features.loc[
+            storage_features["source_dataset"].isin(sources)
+        ].copy()
+    if eligibility == "quantitative":
+        eligible_ids = feature_capacity_flags.loc[
+            feature_capacity_flags["has_p50_capacity"], "storage_feature_id"
+        ]
+        storage_features = storage_features.loc[
+            storage_features["storage_feature_id"].isin(eligible_ids)
+        ].copy()
+    elif eligibility == "qualitative":
+        storage_features = storage_features.loc[
+            storage_features["source_dataset"].eq("ATLANTIC_COS")
+        ].copy()
+    elif eligibility != "all_mapped":
+        raise ValueError(f"Unsupported storage eligibility mode: {eligibility!r}.")
+    return storage_features
+
+
+def build_storage_capacity_mapping(
+    crosswalk: pd.DataFrame,
+    assessments: pd.DataFrame,
+) -> pd.DataFrame:
+    """Map each positive P50 assessment once to each intersecting model region.
+
+    Unit assessments share their total across all component polygons. Equal
+    shares use distinct model cells, not intersection area or feature count.
+    The full assessment total is used when its footprint intersects the domain;
+    this deliberately assumes that its entire budget is accessible there.
+    """
+    columns = ["storage_assessment_id", "source_dataset", "assessment_scope",
+               "region", "p50_tonnes", "equal_weighted_p50_tonnes"]
+    positive = assessments.copy()
+    positive["storage_p50_tonnes"] = pd.to_numeric(
+        positive["storage_p50_tonnes"], errors="coerce"
+    )
+    positive = positive.loc[
+        positive["storage_p50_tonnes"].gt(0)
+        & positive["storage_p50_tonnes"].lt(float("inf"))
+    ]
+    if positive.empty or crosswalk.empty:
+        return pd.DataFrame(columns=columns)
+    if positive["storage_assessment_id"].duplicated().any():
+        raise ValueError("Duplicate storage assessment IDs in P50 mapping.")
+    if positive.duplicated(["assessment_scope", "storage_feature_id", "storage_unit_id"]).any():
+        raise ValueError("Multiple P50 assessments for the same footprint; select one assessment first.")
+    rows = []
+    for scope, key in [("feature", "storage_feature_id"), ("unit", "storage_unit_id")]:
+        scoped = positive.loc[positive["assessment_scope"].eq(scope)]
+        pairs = crosswalk[[key, "region"]].dropna().drop_duplicates()
+        mapped = scoped[["storage_assessment_id", "source_dataset",
+                         "assessment_scope", key, "storage_p50_tonnes"]].merge(
+            pairs, on=key, how="inner", validate="one_to_many"
+        )
+        rows.append(mapped.drop(columns=key))
+    mapped = pd.concat(rows, ignore_index=True).rename(
+        columns={"storage_p50_tonnes": "p50_tonnes"}
+    )
+    mapped = mapped.drop_duplicates(["storage_assessment_id", "region"])
+    counts = mapped.groupby("storage_assessment_id")["region"].transform("count")
+    mapped["equal_weighted_p50_tonnes"] = mapped["p50_tonnes"] / counts
+    return mapped[columns].sort_values(["storage_assessment_id", "region"]).reset_index(drop=True)
+
+
 def build_storage_products(
     regions: gpd.GeoDataFrame,
     storage_features: gpd.GeoDataFrame,
     storage_units: pd.DataFrame,
     storage_assessments: pd.DataFrame,
+    *,
+    eligibility: str = "all_mapped",
+    sources: tuple[str, ...] = (),
 ) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
-    """Build and validate the regional evidence and detailed crosswalk products."""
+    """Build profile-selected regional evidence and detailed crosswalk products."""
 
     feature_capacity_flags = build_feature_capacity_flags(
         storage_features, storage_assessments
+    )
+    storage_features = select_storage_features(
+        storage_features, feature_capacity_flags, eligibility, sources
     )
     intersections_metric = build_storage_region_intersections(
         regions, storage_features
@@ -562,10 +641,10 @@ def validate_storage_products(
     ].gt(0)
     if not capacity_regions.equals(coverage_regions):
         errors.append("Positive capacity flags and unioned coverage do not match.")
-    if not regional_evidence.loc[
-        capacity_regions, "has_quantitative_storage_evidence"
-    ].all():
-        errors.append("Capacity evidence exists outside quantitative evidence regions.")
+    if not regional_evidence["has_quantitative_storage_evidence"].equals(
+        regional_evidence["has_p50_capacity"]
+    ):
+        errors.append("Quantitative eligibility does not match positive P50 evidence.")
 
     if errors:
         raise ValueError("Invalid CO2 storage integration products:\n  - " + "\n  - ".join(errors))
@@ -579,14 +658,15 @@ def save_source_preview(
 
     source = storage_features.to_crs(METRIC_CRS)
     figure, axis = plt.subplots(figsize=(12, 10))
-    source.plot(
-        ax=axis,
-        column="source_dataset",
-        categorical=True,
-        legend=True,
-        linewidth=0,
-        alpha=0.65,
-    )
+    if not source.empty:
+        source.plot(
+            ax=axis,
+            column="source_dataset",
+            categorical=True,
+            legend=True,
+            linewidth=0,
+            alpha=0.65,
+        )
     axis.set_title("CanCO2 unified storage features (offshore regions not modeled)")
     axis.set_axis_off()
     figure.savefig(output_path, dpi=200, bbox_inches="tight")
@@ -612,7 +692,8 @@ def save_mapping_preview(
         linewidth=0.15,
         alpha=0.65,
     )
-    mapped.boundary.plot(ax=axis, color="#244a73", linewidth=0.5, alpha=0.8)
+    if not mapped.empty:
+        mapped.boundary.plot(ax=axis, color="#244a73", linewidth=0.5, alpha=0.8)
     axis.set_title("GeoCANOE regions with mapped onshore CO2 storage evidence")
     axis.set_axis_off()
     figure.savefig(output_path, dpi=200, bbox_inches="tight")
@@ -625,6 +706,8 @@ def export_storage_products(
     regional_evidence: gpd.GeoDataFrame,
     crosswalk: gpd.GeoDataFrame,
     output_dir: Path,
+    capacity_mapping: pd.DataFrame | None = None,
+    build_settings: dict[str, str] | None = None,
 ) -> dict[str, Path]:
     """Export spatial products, inspection CSVs, and a mapping preview."""
 
@@ -650,6 +733,29 @@ def export_storage_products(
         driver="GPKG",
         mode="a",
     )
+    if capacity_mapping is not None:
+        connection = sqlite3.connect(temporary_gpkg)
+        try:
+            with connection:
+                capacity_mapping.to_sql("storage_capacity_mapping", connection, index=False)
+                connection.execute(
+                    "INSERT INTO gpkg_contents (table_name, data_type, identifier, description) "
+                    "VALUES ('storage_capacity_mapping', 'attributes', 'storage_capacity_mapping', "
+                    "'P50 assessment budgets and equal cell shares; not injectivity limits')"
+                )
+                if build_settings is not None:
+                    pd.DataFrame([build_settings]).to_sql(
+                        "storage_build_settings", connection, index=False
+                    )
+                    connection.execute(
+                        "INSERT INTO gpkg_contents (table_name, data_type, identifier) "
+                        "VALUES ('storage_build_settings', 'attributes', 'storage_build_settings')"
+                    )
+        finally:
+            connection.close()
+        capacity_mapping.to_csv(
+            output_dir / f"{basemap_stem}_storage_capacity_mapping.csv", index=False
+        )
     temporary_gpkg.replace(gpkg_path)
     regional_evidence.drop(columns="geometry").to_csv(regional_csv, index=False)
     crosswalk.drop(columns="geometry").to_csv(crosswalk_csv, index=False)
@@ -682,11 +788,14 @@ def run_co2_storage_build(
 
     PROCESSED_CO2_STORAGE.mkdir(parents=True, exist_ok=True)
     preview_dir = PROCESSED_CO2_STORAGE / "preview"
-    if preview_dir.exists():
-        shutil.rmtree(preview_dir)
     preview_dir.mkdir(parents=True, exist_ok=True)
     save_source_preview(
-        storage_features,
+        select_storage_features(
+            storage_features,
+            build_feature_capacity_flags(storage_features, storage_assessments),
+            config.storage.eligibility,
+            config.storage.sources,
+        ),
         preview_dir / "canco2_storage_features.png",
     )
 
@@ -700,16 +809,23 @@ def run_co2_storage_build(
             storage_features,
             storage_units,
             storage_assessments,
+            eligibility=config.storage.eligibility,
+            sources=config.storage.sources,
         )
         outputs = export_storage_products(
             basemap_stem=basemap_path.stem,
             regional_evidence=regional_evidence,
             crosswalk=crosswalk,
             output_dir=PROCESSED_CO2_STORAGE,
+            capacity_mapping=build_storage_capacity_mapping(crosswalk, storage_assessments),
+            build_settings={"eligibility": config.storage.eligibility,
+                            "sources": json.dumps(sorted(config.storage.sources))},
         )
         summary_rows.append(
             {
                 "source_storage_gpkg": source_path.name,
+                "storage_eligibility": config.storage.eligibility,
+                "storage_sources": ",".join(config.storage.sources),
                 "basemap_file": basemap_path.name,
                 "regions": len(regional_evidence),
                 "accessible_regions": int(

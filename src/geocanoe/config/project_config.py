@@ -330,15 +330,24 @@ class StorageConfig:
     eligibility : str
         Silver evidence rule used to make ``CO2_INJECT`` available. Supported
         modes are ``"all_mapped"``, ``"quantitative"``, and
-        ``"qualitative"``.
+        ``"qualitative"``. Quantitative eligibility requires a finite positive
+        P50 assessment, resolved at feature or storage-unit scope.
     use_capacity_bound : bool
-        Whether schema construction should apply a numerical geological-storage
-        capacity bound. Current Silver products do not contain an allocated
-        regional capacity quantity, so committed profiles keep this disabled.
+        Resolved switch for a numerical P50 storage bound. Legacy profiles with
+        this switch true default to equal weighting.
+    capacity_mapping : str
+        ``unlimited`` leaves injection uncapped, ``equal_weighted`` splits each
+        assessment equally across intersecting cells, and ``shared`` pools
+        unique assessment totals into one system-wide budget.
+    sources : tuple[str, ...]
+        Source datasets included before P50 eligibility and spatial mapping.
+        Defaults to the sources compatible with the selected eligibility.
     """
 
     eligibility: str
     use_capacity_bound: bool
+    capacity_mapping: str = "unlimited"
+    sources: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1173,21 +1182,55 @@ def load_geospatial_build_config(
         ),
     )
 
+    storage_eligibility = _validate_choice(
+        require_string(storage_raw, "eligibility", "storage"),
+        SUPPORTED_STORAGE_ELIGIBILITY_MODES,
+        "storage.eligibility",
+    )
+    mode_raw = storage_raw.get(storage_eligibility, {})
+    if not isinstance(mode_raw, dict):
+        raise ValueError(f"storage.{storage_eligibility} must be a TOML table")
+    for key in ("sources", "capacity_mapping", "use_capacity_bound"):
+        if key in storage_raw and key in mode_raw:
+            raise ValueError(f"Define storage.{key} only once: parent or {storage_eligibility} subtable")
+    storage_options = {**storage_raw, **mode_raw}
+    legacy_capacity_bound = require_bool(
+        {"use_capacity_bound": storage_options.get("use_capacity_bound", False)},
+        "use_capacity_bound", "storage",
+    )
+    capacity_mapping = _validate_choice(
+        storage_options.get("capacity_mapping", "equal_weighted" if legacy_capacity_bound else "unlimited"),
+        {"unlimited", "equal_weighted", "shared"},
+        "storage.capacity_mapping",
+    )
+    if legacy_capacity_bound and capacity_mapping == "unlimited":
+        raise ValueError("storage.use_capacity_bound=true conflicts with capacity_mapping=unlimited")
     storage = StorageConfig(
-        eligibility=_validate_choice(
-            require_string(
-                storage_raw,
-                "eligibility",
-                "storage",
-            ),
-            SUPPORTED_STORAGE_ELIGIBILITY_MODES,
-            "storage.eligibility",
-        ),
-        use_capacity_bound=require_bool(
-            storage_raw,
-            "use_capacity_bound",
-            "storage",
-        ),
+        eligibility=storage_eligibility,
+        use_capacity_bound=capacity_mapping != "unlimited",
+        capacity_mapping=capacity_mapping,
+    )
+    if storage.use_capacity_bound and storage.eligibility != "quantitative":
+        raise ValueError("Capped storage capacity_mapping requires storage.eligibility=quantitative")
+    allowed_sources = {
+        "quantitative": {"NATCARB", "BC_STORAGE_ATLAS"},
+        "qualitative": {"ATLANTIC_COS"},
+        "all_mapped": {"NATCARB", "BC_STORAGE_ATLAS", "ATLANTIC_COS"},
+    }[storage.eligibility]
+    source_names = storage_options.get("sources", sorted(allowed_sources))
+    if not isinstance(source_names, list) or not source_names or any(
+        not isinstance(source, str) for source in source_names
+    ):
+        raise ValueError("storage.sources must be a nonempty list of source names")
+    if len(set(source_names)) != len(source_names):
+        raise ValueError("storage.sources contains duplicate source names")
+    if not set(source_names).issubset(allowed_sources):
+        raise ValueError(f"storage.sources for {storage.eligibility} must be drawn from {sorted(allowed_sources)}")
+    storage = StorageConfig(
+        eligibility=storage.eligibility,
+        use_capacity_bound=storage.use_capacity_bound,
+        capacity_mapping=storage.capacity_mapping,
+        sources=tuple(sorted(source_names)),
     )
 
     polygon_classes = _validate_choices(
@@ -1487,6 +1530,8 @@ def print_build_config(
         f"{config.storage.use_capacity_bound}"
     )
     print(f"Hydrography enabled:     {config.hydrography.enabled}")
+    print(f"Storage capacity mapping: {config.storage.capacity_mapping}")
+    print(f"Storage sources:          {', '.join(config.storage.sources)}")
     print(f"Hydrography source:      {config.hydrography.source_id}")
     print(
         "Hydrography polygons:    "

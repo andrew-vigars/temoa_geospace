@@ -4,6 +4,7 @@ from pathlib import Path
 
 import geopandas as gpd
 import pandas as pd
+import pytest
 from shapely.geometry import box
 
 from geocanoe.acquisition.co2_storage import (
@@ -11,7 +12,10 @@ from geocanoe.acquisition.co2_storage import (
     find_latest_raw_storage_gpkg,
     resolve_source_gpkg,
 )
-from geocanoe.geospatial.co2_storage import build_storage_products
+from geocanoe.geospatial.co2_storage import (
+    build_feature_capacity_flags,
+    build_storage_products,
+)
 
 
 def test_acquisition_selects_and_pins_timestamped_release(
@@ -51,7 +55,12 @@ def test_acquisition_selects_and_pins_timestamped_release(
     ).strip() == newer.name
 
 
-def test_storage_products_preserve_topology_and_union_capacity_coverage() -> None:
+@pytest.mark.parametrize(
+    "eligibility", ["all_mapped", "quantitative", "qualitative", "quantitative_empty"]
+)
+def test_storage_products_preserve_topology_and_union_capacity_coverage(
+    eligibility: str,
+) -> None:
     regions = gpd.GeoDataFrame(
         {
             "region": ["R0", "R1"],
@@ -91,14 +100,36 @@ def test_storage_products_preserve_topology_and_union_capacity_coverage() -> Non
         }
     )
 
+    if eligibility == "quantitative_empty":
+        storage_assessments["storage_p50_tonnes"] = 0
     evidence, crosswalk = build_storage_products(
         regions,
         storage_features,
         storage_units,
         storage_assessments,
+        eligibility="quantitative" if eligibility == "quantitative_empty" else eligibility,
     )
 
     assert len(evidence) == 2
+    if eligibility == "quantitative_empty":
+        assert crosswalk.empty
+        assert not evidence["storage_accessible"].any()
+        assert not evidence["has_p50_capacity"].any()
+        return
+    if eligibility == "quantitative":
+        assert set(crosswalk["storage_feature_id"]) == {"F1"}
+        assert len(crosswalk) == 2
+        assert evidence["has_p50_capacity"].all()
+        assert evidence["has_quantitative_storage_evidence"].all()
+        assert not evidence["has_atlantic_cos"].any()
+        assert not evidence["has_bc_storage_atlas"].any()
+        return
+    if eligibility == "qualitative":
+        assert set(crosswalk["storage_feature_id"]) == {"F2"}
+        assert evidence["storage_accessible"].tolist() == [False, True]
+        assert not evidence["has_p50_capacity"].any()
+        assert not evidence["has_quantitative_storage_evidence"].any()
+        return
     assert len(crosswalk) == 5
     assert set(crosswalk["storage_feature_id"]) == {"F1", "F2", "F3"}
     assert evidence["storage_accessible"].all()
@@ -114,4 +145,30 @@ def test_storage_products_preserve_topology_and_union_capacity_coverage() -> Non
     assert evidence["capacity_evidence_coverage_fraction"].round(8).tolist() == [
         0.5,
         0.5,
+    ]
+
+
+def test_p50_flags_require_finite_positive_assessments_at_feature_or_unit_scope() -> None:
+    values = [100, None, "invalid", 0, -1, float("inf"), float("-inf"), "200"]
+    features = gpd.GeoDataFrame(
+        {
+            "storage_feature_id": [f"F{i}" for i in range(len(values))],
+            "storage_unit_id": [f"U{i}" for i in range(len(values))],
+        }
+    )
+    assessments = pd.DataFrame(
+        {
+            "storage_feature_id": [*features["storage_feature_id"][:-1], None],
+            "storage_unit_id": features["storage_unit_id"],
+            "assessment_scope": ["feature"] * 7 + ["unit"],
+            "storage_p50_tonnes": values,
+            "storage_p10_tonnes": 0,
+            "storage_p90_tonnes": 0,
+            "theoretical_storage_tonnes": 0,
+            "effective_storage_tonnes": 0,
+        }
+    )
+    flags = build_feature_capacity_flags(features, assessments)
+    assert flags.loc[flags["has_p50_capacity"], "storage_feature_id"].tolist() == [
+        "F0", "F7"
     ]

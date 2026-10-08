@@ -828,7 +828,9 @@ def test_storage_eligibility_modes_select_expected_regions(
         {
             "region": ["R0", "R1", "R2", "R3"],
             "storage_accessible": [True, True, True, False],
-            "has_quantitative_storage_evidence": [True, False, False, False],
+            # Legacy Silver can label a source footprint quantitative without P50.
+            "has_quantitative_storage_evidence": [True, True, False, False],
+            "has_p50_capacity": [True, False, False, False],
             "has_qualitative_storage_evidence": [False, True, True, False],
         }
     )
@@ -894,11 +896,13 @@ def test_demand_is_encoded_as_annual_tonnes() -> None:
     )
 
 
-def test_storage_capacity_bound_is_rejected_without_numeric_silver_data() -> None:
-    with pytest.raises(ValueError, match="no allocated numerical regional"):
+def test_storage_capacity_bound_requires_an_explicit_numeric_mapping() -> None:
+    with pytest.raises(ValueError, match="choose equal_weighted or shared"):
         validate_storage_capacity_bound_setting(True)
 
     validate_storage_capacity_bound_setting(False)
+    validate_storage_capacity_bound_setting(True, "equal_weighted")
+    validate_storage_capacity_bound_setting(True, "shared")
 
 
 def test_storage_minimum_cumulative_activity_encodes_annual_equivalent() -> None:

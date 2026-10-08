@@ -395,14 +395,80 @@ Geological storage is configured in each build profile with:
 ```toml
 [storage]
 eligibility = "all_mapped"  # all_mapped, quantitative, or qualitative
-use_capacity_bound = false
+
+[storage.quantitative]
+sources = ["NATCARB", "BC_STORAGE_ATLAS"]
+capacity_mapping = "unlimited"  # unlimited, equal_weighted, or shared
+
+[storage.qualitative]
+sources = ["ATLANTIC_COS"]
+
+[storage.all_mapped]
+sources = ["NATCARB", "BC_STORAGE_ATLAS", "ATLANTIC_COS"]
 ```
 
-The eligibility setting controls which Silver `regional_storage_evidence`
-regions receive `CO2_INJECT`. Numerical capacity bounds remain disabled because
-the current Silver product does not contain defensibly allocated regional
-storage quantities; setting `use_capacity_bound = true` fails validation rather
-than treating evidence coverage as physical capacity.
+The eligibility setting filters the Silver storage footprints and preview and
+controls which `regional_storage_evidence` regions receive `CO2_INJECT`.
+`quantitative` requires a finite positive `storage_p50_tonnes` assessment at
+feature or storage-unit scope; source membership alone does not qualify.
+`qualitative` selects Atlantic chance-of-success evidence, and `all_mapped`
+retains all mapped sources. Rebuild Silver after changing eligibility; Gold
+also checks `has_p50_capacity` directly for quantitative profiles when reading
+older Silver products.
+
+Quantitative profiles support three capacity options:
+
+- `unlimited`: P50 controls eligibility, with no numerical storage cap.
+- `equal_weighted`: split each assessment's P50 equally across its distinct
+  intersecting model cells, then sum the shares in each cell. Component polygons
+  of one BC aquifer share one budget rather than repeating it.
+- `shared`: sum each mapped assessment's P50 once into one system-wide budget
+  shared by all eligible injection cells. This is a pooled scenario assumption,
+  not separate aquifer budgets or a simulation of reservoir connectivity.
+
+Both capped options require quantitative eligibility and the rebuilt Silver
+`storage_capacity_mapping` table. They use the full P50 of assessments that
+intersect the study area, including partial intersections, and assume that
+distinct assessments represent additive resources. They do not resolve
+potential geological overlap between assessments. The caps constrain total
+injection over the current single model period by dividing tonnes by the period
+duration when encoding annual activity limits. They are not injectivity limits.
+Legacy `use_capacity_bound = false` remains unlimited when no mapping is given;
+`true` defaults to equal weighting. An explicit `capacity_mapping` selects the
+mode; remove the legacy switch in new profiles. The parent `eligibility` selects
+which subtable is active. Other mode subtables can remain in the file for easy
+switching. Flat legacy options remain supported, but defining the same option
+in both the parent and its active subtable is rejected.
+
+Source selection is independent of capacity mapping:
+
+```toml
+[storage]
+eligibility = "quantitative"
+
+[storage.quantitative]
+sources = ["NATCARB", "BC_STORAGE_ATLAS"]
+capacity_mapping = "equal_weighted"
+```
+
+| Source | Assessment representation | Equal weighting | Shared capacity |
+| --- | --- | --- | --- |
+| `NATCARB` | Feature-level P50: saline and coal resource cells, plus oil/gas resource features with valid P50 | Split each feature's total across its intersecting model cells; sum contributions within each model cell | Add each mapped feature assessment once to the global pool |
+| `BC_STORAGE_ATLAS` | Unit-level P50 for aquifers, possibly represented by multiple polygons; pools without P50 are excluded | Split the aquifer's total across all distinct intersecting model cells, counting component polygons once | Add each mapped aquifer assessment once to the global pool |
+| `ATLANTIC_COS` | Qualitative chance-of-success footprints, without P50 | Unavailable | Unavailable |
+
+Thus a NATCARB feature entirely inside one 25 km cell contributes its full P50
+to that cell. If it intersects two cells, equal weighting contributes half to
+each, regardless of overlap area. A BC aquifer intersecting ten cells contributes
+one tenth to each. These are equal-share assumptions rather than area-weighted
+aggregation. `NATCARB` selects all of its valid-P50 feature layers, not only saline.
+
+Omitting `sources` defaults to NATCARB and BC for quantitative, Atlantic for
+qualitative, and all three for all_mapped. Unknown, duplicate, empty or
+eligibility-incompatible source selections fail validation. Source selection
+filters footprints, previews and capacity budgets before spatial mapping.
+Rebuild Silver after changing sources or eligibility; Gold verifies the stored
+selection to prevent accidental reuse of a differently filtered product.
 
 Global non-spatial model defaults are configured once in
 `registry/model.toml`, rather than repeated across geospatial build profiles:

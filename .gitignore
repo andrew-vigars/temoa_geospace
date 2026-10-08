@@ -138,7 +138,7 @@ Thumbs.db
 
 # Study-area build profiles and scenario overlays are generally local,
 # system-boundary and policy-specific configuration. Keep the committed sample
-# templates and canonical baseline scenario available in a clean checkout.
+# templates and canonical baseline/net-zero scenarios in a clean checkout.
 
 # -----------------------
 
@@ -147,13 +147,8 @@ config/build_profiles/*.toml
 
 registry/scenarios/*.toml
 !registry/scenarios/baseline.toml
-!registry/scenarios/baseline_co2_2x.toml
-!registry/scenarios/baseline_co2_3x.toml
-!registry/scenarios/baseline_co2_3x_no_trucks.toml
 !registry/scenarios/net_zero.toml
-!registry/scenarios/net_zero_co2_2x.toml
-!registry/scenarios/net_zero_co2_3x.toml
-!registry/scenarios/net_zero_co2_3x_no_trucks.toml
+registry/scenarios/archive/
 !registry/scenarios/sample_scenario.toml
 
 # Local TEMOA v3 run configurations retained temporarily for v4 migration.
@@ -163,3 +158,7 @@ config/temoa_v3_configs/
 config/temoav4/config_sample.toml
 
 
+
+# Local solver configurations and active batch selections.
+config/temoav4/*.toml
+config/batch_profiles/*.toml

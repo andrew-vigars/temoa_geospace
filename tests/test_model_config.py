@@ -43,14 +43,15 @@ def test_committed_model_registry_is_single_period_2025_to_2050() -> None:
     ("filename", "scenario_id", "co2_stacks", "roads_enabled"),
     [
         ("net_zero.toml", "net-zero-25km", 1, True),
-        ("net_zero_co2_2x.toml", "net-zero-co2-2x", 2, True),
-        ("net_zero_co2_3x.toml", "net-zero-co2-3x", 3, True),
+        ("net_zero_co2_4x.toml", "net-zero-co2-4x", 4, True),
+        ("net_zero_co2_5x.toml", "net-zero-co2-5x", 5, True),
         (
-            "net_zero_co2_3x_no_trucks.toml",
-            "nz-co2-3x-no-truck",
-            3,
+            "net_zero_co2_4x_no_trucks.toml",
+            "nz-co2-4x-no-truck",
+            4,
             False,
         ),
+        ("net_zero_co2_5x_no_trucks.toml", "nz-co2-5x-no-truck", 5, False),
     ],
 )
 def test_committed_net_zero_pipeline_scenarios(
@@ -81,14 +82,15 @@ def test_committed_net_zero_pipeline_scenarios(
     ("filename", "scenario_id", "co2_stacks", "roads_enabled"),
     [
         ("baseline.toml", "baseline-25km", 1, True),
-        ("baseline_co2_2x.toml", "baseline-co2-2x", 2, True),
-        ("baseline_co2_3x.toml", "baseline-co2-3x", 3, True),
+        ("baseline_co2_4x.toml", "baseline-co2-4x", 4, True),
+        ("baseline_co2_5x.toml", "baseline-co2-5x", 5, True),
         (
-            "baseline_co2_3x_no_trucks.toml",
-            "base-co2-3x-no-truck",
-            3,
+            "baseline_co2_4x_no_trucks.toml",
+            "base-co2-4x-no-truck",
+            4,
             False,
         ),
+        ("baseline_co2_5x_no_trucks.toml", "base-co2-5x-no-truck", 5, False),
     ],
 )
 def test_committed_baseline_pipeline_scenarios(
