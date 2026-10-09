@@ -439,6 +439,44 @@ def build_co2_storage_summary(flow_out: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def build_gasoline_supply_summary(flow_out: pd.DataFrame) -> pd.DataFrame:
+    """Report delivered synthetic fuel and ethos fallback supply separately.
+
+    GSL_EXISTING is local gasoline supply rather than demand delivery. It is
+    reported independently, so these rows must not all be summed as deliveries.
+    Values are representative annual tonnes of gasoline, not carbon emissions.
+    """
+    categories = {"GSL_DEMAND": "gasoline_delivery_via_gsl",
+                  "GSL_BACKUP": "ethos_backup_delivery",
+                  "GSL_EXISTING": "ethos_legacy_supply"}
+    selected = flow_out.loc[flow_out.tech.isin(categories)].copy()
+    selected["supply_route"] = selected.tech.map(categories)
+    selected["annual_gasoline_tonnes"] = pd.to_numeric(selected.flow, errors="raise")
+    groups = [c for c in ["scenario", "period", "region", "tech", "supply_route"] if c in selected]
+    return selected.groupby(groups, as_index=False)["annual_gasoline_tonnes"].sum()
+
+
+def build_carbon_accounting_summary(flow_out: pd.DataFrame, coefficients: pd.DataFrame) -> pd.DataFrame:
+    """Report annual facility baseline, captured/stored flows and priced releases.
+
+    Regional rows include transport; conservation is assessed over the whole
+    system. Captured flow is an intermediate metric, not additional abatement.
+    """
+    keys = [c for c in ["scenario", "period", "region"] if c in flow_out]
+    categories = {"CO2_BASELINE": "facility_baseline", "CO2_CAP": "captured",
+                  "CO2_INJECT": "stored"}
+    selected = flow_out.loc[flow_out.tech.isin(categories)].copy()
+    selected["metric"] = selected.tech.map(categories)
+    selected["annual_carbon_tonnes"] = pd.to_numeric(selected.flow, errors="raise")
+    relevant = coefficients.loc[coefficients.emis_comm.eq("co2_facility_emission")]
+    join = ["region", "input_comm", "tech", "vintage", "output_comm"]
+    emissions = flow_out.merge(relevant[join + ["activity"]], on=join, how="inner", validate="many_to_one")
+    emissions["annual_carbon_tonnes"] = emissions.flow * emissions.activity
+    emissions["metric"] = "facility_atmospheric_emissions"
+    values = pd.concat([selected, emissions], ignore_index=True)
+    return values.groupby(keys + ["metric"], as_index=False)["annual_carbon_tonnes"].sum()
+
+
 def export_output_tables(
     db_path: Path,
     output_dir: Path,
@@ -549,6 +587,19 @@ def export_output_tables(
                 )
 
             if flow_out_for_storage_summary is not None:
+                flow = flow_out_for_storage_summary
+                summaries = {"GasolineSupplySummary": build_gasoline_supply_summary(flow)}
+                if flow["tech"].eq("CO2_BASELINE").any():
+                    coefficients = pd.read_sql_query('SELECT * FROM emission_activity', connection)
+                    summaries["CO2AccountingSummary"] = build_carbon_accounting_summary(flow, coefficients)
+                for title, summary in summaries.items():
+                    if summary.empty and skip_empty:
+                        continue
+                    validate_excel_sheet_size(title, summary)
+                    sheet = make_excel_sheet_name(title, used_sheet_names)
+                    summary.to_excel(writer, sheet_name=sheet, index=False)
+                    format_excel_sheet(writer, sheet, summary)
+                    written_tables += 1
                 storage_summary = build_co2_storage_summary(
                     flow_out_for_storage_summary
                 )

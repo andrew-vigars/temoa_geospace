@@ -100,26 +100,22 @@ def test_batch_still_rejects_missing_files(tmp_path: Path, missing: str) -> None
         validate_batch_runs([BatchRun(0, config, database, "standard_run", True)])
 
 
-def test_committed_pipeline_stack_batch_order_and_inputs() -> None:
+def test_carbon_sweep_batch_order_and_inputs() -> None:
     settings, runs = load_batch_config(
         PROJECT_ROOT / "config" / "batch_profiles" / "batch_run.toml"
     )
 
-    assert settings.name == "prov_quant_co2_sweep"
+    assert settings.name == "prov_quant_carbon_sweeps"
     assert settings.continue_on_failure is True
     assert settings.skip_completed is True
     assert settings.retry_failed is False
     assert [run.scenario for run in runs] == [
-        "quant_base",
-        "quant_nz",
-        "quant_base4",
-        "quant_nz4",
-        "quant_base5",
-        "quant_nz5",
-        "quant_base4nt",
-        "quant_nz4nt",
-        "quant_base5nt",
-        "quant_nz5nt",
+        f"quant_{method}_{level:03d}{suffix}"
+        for method, levels in [("target", [0, 25, 50, 75, 95, 100]),
+                               ("price", [0, 50, 100, 170, 250, 350])]
+        for suffix in ["", "_no_trucks"]
+        for level in levels
     ]
+    assert len({run.database_path for run in runs}) == 24
     assert all(run.enabled for run in runs)
     validate_batch_runs(runs)

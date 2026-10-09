@@ -2,9 +2,9 @@
 # GeoCANOE Gold-model scenario template — COMMITTED SAMPLE
 # =============================================================================
 #
-# This file is the committed, always-resolvable sample scenario. It is a copy
-# of the baseline scenario, kept here under a stable "sample_*" name so it is
-# never overwritten by edits to the real, policy-specific scenarios.
+# This file is the committed, always-resolvable sample scenario. It demonstrates
+# carbon accounting at zero price with five CO2 EOS curves, kept under a stable
+# "sample_*" name so it is never overwritten by policy-specific scenarios.
 #
 # registry/scenarios/*.toml (other than this file) are local, policy-specific
 # and are gitignored: they are not committed. To create your own scenario,
@@ -32,7 +32,7 @@ id = "validate-50km"
 
 # Optional human-readable explanation recorded in the resolved scenario.
 # Changing only this description does not change model behaviour.
-description = "Canonical baseline using all global model defaults"
+description = "Carbon-accounted baseline at 50 km; five CO2 EOS curves; fallback gasoline unpriced"
 
 
 # -----------------------------------------------------------------------------
@@ -87,8 +87,15 @@ description = "Canonical baseline using all global model defaults"
 # for reporting and must not be encoded as annual LimitCapacity.
 # No other projection methods are currently implemented.
 #
-# [emissions]
-# projection_method = "constant"
+[emissions]
+projection_method = "constant"
+# Keep accounting active in both target and price sweeps, including zero-price runs.
+policy = "emissions_price"
+# Currency per tonne of emissions; use the same cost basis as the other inputs.
+# A storage-target run keeps this zero. A price run varies it and disables the floor.
+price_per_tonne = 0
+# Ethos backup/legacy gasoline is reported but not priced in this first boundary.
+fallback_gasoline_emission_factor = 0
 
 
 # -----------------------------------------------------------------------------
@@ -114,11 +121,11 @@ description = "Canonical baseline using all global model defaults"
 # When changing requirement, also set the compatible cumulative value in the
 # same scenario so the merged configuration remains valid.
 #
-# Example A — optional storage:
+# Example A — optional storage (active in this sample):
 #
-# [storage]
-# requirement = "none"
-# minimum_cumulative_activity = 0
+[storage]
+requirement = "none"
+minimum_cumulative_activity = 0
 #
 # Example B — cumulative storage target:
 #
@@ -153,9 +160,9 @@ resolution = 50
 # pipeline-impedance products remain available for later scenarios. Electricity
 # transmission continues to use the graph-edge topology independently.
 #
-# [transport_modes]
-# roads_enabled = true
-# pipelines_enabled = true
+[transport_modes]
+roads_enabled = true
+pipelines_enabled = true
 
 
 # -----------------------------------------------------------------------------
@@ -176,7 +183,8 @@ resolution = 50
 impedance_scope = "all_km_dependent"
 
 [pipeline_costs.eos_stack_counts]
-CO2_PIPE = 1
+# Five complete EOS capacity-cost curves per corridor, not a pipe-count integer.
+CO2_PIPE = 5
 GSL_PIPE = 1
 H2_PIPE = 1
 METOH_PIPE = 1

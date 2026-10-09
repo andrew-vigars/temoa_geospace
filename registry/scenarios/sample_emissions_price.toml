@@ -1,0 +1,27 @@
+[scenario]
+id = "emissions-price"
+description = "Facility-origin emissions price; fallback gasoline reported but unpriced"
+
+[emissions]
+policy = "emissions_price"
+# Illustrative price, in the same currency as all other model costs.
+price_per_tonne = 100
+fallback_gasoline_emission_factor = 0
+
+[storage]
+requirement = "none"
+minimum_cumulative_activity = 0
+
+[transport_modes]
+roads_enabled = true
+pipelines_enabled = true
+
+[pipeline_costs]
+impedance_scope = "all_km_dependent"
+
+[pipeline_costs.eos_stack_counts]
+# Five complete EOS curves expand corridor capacity without a pipe-count integer.
+CO2_PIPE = 5
+GSL_PIPE = 1
+H2_PIPE = 1
+METOH_PIPE = 1

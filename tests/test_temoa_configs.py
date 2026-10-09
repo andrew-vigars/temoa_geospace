@@ -14,7 +14,7 @@ from geocanoe.execution.temoa_config import (
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TEMOA_CONFIG_DIR = PROJECT_ROOT / "config" / "temoav4"
-TEMOA_CONFIGS = sorted(TEMOA_CONFIG_DIR.glob("*.toml"))
+TEMOA_CONFIGS = sorted(TEMOA_CONFIG_DIR.rglob("*.toml"))
 
 TUTORIAL_ROOT_KEYS = {
     "scenario",

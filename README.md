@@ -582,6 +582,71 @@ by the period length before encoding the `CO2_INJECT` lower bound. For example,
 configured target must be positive. With `requirement = "none"`, it must remain
 zero and geological storage is available but optional.
 
+The alternative `emissions_price` policy chooses storage in response to an
+atmospheric emissions price using only the installed Temoa v4 schema. Use
+`registry/scenarios/sample_emissions_price.toml` as an overlay, or configure:
+
+```toml
+[emissions]
+policy = "emissions_price"
+price_per_tonne = 100
+fallback_gasoline_emission_factor = 0
+
+[storage]
+requirement = "none"
+minimum_cumulative_activity = 0
+```
+
+The price is illustrative and must use the same currency basis as the other
+Gold costs, per tonne of emissions. Temoa applies period duration and financial
+discounting; Gold does not multiply the price by 25. `policy = "none"` preserves
+the original model and requires a zero price and zero fallback factor. A zero
+price with `emissions_price` keeps carbon accounting active for a comparison run.
+The existing minimum-storage target remains separately configurable and can be
+combined with a price, although pure price-driven runs should disable that floor.
+Geological storage capacity upper bounds still apply in either policy mode.
+
+Gold adds a bookkeeping `CO2_BASELINE` process whose annual output equals the
+mapped facility baseline, fixed by `limit_capacity` and
+`limit_annual_capacity_factor`. `CO2_CAP` draws from this conserved `co2_raw`
+commodity, and `CO2_RELEASE` provides an explicit atmospheric release route for
+raw or captured CO2. `emission_activity` and `cost_emission` charge releases;
+`CO2_INJECT` receives no storage payment or negative emissions coefficient.
+Existing capture and injection efficiencies must be one in this first version.
+CO2 transport losses, if introduced through efficiency, are also charged.
+
+All facility carbon entering fuel production is assumed eventually released
+within the horizon, including conversion losses, and is charged once at the
+CO2-consuming production process. This avoids crediting temporary utilization
+as permanent storage and avoids charging that same carbon again at combustion.
+The current Silver baseline is in CO2e and retains the existing model's CO2e-to-
+physical-CO2 proxy; gas-specific capture fractions are not introduced here.
+Upstream fuel and electricity emissions are outside this initial boundary.
+
+`GSL_BACKUP` supplies gasoline demand directly from `ethos` when synthetic fuel
+is not selected; optional `GSL_EXISTING` supplies local gasoline. Both remain
+unpriced with `fallback_gasoline_emission_factor = 0`, as deliberately chosen
+for the first scenario. A later scenario may specify a combustion factor in
+tonnes CO2 per tonne gasoline to charge these routes separately. An unpriced
+fallback can be preferred when facility carbon is more valuable for storage.
+This is a facility-abatement scenario, not a full-system net-zero claim.
+
+Exports include `CO2AccountingSummary` with annual facility baseline, capture,
+storage and atmospheric emissions, plus `GasolineSupplySummary` separating
+delivery through `gsl`, direct backup delivery, and legacy supply. Delivery
+through `gsl` may include legacy gasoline; legacy supply is an intermediate
+quantity and must not be added to deliveries. Capture is also an intermediate
+carbon metric. Across the system, annual baseline equals stored carbon plus
+facility atmospheric emissions; regional balances additionally involve imports
+and exports. Multiply annual physical totals by period years only for cumulative
+reporting. Native `output_emission` and `output_cost` retain the solver's emissions
+and cost results. A net-emissions-cap policy is not yet implemented in GeoCANOE;
+Temoa v4's `limit_emission` table provides the future extension point.
+
+See [emissions accounting and CANOE alignment](docs/emissions-accounting.md)
+for the provincial-sector source comparison, confirmed schema conventions,
+intentional boundary differences and remaining database-level verification.
+
 Gasoline demand follows the same representative-year convention. Silver maps
 population-centre proxy coordinates onto every configured basemap, aggregates
 annual tonnes by region, and preserves zero-demand regions. Gold selects the
@@ -1062,12 +1127,32 @@ output_files/<timestamped_run>/
     solved_*.sqlite
     manifest.json
     effective_*.toml
+    configs/
+        build.toml, model.toml, schema.toml, temoav4.toml, batch.toml
+        index.json
+    *_interactive_folium.html
+    map_generation.log
     logs and provenance records
     excel_outputs/
         output_tables.xlsx
 ```
 
 ### Batch execution
+
+Successful runs automatically generate an interactive map from the archived
+solved database. Pass `--no-map` to the single-run command to skip this step.
+Map failures are recorded separately in the run manifest and log and do not
+change a successful solver result.
+
+The `configs/` folder preserves the original build profile, model defaults,
+schema scenario, solver configuration, and batch selection when available.
+`index.json` records source paths, SHA-256 hashes, and whether each source came
+from a schema-build snapshot or was copied at run time. New Gold manifests
+embed build-time TOML snapshots; older schemas retain their resolved settings
+and explicitly label copies of current source files. Missing sources are listed
+as unavailable. The effective solver config remains alongside the archived
+databases. Rerunning a solve uses the archived input database; rebuilding Silver
+or Gold still requires the original datasets and matching software.
 
 Run an ordered set of solver configurations:
 

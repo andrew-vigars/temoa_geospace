@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
+import math
 import re
 import tomllib
 
@@ -70,6 +71,9 @@ class ModelEmissionsConfig:
     """Projection used to represent annual Silver emissions in Gold."""
 
     projection_method: str
+    policy: str = "none"
+    price_per_tonne: float = 0.0
+    fallback_gasoline_emission_factor: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -293,6 +297,18 @@ def load_model_config(
             f"{sorted(SUPPORTED_EMISSIONS_PROJECTION_METHODS)}."
         )
 
+    emissions_policy = emissions_raw.get("policy", "none")
+    if emissions_policy not in {"none", "emissions_price"}:
+        raise ValueError("[emissions].policy must be 'none' or 'emissions_price'.")
+    emission_values = {}
+    for key in ["price_per_tonne", "fallback_gasoline_emission_factor"]:
+        number = require_number({key: emissions_raw.get(key, 0)}, key, "emissions")
+        if not math.isfinite(number) or number < 0:
+            raise ValueError(f"[emissions].{key} must be finite and nonnegative.")
+        emission_values[key] = number
+    if emissions_policy == "none" and any(emission_values.values()):
+        raise ValueError("[emissions] price and fallback factor must be 0 when policy is 'none'.")
+
     requirement = storage_raw.get("requirement")
     if requirement not in SUPPORTED_STORAGE_REQUIREMENTS:
         raise ValueError(
@@ -404,6 +420,8 @@ def load_model_config(
         ),
         emissions=ModelEmissionsConfig(
             projection_method=projection_method,
+            policy=emissions_policy,
+            **emission_values,
         ),
         storage=ModelStorageConfig(
             requirement=requirement,

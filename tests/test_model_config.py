@@ -21,6 +21,9 @@ def test_committed_model_registry_is_single_period_2025_to_2050() -> None:
     assert config.time.end_year == 2050
     assert config.time.period_years == 25
     assert config.emissions.projection_method == "constant"
+    assert config.emissions.policy == "emissions_price"
+    assert config.emissions.price_per_tonne == 0
+    assert config.emissions.fallback_gasoline_emission_factor == 0
     assert config.finance.global_discount_rate == 0.03
     assert config.finance.default_loan_rate == 0.03
     assert config.storage.requirement == "none"
@@ -31,7 +34,7 @@ def test_committed_model_registry_is_single_period_2025_to_2050() -> None:
     assert config.transport_modes.pipelines_enabled is True
     assert config.pipeline_costs.impedance_scope == "all_km_dependent"
     assert config.pipeline_costs.eos_stack_counts == {
-        "CO2_PIPE": 1,
+        "CO2_PIPE": 5,
         "GSL_PIPE": 1,
         "H2_PIPE": 1,
         "METOH_PIPE": 1,

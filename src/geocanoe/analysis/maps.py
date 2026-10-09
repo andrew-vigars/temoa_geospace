@@ -3448,6 +3448,28 @@ def save_folium_map(
     return output_path
 
 
+def generate_run_map(run_dir: Path, database: Path) -> Path:
+    """Generate a map for an explicit archived run without selection prompts."""
+    project_paths = resolve_project_paths()
+    selected_run = SelectedRun(run_dir=run_dir, db_path=database)
+    return _generate_selected_map(project_paths, selected_run)
+
+
+def _generate_selected_map(project_paths: ProjectPaths, selected_run: SelectedRun) -> Path:
+    """Render the selected run using its schema's geospatial provenance."""
+    geospatial_paths = infer_geospatial_paths(project_paths.data_files, selected_run)
+    tables = load_model_tables(selected_run.db_path)
+    geodata = load_geospatial_data(geospatial_paths)
+    spacing = configure_resolution_aware_spacing(
+        geospatial_paths.basemap_stem, geodata.sites, diagnostic_mode=False,
+    )
+    print_loaded_data_summary(tables, geodata, spacing)
+    layers = build_plot_layers(tables, geodata)
+    print_layer_diagnostics(layers)
+    summarize_parallel_corridors(layers.tech_links, spacing)
+    return save_folium_map(geodata=geodata, layers=layers, spacing=spacing, paths=geospatial_paths)
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Run the interactive CANOE/TEMOA Folium map-generation workflow."""
 
@@ -3458,28 +3480,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     project_paths = resolve_project_paths()
     selected_run = select_run_and_database(project_paths.output_root)
-    geospatial_paths = infer_geospatial_paths(project_paths.data_files, selected_run)
-
-    tables = load_model_tables(selected_run.db_path)
-    geodata = load_geospatial_data(geospatial_paths)
-    spacing = configure_resolution_aware_spacing(
-        geospatial_paths.basemap_stem,
-        geodata.sites,
-        diagnostic_mode=False,
-    )
-
-    print_loaded_data_summary(tables, geodata, spacing)
-
-    layers = build_plot_layers(tables, geodata)
-    print_layer_diagnostics(layers)
-    summarize_parallel_corridors(layers.tech_links, spacing)
-
-    save_folium_map(
-        geodata=geodata,
-        layers=layers,
-        spacing=spacing,
-        paths=geospatial_paths,
-    )
+    _generate_selected_map(project_paths, selected_run)
 
 
 if __name__ == "__main__":

@@ -30,6 +30,16 @@ default_loan_rate = 0.03
 # multiply the capacity limit by the model-period duration.
 projection_method = "constant"
 
+# "emissions_price" charges atmospheric releases of facility-origin carbon.
+# "none" preserves the original optional capture/storage representation.
+policy = "none"
+# Currency units must match the other Gold costs (e.g. CAD/t CO2e).
+# Temoa applies period length and discounting; do not multiply this price by years.
+price_per_tonne = 0
+# Optional combustion charge for ethos backup and legacy gasoline, t CO2/t gasoline.
+# Zero excludes fallback gasoline from the price; it is still reported as supply.
+fallback_gasoline_emission_factor = 0
+
 [storage]
 
 # Supported storage requirements:

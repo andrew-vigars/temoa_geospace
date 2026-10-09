@@ -49,6 +49,13 @@ Other scenario overlays, including capacity and no-truck variants, are local
 and ignored by Git. The sample scenario and build profile remain tracked;
 individual TEMOA run configs and active batch selections are also ignored.
 
+The tracked [carbon sweep set](scenarios/carbon_sweeps/README.md) supplies 24
+draft overlays: six storage targets and six emissions prices, each with and
+without trucks. Every overlay enables facility carbon accounting and five CO2
+EOS curves. The samples also demonstrate carbon accounting and five CO2 curves;
+`sample_scenario.toml` retains its 50 km validation basemap. Historical canonical
+endpoints are separate from the new sweep set.
+
 - **Orchestration (optional)** — `config/batch_profiles/*.toml` names an
   ordered list of already-built TEMOA solver configurations (each naming its
   own scenario and input/output database) to run sequentially. It does not

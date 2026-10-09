@@ -27,6 +27,7 @@ output_files/{timestamped_run}/
 from __future__ import annotations
 
 import argparse
+from contextlib import redirect_stderr, redirect_stdout
 import hashlib
 import json
 import platform
@@ -43,6 +44,7 @@ from geocanoe.diagnostics.input.database import run_schema_database_checks
 from geocanoe.diagnostics.output.gate import run_output_database_checks
 from geocanoe.diagnostics.renderers import write_json_report
 from geocanoe.execution.temoa_backend import distribution_record, run_temoa
+from geocanoe.execution.provenance import archive_run_configs
 from geocanoe.paths import find_project_root
 from geocanoe.schema.database import update_db_paths
 
@@ -225,6 +227,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "Run CANOE/TEMOA from an existing encoded SQLite database."
         )
     )
+    parser.add_argument("--no-map", action="store_true",
+                        help="Skip automatic post-solve interactive map generation.")
+    parser.add_argument("--batch-config", type=Path,
+                        help="Batch selection to archive with this run.")
 
     parser.add_argument(
         "--database",
@@ -338,7 +344,7 @@ def resolve_run_inputs(
     if args.config is not None:
         config_path = resolve_project_path(args.config)
     else:
-        config_options = sorted(CONFIG_DIR.glob("*.toml"))
+        config_options = sorted(CONFIG_DIR.rglob("*.toml"))
         config_path = select_file(config_options, "config")
 
     return db_path, config_path
@@ -576,6 +582,26 @@ def extract_objective_from_db(db_path: Path) -> list[dict]:
 # Main run workflow
 # =============================================================================
 
+def generate_output_map(database: Path, output_dir: Path, *, enabled: bool = True) -> dict:
+    """Log map generation separately, retaining a successful solve on map errors."""
+    if not enabled:
+        return {"status": "disabled"}
+    log_path = output_dir / "map_generation.log"
+    try:
+        with log_path.open("w", encoding="utf-8") as log:
+            with redirect_stdout(log), redirect_stderr(log):
+                from geocanoe.analysis.maps import generate_run_map
+
+                map_path = generate_run_map(output_dir, database)
+    except (Exception, SystemExit) as exc:
+        with log_path.open("a", encoding="utf-8") as log:
+            log.write(f"\nMap generation failed: {type(exc).__name__}: {exc}\n")
+        print(f"WARNING: Map generation failed; see {log_path.name}: {exc}")
+        return {"status": "failed", "log": str(log_path), "error": str(exc)}
+    print(f"Generated map: {map_path.name}")
+    return {"status": "completed", "log": str(log_path), "interactive_map": file_record(map_path)}
+
+
 def main() -> None:
     """Run CANOE/TEMOA from an existing encoded SQLite schema.
 
@@ -669,6 +695,10 @@ def main() -> None:
     )
 
     manifest_path = output_dir / "manifest.json"
+    archived_configs = archive_run_configs(
+        db_path, config_path, output_dir / "configs",
+        batch=resolve_project_path(args.batch_config) if args.batch_config else None,
+    )
 
     manifest = {
         "run": {
@@ -703,6 +733,7 @@ def main() -> None:
             "source_config": read_text_file(config_path),
             "effective_config": read_text_file(effective_config_path),
         },
+        "configuration_archive": archived_configs,
         "results": {
             "objectives": [],
         },
@@ -926,6 +957,8 @@ def main() -> None:
     }
 
     manifest["results"]["objectives"] = extract_objective_from_db(solved_db_archive)
+
+    manifest["maps"] = generate_output_map(solved_db_archive, output_dir, enabled=not args.no_map)
 
     write_manifest(manifest_path, manifest)
     print(f"Manifest updated: {manifest_path.name}")

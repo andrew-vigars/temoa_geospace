@@ -77,6 +77,7 @@ from geocanoe.regions import (
     PROVINCE_NAME_CASEFOLD_TO_CODE as PROVINCE_NAME_TO_CODE,
 )
 from geocanoe.schema import database
+from geocanoe.schema.carbon import rebuild_carbon_accounting
 from geocanoe.schema.artifacts import (
     resolve_gasoline_demand_artifact_path,
     resolve_schema_artifact_paths,
@@ -322,6 +323,9 @@ class ResolvedSchemaConfig:
     pipeline_impedance_path: Path | None = None
     storage_capacity_mapping: str = "unlimited"
     storage_sources: tuple[str, ...] = ()
+    emissions_policy: str = "none"
+    emissions_price_per_tonne: float = 0.0
+    fallback_gasoline_emission_factor: float = 0.0
 
 
 @dataclass
@@ -835,6 +839,9 @@ def resolve_schema_configuration(
         emissions_projection_method=(
             model_config.emissions.projection_method
         ),
+        emissions_policy=model_config.emissions.policy,
+        emissions_price_per_tonne=model_config.emissions.price_per_tonne,
+        fallback_gasoline_emission_factor=model_config.emissions.fallback_gasoline_emission_factor,
         global_discount_rate=model_config.finance.global_discount_rate,
         default_loan_rate=model_config.finance.default_loan_rate,
         storage_requirement=model_config.storage.requirement,
@@ -5794,6 +5801,16 @@ def write_schema_manifest(
         "silver_build_profile": build_values,
         "resolved_gold_configuration": resolved_values,
     }
+    from geocanoe.execution.provenance import configuration_snapshot
+
+    payload["configuration_sources"] = {
+        role: configuration_snapshot(Path(source))
+        for role, source in {
+            "build": build_config.source_path,
+            "model": config.model_config_path,
+            "schema": config.scenario_config_path,
+        }.items()
+    }
     manifest_path.write_text(
         json.dumps(payload, indent=2, default=str) + "\n",
         encoding="utf-8",
@@ -6077,6 +6094,7 @@ def run_schema_build(
     )
     print(f"Global discount rate: {config.global_discount_rate:.2%}")
     print(f"Storage requirement: {config.storage_requirement}")
+    print(f"Emissions policy: {config.emissions_policy}; price: {config.emissions_price_per_tonne:g}/t")
     print(
         "Minimum cumulative storage: "
         f"{config.storage_minimum_cumulative_activity:,.2f} "
@@ -6260,6 +6278,16 @@ def run_schema_build(
         db_encoded,
         snapped.site_attributes,
         config.model_start_year,
+    )
+
+    rebuild_carbon_accounting(
+        db_encoded,
+        snapped.site_attributes,
+        config.model_start_year,
+        config.model_end_year - config.model_start_year,
+        policy=config.emissions_policy,
+        price_per_tonne=config.emissions_price_per_tonne,
+        fallback_gasoline_emission_factor=config.fallback_gasoline_emission_factor,
     )
 
     print("\nValidating encoded database...")

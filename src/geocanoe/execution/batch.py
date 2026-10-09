@@ -664,6 +664,7 @@ def execute_batch(
                 )
 
                 command = build_main_run_command(run)
+                command.extend(["--batch-config", str(batch_config_path)])
 
                 write_log(
                     log_file,

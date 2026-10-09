@@ -9,6 +9,10 @@
 *.pyc
 *.pyo
 *.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tmp/
 
 # -----------------------
 
@@ -145,11 +149,12 @@ Thumbs.db
 config/build_profiles/*.toml
 !config/build_profiles/sample_build_profile.toml
 
-registry/scenarios/*.toml
+registry/scenarios/**/*.toml
 !registry/scenarios/baseline.toml
 !registry/scenarios/net_zero.toml
 registry/scenarios/archive/
 !registry/scenarios/sample_scenario.toml
+!registry/scenarios/sample_emissions_price.toml
 
 # Local TEMOA v3 run configurations retained temporarily for v4 migration.
 config/temoa_v3_configs/
@@ -160,5 +165,8 @@ config/temoav4/config_sample.toml
 
 
 # Local solver configurations and active batch selections.
-config/temoav4/*.toml
+config/temoav4/**/*.toml
 config/batch_profiles/*.toml
+
+# Personal automation helpers (email delivery, credentials setup, local tests).
+local_tools/
