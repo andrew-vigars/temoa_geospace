@@ -350,6 +350,39 @@ def test_transport_master_switches_select_modes_independently() -> None:
     assert neither.trans_techs == all_specs.trans_techs
 
 
+@pytest.mark.parametrize("roads_enabled", [True, False])
+def test_local_hydrogen_filters_transport_and_inherited_rows(roads_enabled: bool) -> None:
+    all_specs = build_tech_specs(pd.read_csv(PROJECT_ROOT / "registry" / "transport_techs.csv"))
+    specs = select_enabled_transport_tech_specs(
+        all_specs,
+        roads_enabled=roads_enabled,
+        pipelines_enabled=True,
+        disabled_technologies=("H2_PIPE", "H2_TRUCK"),
+    )
+    assert specs.pipe_techs == all_specs.pipe_techs - {"H2_PIPE"}
+    assert specs.truck_techs == (all_specs.truck_techs - {"H2_TRUCK"} if roads_enabled else set())
+    assert specs.trans_techs == all_specs.trans_techs
+    links = pd.DataFrame({"canoe_region": ["R0-R1"], "distance_km": [10.0]})
+    efficiency = build_transport_efficiency(links, specs.pipeline_tech_specs, "test", 2025)
+    assert "H2_PIPE" not in set(efficiency["tech"])
+    tables = {
+        "efficiency": pd.DataFrame({"tech": ["H2_PIPE", "H2_TRUCK", "H2_PLANT"]}),
+        "cost_invest_eos": pd.DataFrame({"tech_or_group": ["H2_PIPE", "METOH_PIPE"]}),
+    }
+    schema_build.remove_disabled_transport_technologies(tables, all_specs.transport_techs - specs.transport_techs)
+    assert list(tables["efficiency"]["tech"]) == ["H2_PLANT"]
+    assert list(tables["cost_invest_eos"]["tech_or_group"]) == ["METOH_PIPE"]
+
+
+def test_unknown_disabled_transport_technology_is_rejected() -> None:
+    specs = build_tech_specs(pd.read_csv(PROJECT_ROOT / "registry" / "transport_techs.csv"))
+    with pytest.raises(ValueError, match="unknown transport"):
+        select_enabled_transport_tech_specs(
+            specs, roads_enabled=True, pipelines_enabled=True,
+            disabled_technologies=("H2_PIP",),
+        )
+
+
 def test_transport_costs_reject_nonpositive_distance() -> None:
     links = pd.DataFrame(
         {"canoe_region": ["R0-R1"], "distance_km": [0.0]}

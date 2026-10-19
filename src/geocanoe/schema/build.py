@@ -319,6 +319,7 @@ class ResolvedSchemaConfig:
     artifact_barcode: str = ""
     roads_enabled: bool = True
     pipelines_enabled: bool = True
+    disabled_transport_technologies: tuple[str, ...] = ()
     pipeline_impedance_scope: str = "none"
     pipeline_impedance_path: Path | None = None
     storage_capacity_mapping: str = "unlimited"
@@ -860,6 +861,7 @@ def resolve_schema_configuration(
         artifact_barcode=artifact_barcode,
         roads_enabled=model_config.transport_modes.roads_enabled,
         pipelines_enabled=model_config.transport_modes.pipelines_enabled,
+        disabled_transport_technologies=model_config.transport_modes.disabled_technologies,
         pipeline_impedance_scope=pipeline_impedance_scope,
         pipeline_impedance_path=pipeline_impedance_path,
     )
@@ -2180,9 +2182,17 @@ def select_enabled_transport_tech_specs(
     *,
     roads_enabled: bool,
     pipelines_enabled: bool,
+    disabled_technologies: tuple[str, ...] = (),
 ) -> TechSpecs:
     """Return transport specifications restricted by the Gold master switches."""
 
+    disabled = set(disabled_technologies)
+    unknown = disabled - specs.transport_techs
+    if unknown:
+        raise ValueError(
+            "[transport_modes].disabled_technologies contains unknown transport "
+            f"technologies: {sorted(unknown)}."
+        )
     pipeline_tech_specs = (
         specs.pipeline_tech_specs.copy()
         if pipelines_enabled
@@ -2193,17 +2203,27 @@ def select_enabled_transport_tech_specs(
         if roads_enabled
         else specs.truck_tech_specs.iloc[0:0].copy()
     )
+    pipeline_tech_specs = pipeline_tech_specs.loc[
+        ~pipeline_tech_specs["tech"].isin(disabled)
+    ].copy()
+    truck_tech_specs = truck_tech_specs.loc[
+        ~truck_tech_specs["tech"].isin(disabled)
+    ].copy()
+    transmission_tech_specs = specs.transmission_tech_specs.loc[
+        ~specs.transmission_tech_specs["tech"].isin(disabled)
+    ].copy()
+    trans_techs = set(transmission_tech_specs["tech"])
     pipe_techs = set(pipeline_tech_specs["tech"])
     truck_techs = set(truck_tech_specs["tech"])
 
     return TechSpecs(
         pipeline_tech_specs=pipeline_tech_specs,
         truck_tech_specs=truck_tech_specs,
-        transmission_tech_specs=specs.transmission_tech_specs.copy(),
+        transmission_tech_specs=transmission_tech_specs,
         pipe_techs=pipe_techs,
         truck_techs=truck_techs,
-        trans_techs=set(specs.trans_techs),
-        transport_techs=pipe_techs | truck_techs | set(specs.trans_techs),
+        trans_techs=trans_techs,
+        transport_techs=pipe_techs | truck_techs | trans_techs,
     )
 
 
@@ -6107,6 +6127,7 @@ def run_schema_build(
     )
     print(f"Road transport enabled: {config.roads_enabled}")
     print(f"Pipeline transport enabled: {config.pipelines_enabled}")
+    print(f"Disabled transport technologies: {list(config.disabled_transport_technologies)}")
     print(f"Pipeline impedance scope: {config.pipeline_impedance_scope}")
     print(f"Pipeline EOS stack counts: {config.pipeline_eos_stack_counts}")
     print(f"Output SQLite: {config.output_sqlite_path.name}")
@@ -6125,6 +6146,7 @@ def run_schema_build(
         all_specs,
         roads_enabled=config.roads_enabled,
         pipelines_enabled=config.pipelines_enabled,
+        disabled_technologies=config.disabled_transport_technologies,
     )
     disabled_transport_techs = all_specs.transport_techs - specs.transport_techs
     disabled_techs = set(disabled_transport_techs)

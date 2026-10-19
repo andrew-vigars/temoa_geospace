@@ -14,6 +14,30 @@ BASELINE_SCENARIO_PATH = (
 )
 
 
+def test_scenario_can_disable_individual_transport_technologies(tmp_path: Path) -> None:
+    scenario = tmp_path / "local_h2.toml"
+    scenario.write_text(
+        '[scenario]\nid = "local-h2"\n[transport_modes]\n'
+        'disabled_technologies = ["H2_PIPE", "H2_TRUCK"]\n',
+        encoding="utf-8",
+    )
+    config = load_model_config(MODEL_CONFIG_PATH, scenario)
+    assert config.transport_modes.disabled_technologies == ("H2_PIPE", "H2_TRUCK")
+    assert load_model_config(MODEL_CONFIG_PATH).transport_modes.disabled_technologies == ()
+
+
+@pytest.mark.parametrize("value", ['"H2_PIPE"', '[1]', '[""]', '["H2_PIPE", "H2_PIPE"]'])
+def test_invalid_disabled_transport_settings(tmp_path: Path, value: str) -> None:
+    scenario = tmp_path / "invalid.toml"
+    scenario.write_text(
+        '[scenario]\nid = "invalid"\n[transport_modes]\n'
+        f'disabled_technologies = {value}\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="disabled_technologies"):
+        load_model_config(MODEL_CONFIG_PATH, scenario)
+
+
 def test_committed_model_registry_is_single_period_2025_to_2050() -> None:
     config = load_model_config(MODEL_CONFIG_PATH, BASELINE_SCENARIO_PATH)
 

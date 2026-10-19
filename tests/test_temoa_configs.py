@@ -6,6 +6,7 @@ import tomllib
 import pytest
 
 from geocanoe.execution.temoa_config import (
+    configure_nodefile_directory,
     default_config_path,
     generate_temoa_config,
     temoa_tutorial_config_text,
@@ -15,6 +16,21 @@ from geocanoe.execution.temoa_config import (
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TEMOA_CONFIG_DIR = PROJECT_ROOT / "config" / "temoav4"
 TEMOA_CONFIGS = sorted(TEMOA_CONFIG_DIR.rglob("*.toml"))
+
+
+def test_nodefiles_are_isolated_to_run_and_explicit_directory_is_preserved(tmp_path: Path) -> None:
+    config_path = generate_temoa_config(tmp_path / "effective.toml")
+    source_text = config_path.read_text(encoding="utf-8")
+    output_dir = tmp_path / "run"
+    configure_nodefile_directory(config_path, output_dir)
+    options = tomllib.loads(config_path.read_text(encoding="utf-8"))["solver"]["options"]
+    assert options["NodefileDir"] == (output_dir / "nodefiles").as_posix()
+    assert (output_dir / "nodefiles").is_dir()
+    assert options["MIPGap"] == 0.01
+    assert options["NodefileStart"] == 0.5
+    configure_nodefile_directory(config_path, tmp_path / "another_run")
+    assert not (tmp_path / "another_run").exists()
+    assert "NodefileDir" not in source_text
 
 TUTORIAL_ROOT_KEYS = {
     "scenario",
@@ -73,7 +89,7 @@ def test_packaged_temoa_tutorial_is_the_generation_source(tmp_path: Path) -> Non
             "output_database": (
                 "data_files/processed/schema/CANOE_geospatial.sqlite"
             ),
-            "solver": {"name": "gurobi", "options": {"MIPGap": 0.01}},
+            "solver": {"name": "gurobi", "options": {"MIPGap": 0.01, "NodefileStart": 0.5}},
             "save_duals": False,
             "check_units": False,
         }
@@ -84,7 +100,7 @@ def test_packaged_temoa_tutorial_is_the_generation_source(tmp_path: Path) -> Non
     assert config["extensions"] == ["eos"]
     assert config["solver"] == {
         "name": "gurobi",
-        "options": {"MIPGap": 0.01},
+        "options": {"MIPGap": 0.01, "NodefileStart": 0.5},
     }
     assert config["save_duals"] is False
     assert config["check_units"] is False
@@ -119,7 +135,7 @@ def test_temoa_v4_config_matches_tutorial_contract(config_path: Path) -> None:
     assert config["extensions"] == ["eos"]
     assert config["solver"] == {
         "name": "gurobi",
-        "options": {"MIPGap": 0.01},
+        "options": {"MIPGap": 0.01, "NodefileStart": 0.5},
     }
     assert config["save_duals"] is False
     assert config["check_units"] is False

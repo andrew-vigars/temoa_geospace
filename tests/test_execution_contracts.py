@@ -102,7 +102,7 @@ def test_batch_still_rejects_missing_files(tmp_path: Path, missing: str) -> None
 
 def test_carbon_sweep_batch_order_and_inputs() -> None:
     settings, runs = load_batch_config(
-        PROJECT_ROOT / "config" / "batch_profiles" / "batch_run.toml"
+        PROJECT_ROOT / "config" / "batch_profiles" / "carbon_sweeps.toml"
     )
 
     assert settings.name == "prov_quant_carbon_sweeps"
@@ -115,6 +115,26 @@ def test_carbon_sweep_batch_order_and_inputs() -> None:
                                ("price", [0, 50, 100, 170, 250, 350])]
         for suffix in ["", "_no_trucks"]
         for level in levels
+    ]
+    assert len({run.database_path for run in runs}) == 24
+    assert all(run.enabled for run in runs)
+    # Historical study databases may be removed; preserve its config contract.
+    assert all(run.config_path.is_file() for run in runs)
+
+
+def test_hub_sweep_active_batch_order_and_inputs() -> None:
+    settings, runs = load_batch_config(
+        PROJECT_ROOT / "config" / "batch_profiles" / "batch_run.toml"
+    )
+    assert settings.name == "prov_quant_hub_sweeps"
+    assert settings.continue_on_failure is True
+    assert settings.skip_completed is True
+    assert settings.retry_failed is False
+    assert [run.scenario for run in runs] == [
+        f"quant_{family}_price_{price:03d}{suffix}"
+        for family in ["h2_off", "h2_metoh_off"]
+        for suffix in ["", "_no_trucks"]
+        for price in [0, 50, 100, 170, 250, 350]
     ]
     assert len({run.database_path for run in runs}) == 24
     assert all(run.enabled for run in runs)

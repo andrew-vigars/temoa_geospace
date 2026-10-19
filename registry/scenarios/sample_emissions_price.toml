@@ -15,6 +15,7 @@ minimum_cumulative_activity = 0
 [transport_modes]
 roads_enabled = true
 pipelines_enabled = true
+disabled_technologies = []
 
 [pipeline_costs]
 impedance_scope = "all_km_dependent"

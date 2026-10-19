@@ -156,6 +156,7 @@ minimum_cumulative_activity = 6_800_000_000
 [transport_modes]
 roads_enabled = true
 pipelines_enabled = true
+disabled_technologies = []
 
 
 # -----------------------------------------------------------------------------

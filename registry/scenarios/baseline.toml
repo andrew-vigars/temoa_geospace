@@ -154,6 +154,7 @@ description = "Baseline without a cumulative CO2 storage target, with trucks"
 [transport_modes]
 roads_enabled = true
 pipelines_enabled = true
+disabled_technologies = []
 
 
 # -----------------------------------------------------------------------------

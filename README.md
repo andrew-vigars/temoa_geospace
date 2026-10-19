@@ -1080,6 +1080,21 @@ economies-of-scale CAPEX curve.
 
 ### Single-scenario execution
 
+Scenarios can exclude individual transport technologies while retaining other
+commodities and modes. For example, add this to a scenario's existing transport
+settings to require local hydrogen supply at methanol and gasoline synthesis nodes:
+
+```toml
+[transport_modes]
+disabled_technologies = ["H2_PIPE", "H2_TRUCK"]
+```
+
+The list replaces the global default list and applies in addition to the road
+and pipeline master switches. Names must match `registry/transport_techs.csv`;
+unknown names fail schema construction. This enforces supply within the same
+model node, without combining plant technologies or costs. Rebuild the Gold
+schema to apply the setting; existing databases and active solves are unaffected.
+
 Generate the first TEMOA v4 run configuration after installing GeoCANOE:
 
 ```bash

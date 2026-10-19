@@ -162,7 +162,10 @@ resolution = 50
 #
 [transport_modes]
 roads_enabled = true
+# Optional: require locally produced H2 at methanol and gasoline synthesis nodes.
+# disabled_technologies = ["H2_PIPE", "H2_TRUCK"]
 pipelines_enabled = true
+disabled_technologies = []
 
 
 # -----------------------------------------------------------------------------

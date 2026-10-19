@@ -123,6 +123,7 @@ class ModelTransportModesConfig:
 
     roads_enabled: bool
     pipelines_enabled: bool
+    disabled_technologies: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -264,6 +265,9 @@ def load_model_config(
     with config_path.open("rb") as config_file:
         raw = tomllib.load(config_file)
 
+    # Make the optional setting available to overlays of older defaults files.
+    require_table(raw, "transport_modes").setdefault("disabled_technologies", [])
+
     if scenario_path is None:
         scenario = ModelScenarioConfig(
             scenario_id="defaults",
@@ -283,6 +287,17 @@ def load_model_config(
     storage_raw = require_table(raw, "storage")
     basemap_raw = require_table(raw, "basemap")
     transport_modes_raw = require_table(raw, "transport_modes")
+    disabled_technologies = transport_modes_raw["disabled_technologies"]
+    if not isinstance(disabled_technologies, list) or any(
+        not isinstance(tech, str) or not tech.strip()
+        for tech in disabled_technologies
+    ):
+        raise ValueError(
+            "[transport_modes].disabled_technologies must be an array of "
+            "non-empty technology names."
+        )
+    if len(set(disabled_technologies)) != len(disabled_technologies):
+        raise ValueError("[transport_modes].disabled_technologies contains duplicates.")
     pipeline_costs_raw = require_table(raw, "pipeline_costs")
 
     start_year = require_int(time_raw, "start_year", "time")
@@ -436,6 +451,7 @@ def load_model_config(
             resolution=basemap_resolution,
         ),
         transport_modes=ModelTransportModesConfig(
+            disabled_technologies=tuple(disabled_technologies),
             roads_enabled=require_bool(
                 transport_modes_raw,
                 "roads_enabled",

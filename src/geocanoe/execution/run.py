@@ -44,6 +44,7 @@ from geocanoe.diagnostics.input.database import run_schema_database_checks
 from geocanoe.diagnostics.output.gate import run_output_database_checks
 from geocanoe.diagnostics.renderers import write_json_report
 from geocanoe.execution.temoa_backend import distribution_record, run_temoa
+from geocanoe.execution.temoa_config import configure_nodefile_directory
 from geocanoe.execution.provenance import archive_run_configs
 from geocanoe.paths import find_project_root
 from geocanoe.schema.database import update_db_paths
@@ -677,6 +678,7 @@ def main() -> None:
     print("Creating effective run config...")
     effective_config_path = output_dir / f"effective_{config_path.name}"
     shutil.copy2(config_path, effective_config_path)
+    configure_nodefile_directory(effective_config_path, output_dir)
 
     print("Archiving immutable input database...")
     shutil.copy2(db_path, input_db_archive)

@@ -16,6 +16,21 @@ DEFAULT_CONFIG_RELATIVE_PATH = Path("config/temoav4/config_sample.toml")
 DEFAULT_DATABASE_PATH = "data_files/processed/schema/CANOE_geospatial.sqlite"
 
 
+def configure_nodefile_directory(config_path: Path, output_dir: Path) -> None:
+    """Default enabled Gurobi node files to this run's output directory."""
+    document = tomlkit.parse(config_path.read_text(encoding="utf-8"))
+    solver = document.get("solver")
+    if not isinstance(solver, dict) or solver.get("name") != "gurobi":
+        return
+    options = solver.get("options", {})
+    if "NodefileStart" not in options or "NodefileDir" in options:
+        return
+    nodefile_dir = output_dir.resolve() / "nodefiles"
+    nodefile_dir.mkdir(parents=True, exist_ok=True)
+    options["NodefileDir"] = nodefile_dir.as_posix()
+    config_path.write_text(tomlkit.dumps(document), encoding="utf-8")
+
+
 def default_config_path() -> Path:
     """Return the starter-config destination in the active GeoCANOE checkout."""
 
@@ -46,7 +61,7 @@ def generate_temoa_config(
     EOS, the selected solver, MIP-safe output handling, and placeholder database
     paths that ``geocanoe-run`` replaces with its isolated working database.
     Solver defaults remain owned by TEMOA; this generator adds only GeoCANOE's
-    explicit 1% MIP optimality gap instead of copying TEMOA's default options.
+    explicit 1% MIP optimality gap and 0.5 GB node-file threshold.
     """
 
     destination = (output_path or default_config_path()).expanduser().resolve()
@@ -64,6 +79,7 @@ def generate_temoa_config(
     solver["name"] = "gurobi"
     solver_options = tomlkit.inline_table()
     solver_options["MIPGap"] = 0.01
+    solver_options["NodefileStart"] = 0.5
     solver["options"] = solver_options
     document["solver"] = solver
     document["save_duals"] = False

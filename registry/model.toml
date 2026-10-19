@@ -93,6 +93,10 @@ resolution = 25
 roads_enabled = true
 pipelines_enabled = true
 
+# Exclude individual transport technologies in addition to the mode switches.
+# For local H2 supply at synthesis nodes, override with ["H2_PIPE", "H2_TRUCK"].
+disabled_technologies = []
+
 [pipeline_costs]
 
 # Control whether the Silver pipeline cost-distance multiplier is applied to
