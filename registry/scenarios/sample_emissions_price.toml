@@ -4,13 +4,17 @@ description = "Facility-origin emissions price; fallback gasoline reported but u
 
 [emissions]
 policy = "emissions_price"
-# Illustrative price, in the same currency as all other model costs.
+# Explicit price-driven alternative to a storage target: choose a positive
+# price for the study, in the same currency as all other model costs.
+# This value is illustrative, not a default or recommendation. High prices or
+# storage targets near 100% can result in long model solve times.
 price_per_tonne = 100
 fallback_gasoline_emission_factor = 0
 
 [storage]
 requirement = "none"
 minimum_cumulative_activity = 0
+point_source_fraction = 0
 
 [transport_modes]
 roads_enabled = true

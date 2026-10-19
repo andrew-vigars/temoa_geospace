@@ -70,45 +70,40 @@ def rebuild_carbon_accounting(
     if not baseline.map(lambda v: math.isfinite(v) and v >= 0).all():
         raise ValueError("Facility carbon baseline must be finite and nonnegative.")
     reserved_techs = {BASELINE_TECH, RELEASE_TECH}
-    reserved_comms = {"co2_raw", "co2_released", FACILITY_EMISSION, FALLBACK_EMISSION}
-    if (
-        db["technology"].tech.isin(reserved_techs).any()
-        or db["commodity"].name.isin(reserved_comms).any()
-    ):
+    if db["technology"].tech.isin(reserved_techs).any():
         raise ValueError(
-            "Carbon accounting identifiers already exist; rebuild from fresh inputs."
+            "Carbon accounting technologies already exist; rebuild from fresh inputs."
         )
 
-    _append(
-        db,
-        "commodity",
-        [
-            {
-                "name": "co2_raw",
-                "flag": "a",
-                "units": "t CO2e",
-                "description": "Fixed facility carbon before capture",
-            },
-            {
-                "name": "co2_released",
-                "flag": "wa",
-                "units": "t CO2e",
-                "description": "Carbon released to atmosphere",
-            },
-            {
-                "name": FACILITY_EMISSION,
-                "flag": "e",
-                "units": "t CO2e",
-                "description": "Facility-origin atmospheric emissions",
-            },
-            {
-                "name": FALLBACK_EMISSION,
-                "flag": "e",
-                "units": "t CO2",
-                "description": "Optional fallback gasoline combustion emissions",
-            },
-        ],
-    )
+    # Definitions belong to the registered commodity table. Validate the roles
+    # required by this formulation without creating rows or rewriting flags.
+    required_flags = {
+        "ethos": "s",
+        "co2": "a",
+        "co2_stored": "wa",
+        "co2_raw": "a",
+        "co2_released": "wa",
+        FACILITY_EMISSION: "e",
+        FALLBACK_EMISSION: "e",
+    }
+    commodities = db["commodity"]
+    if not {"name", "flag"}.issubset(commodities.columns):
+        raise ValueError("Carbon accounting requires registered commodity definitions.")
+    if commodities["name"].duplicated().any():
+        raise ValueError("Commodity registry names must be unique.")
+    flags = commodities.set_index("name")["flag"]
+    invalid = [
+        f"{name}={flag}"
+        for name, flag in required_flags.items()
+        if name not in flags.index or flags.loc[name] != flag
+    ]
+    if invalid:
+        raise ValueError(
+            "Carbon accounting requires commodity registry definitions: "
+            + ", ".join(invalid)
+            + ". Update the registered commodities CSV; flags are never overridden."
+        )
+
     _append(
         db,
         "technology",
@@ -217,8 +212,6 @@ def rebuild_carbon_accounting(
             "Initial carbon accounting requires unit CO2 injection efficiency."
         )
     db["efficiency"].loc[capture, "input_comm"] = "co2_raw"
-    # Captured carbon must balance exactly; no waste disposal outside release.
-    db["commodity"].loc[db["commodity"].name.eq("co2"), "flag"] = "a"
     for table, rows in [
         ("efficiency", efficiencies),
         ("limit_capacity", capacities),

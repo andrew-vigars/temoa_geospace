@@ -1,0 +1,25 @@
+# Policy choices are encoded in each Gold database, not set by this batch.
+# 75% storage and 170/t are current comparison values, not model defaults.
+# Select a storage target OR carbon price for a policy study and rebuild Gold.
+# High prices or storage targets near 100% can result in long solve times.
+[batch]
+name = "commodity_flags_25km_comparison"
+continue_on_failure = true
+skip_completed = true
+retry_failed = false
+
+[[runs]]
+config = "config/temoav4/commodity_comparison/netzero25km_commodities_v1.toml"
+enabled = true
+
+[[runs]]
+config = "config/temoav4/commodity_comparison/netzero25km_commodities_v2.toml"
+enabled = true
+
+[[runs]]
+config = "config/temoav4/commodity_comparison/price170_25km_commodities_v1.toml"
+enabled = true
+
+[[runs]]
+config = "config/temoav4/commodity_comparison/price170_25km_commodities_v2.toml"
+enabled = true

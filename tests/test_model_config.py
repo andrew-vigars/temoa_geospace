@@ -93,8 +93,13 @@ def test_committed_net_zero_pipeline_scenarios(
     )
 
     assert config.scenario.scenario_id == scenario_id
-    assert config.storage.requirement == "minimum_cumulative_activity"
-    assert config.storage.minimum_cumulative_activity == 6_800_000_000.0
+    if filename == "net_zero.toml":
+        assert config.storage.requirement == "minimum_point_source_fraction"
+        assert config.storage.point_source_fraction == 0.75
+        assert config.storage.minimum_cumulative_activity == 0
+    else:
+        assert config.storage.requirement == "minimum_cumulative_activity"
+        assert config.storage.minimum_cumulative_activity == 6_800_000_000.0
     assert config.transport_modes.roads_enabled is roads_enabled
     assert config.transport_modes.pipelines_enabled is True
     assert config.pipeline_costs.eos_stack_counts == {
@@ -380,3 +385,26 @@ def test_model_registry_rejects_invalid_settings(
 
     with pytest.raises(ValueError, match=message):
         load_model_config(path)
+
+
+@pytest.mark.parametrize("value", ["0", "-0.1", "1.01", "75", "inf", "nan", "true"])
+def test_invalid_point_source_storage_fraction(tmp_path, value):
+    overlay = tmp_path / "fraction.toml"
+    overlay.write_text(
+        '[scenario]\nid="fraction"\n[storage]\n'
+        'requirement="minimum_point_source_fraction"\n'
+        f'point_source_fraction={value}\nminimum_cumulative_activity=0\n'
+    )
+    with pytest.raises(ValueError, match="point_source_fraction"):
+        load_model_config(MODEL_CONFIG_PATH, overlay)
+
+
+def test_fractional_storage_rejects_conflicting_absolute_target(tmp_path):
+    overlay = tmp_path / "fraction.toml"
+    overlay.write_text(
+        '[scenario]\nid="fraction"\n[storage]\n'
+        'requirement="minimum_point_source_fraction"\n'
+        'point_source_fraction=0.75\nminimum_cumulative_activity=1\n'
+    )
+    with pytest.raises(ValueError, match="minimum_cumulative_activity"):
+        load_model_config(MODEL_CONFIG_PATH, overlay)

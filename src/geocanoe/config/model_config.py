@@ -15,6 +15,7 @@ from ._toml import require_bool, require_int, require_number, require_table
 SUPPORTED_STORAGE_REQUIREMENTS = {
     "none",
     "minimum_cumulative_activity",
+    "minimum_point_source_fraction",
 }
 SUPPORTED_EMISSIONS_PROJECTION_METHODS = {"constant"}
 SUPPORTED_BASEMAP_GRID_TYPES = {"geographic", "projected"}
@@ -82,6 +83,7 @@ class ModelStorageConfig:
 
     requirement: str
     minimum_cumulative_activity: float
+    point_source_fraction: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -267,6 +269,7 @@ def load_model_config(
 
     # Make the optional setting available to overlays of older defaults files.
     require_table(raw, "transport_modes").setdefault("disabled_technologies", [])
+    require_table(raw, "storage").setdefault("point_source_fraction", 0.0)
 
     if scenario_path is None:
         scenario = ModelScenarioConfig(
@@ -335,19 +338,24 @@ def load_model_config(
         "minimum_cumulative_activity",
         "storage",
     )
-    if requirement == "none" and minimum_cumulative_activity != 0:
+    point_source_fraction = require_number(storage_raw, "point_source_fraction", "storage")
+    if not math.isfinite(point_source_fraction) or not 0 <= point_source_fraction <= 1:
+        raise ValueError("[storage].point_source_fraction must be finite and between 0 and 1.")
+    if requirement != "minimum_cumulative_activity" and minimum_cumulative_activity != 0:
         raise ValueError(
-            "[storage].minimum_cumulative_activity must be 0 when the requirement "
-            "is 'none'."
+            "[storage].minimum_cumulative_activity must be 0 unless the requirement "
+            "is 'minimum_cumulative_activity'."
         )
-    if (
-        requirement == "minimum_cumulative_activity"
-        and minimum_cumulative_activity <= 0
-    ):
+    if requirement == "minimum_cumulative_activity" and minimum_cumulative_activity <= 0:
         raise ValueError(
             "[storage].minimum_cumulative_activity must be greater than 0 when "
             "the requirement is 'minimum_cumulative_activity'."
         )
+    if requirement == "minimum_point_source_fraction":
+        if point_source_fraction <= 0:
+            raise ValueError("[storage].point_source_fraction must be greater than 0 for a fractional target.")
+    elif point_source_fraction != 0:
+        raise ValueError("[storage].point_source_fraction must be 0 unless using minimum_point_source_fraction.")
 
     legacy_gasoline_raw = require_table(raw, "legacy_gasoline")
     legacy_gasoline_enabled = require_bool(
@@ -441,6 +449,7 @@ def load_model_config(
         storage=ModelStorageConfig(
             requirement=requirement,
             minimum_cumulative_activity=minimum_cumulative_activity,
+            point_source_fraction=point_source_fraction,
         ),
         legacy_gasoline=ModelLegacyGasolineConfig(
             enabled=legacy_gasoline_enabled,

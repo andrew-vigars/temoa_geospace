@@ -36,7 +36,7 @@ Technology inputs:
     registry/transport_techs.csv
     registry/generation_efficiency.csv
     registry/techs.csv
-    registry/commodities.csv
+    registry/commodities.csv (selected by registry/bronze_registry.yaml)
 
 Processed cost inputs:
     data_files/processed/costs/transport/pipelines/h2_pipeline/
@@ -50,7 +50,7 @@ data_files/processed/schema/
 """
 
 import argparse
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import hashlib
 from importlib import resources
 import json
@@ -73,6 +73,7 @@ from geocanoe.config import (
     print_build_config,
 )
 from geocanoe.paths import find_project_root
+from geocanoe.registry import Registry
 from geocanoe.regions import (
     PROVINCE_NAME_CASEFOLD_TO_CODE as PROVINCE_NAME_TO_CODE,
 )
@@ -119,7 +120,9 @@ CO2_SOURCE_PATH = PROCESSED_EMISSIONS_DIR / "co2_large_facilities_2024_clean.gpk
 TRANSPORT_TECHS_PATH = REGISTRY_DIR / "transport_techs.csv"
 GEN_EFFICIENCIES_PATH = REGISTRY_DIR / "generation_efficiency.csv"
 TECHNOLOGIES_PATH = REGISTRY_DIR / "techs.csv"
-COMMODITIES_PATH = REGISTRY_DIR / "commodities.csv"
+COMMODITIES_PATH = Registry().resolve_path("commodities")
+if COMMODITIES_PATH is None:
+    raise ValueError("Bronze registry must define the commodities dataset.")
 MODEL_CONFIG_PATH = REGISTRY_DIR / "model.toml"
 BASELINE_SCENARIO_PATH = REGISTRY_DIR / "scenarios" / "baseline.toml"
 
@@ -327,6 +330,8 @@ class ResolvedSchemaConfig:
     emissions_policy: str = "none"
     emissions_price_per_tonne: float = 0.0
     fallback_gasoline_emission_factor: float = 0.0
+    storage_point_source_fraction: float = 0.0
+    storage_point_source_annual_emissions: float = 0.0
 
 
 @dataclass
@@ -845,6 +850,7 @@ def resolve_schema_configuration(
         fallback_gasoline_emission_factor=model_config.emissions.fallback_gasoline_emission_factor,
         global_discount_rate=model_config.finance.global_discount_rate,
         default_loan_rate=model_config.finance.default_loan_rate,
+        storage_point_source_fraction=model_config.storage.point_source_fraction,
         storage_requirement=model_config.storage.requirement,
         storage_minimum_cumulative_activity=(
             model_config.storage.minimum_cumulative_activity
@@ -915,6 +921,10 @@ def build_schema_fingerprint(
     silver = asdict(build_config)
     silver.pop("source_path", None)
     payload = {
+        "commodities": {
+            "path": str(COMMODITIES_PATH.relative_to(PROJECT_ROOT)),
+            "sha256": hashlib.sha256(COMMODITIES_PATH.read_bytes()).hexdigest(),
+        },
         "implementation": (
             implementation_digest or build_schema_implementation_digest()
         ),
@@ -3188,6 +3198,44 @@ def rebuild_storage_capacity_limits(
     )
 
 
+def resolve_storage_target(
+    config: ResolvedSchemaConfig,
+    site_attributes: pd.DataFrame,
+) -> ResolvedSchemaConfig:
+    """Resolve storage policy against positive point-source emissions in Gold.
+
+    Use the post-filtering, post-snapping regional baseline also used to encode
+    CO2_CAP availability. Excluded facilities and prospective DAC are not part
+    of this denominator. This removes source-quantity overcommitment, but does
+    not guarantee feasibility under network, fuel, or geological constraints.
+    """
+    if site_attributes["region"].duplicated().any():
+        raise ValueError("Storage target baseline requires unique site regions.")
+    emissions = pd.to_numeric(site_attributes["co2"], errors="coerce")
+    if not emissions.map(lambda value: math.isfinite(value) and value >= 0).all():
+        raise ValueError("Storage target point-source emissions must be finite and nonnegative.")
+    annual_baseline = float(emissions.sum())
+    target = config.storage_minimum_cumulative_activity
+    if config.storage_requirement == "minimum_point_source_fraction":
+        fraction = config.storage_point_source_fraction
+        if not math.isfinite(fraction) or not 0 < fraction <= 1:
+            raise ValueError("Storage point-source fraction must be greater than 0 and at most 1.")
+        years = config.model_end_year - config.model_start_year
+        if years <= 0 or annual_baseline <= 0:
+            raise ValueError("A fractional storage target requires positive point-source emissions and period duration.")
+        target = fraction * annual_baseline * years
+        print(
+            f"Storage target: {fraction:.1%} of {annual_baseline:,.2f} t CO2e/year "
+            f"point-source emissions = {target / years:,.2f} t/year; "
+            f"{target:,.2f} t over {years} years"
+        )
+    return replace(
+        config,
+        storage_minimum_cumulative_activity=target,
+        storage_point_source_annual_emissions=annual_baseline,
+    )
+
+
 def rebuild_storage_activity_limit(
     db_encoded: dict[str, pd.DataFrame],
     requirement: str,
@@ -3205,10 +3253,10 @@ def rebuild_storage_activity_limit(
     for other technologies are preserved.
     """
 
-    if requirement not in {"none", "minimum_cumulative_activity"}:
+    if requirement not in {"none", "minimum_cumulative_activity", "minimum_point_source_fraction"}:
         raise ValueError(
             "Storage requirement must be 'none' or "
-            "'minimum_cumulative_activity'."
+            "'minimum_cumulative_activity' or 'minimum_point_source_fraction'."
         )
 
     if minimum_cumulative_activity < 0:
@@ -5316,6 +5364,8 @@ def rebuild_static_supporting_tables(
     model_end_year: int,
     global_discount_rate: float,
     default_loan_rate: float,
+    *,
+    emissions_policy: str = "none",
 ) -> None:
     """Rebuild small supporting tables independent of graph topology.
 
@@ -5340,7 +5390,24 @@ def rebuild_static_supporting_tables(
     -------
     None
     """
-    db_encoded["commodity"] = commodities_raw.copy()
+    required_columns = {"name", "flag"}
+    if not required_columns.issubset(commodities_raw.columns):
+        raise ValueError("Commodity registry requires name and flag columns.")
+    if (
+        commodities_raw["name"].isna().any()
+        or commodities_raw["name"].astype(str).str.strip().eq("").any()
+        or commodities_raw["name"].duplicated().any()
+    ):
+        raise ValueError("Commodity registry names must be nonempty and unique.")
+    if not commodities_raw["flag"].isin({"a", "wa", "p", "wp", "w", "s", "d", "e"}).all():
+        raise ValueError("Commodity registry contains an unsupported Temoa flag.")
+    selected = commodities_raw
+    if "policy" in selected.columns:
+        if not selected["policy"].isin({"all", "emissions_price"}).all():
+            raise ValueError("Commodity registry policy must be all or emissions_price.")
+        selected = selected.loc[selected["policy"].isin({"all", emissions_policy})]
+        selected = selected.drop(columns="policy")
+    db_encoded["commodity"] = selected.copy()
     db_encoded["technology_type"] = pd.DataFrame(
         {
             "label": ["p", "t"],
@@ -5829,6 +5896,7 @@ def write_schema_manifest(
             "build": build_config.source_path,
             "model": config.model_config_path,
             "schema": config.scenario_config_path,
+            "commodities": COMMODITIES_PATH,
         }.items()
     }
     manifest_path.write_text(
@@ -6114,6 +6182,8 @@ def run_schema_build(
     )
     print(f"Global discount rate: {config.global_discount_rate:.2%}")
     print(f"Storage requirement: {config.storage_requirement}")
+    if config.storage_requirement == "minimum_point_source_fraction":
+        print(f"Point-source storage fraction: {config.storage_point_source_fraction:.1%} (resolved after snapping)")
     print(f"Emissions policy: {config.emissions_policy}; price: {config.emissions_price_per_tonne:g}/t")
     print(
         "Minimum cumulative storage: "
@@ -6179,6 +6249,7 @@ def run_schema_build(
         config.model_end_year,
         config.global_discount_rate,
         config.default_loan_rate,
+        emissions_policy=config.emissions_policy,
     )
     rebuild_technology_table(
         db_encoded,
@@ -6194,6 +6265,8 @@ def run_schema_build(
         canonical=canonical,
         build_config=build_config,
     )
+
+    config = resolve_storage_target(config, snapped.site_attributes)
 
     print("\nRebuilding process definitions...")
     rebuild_demand(

@@ -1,6 +1,10 @@
 # Global non-spatial model defaults shared by every GeoCANOE Gold build.
 # A selected registry/scenarios/*.toml file may override recognized settings
 # below without changing the Silver evidence layers.
+# For a net-zero/carbon-policy study, explicitly choose a positive storage
+# target OR a positive carbon price in the scenario. Neither is selected here.
+# There is no default percentage or price; 75% is only a current run choice.
+# High carbon prices or targets near 100% can result in long model solve times.
 
 [time]
 
@@ -46,6 +50,8 @@ fallback_gasoline_emission_factor = 0
 #   "none"                        - geological storage remains optional;
 #   "minimum_cumulative_activity" - require at least the configured total CO2
 #                                   injection over the whole model period.
+#   "minimum_point_source_fraction" - require a share of included point-source
+#                                     emissions, resolved after graph snapping.
 requirement = "none"
 
 # Tonnes CO2e over the complete [start_year, end_year) model period.
@@ -53,6 +59,9 @@ requirement = "none"
 # dividing it by (end_year - start_year). This must be positive for
 # "minimum_cumulative_activity" and exactly zero for "none".
 minimum_cumulative_activity = 0
+# Share of the post-filtering, post-snapping point-source annual emissions (0..1).
+# Used only with requirement = "minimum_point_source_fraction".
+point_source_fraction = 0
 
 [legacy_gasoline]
 

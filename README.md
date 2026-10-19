@@ -484,10 +484,13 @@ default_loan_rate = 0.03
 
 [emissions]
 projection_method = "constant"
+policy = "none"
+price_per_tonne = 0
 
 [storage]
-requirement = "minimum_cumulative_activity"
-minimum_cumulative_activity = 7_500_000_000
+requirement = "none"
+minimum_cumulative_activity = 0
+point_source_fraction = 0
 
 [pipeline_costs]
 impedance_scope = "none"
@@ -574,7 +577,37 @@ The only currently supported emissions projection is `constant`; any other
 value fails configuration validation. It encodes the observed annual baseline
 as representative-year availability without multiplying it by period length.
 
-`requirement = "minimum_cumulative_activity"` treats
+For a carbon-policy or net-zero study, explicitly choose a positive carbon
+storage target OR a positive atmospheric emissions price in the scenario.
+The global defaults select neither: a run with neither is an unpriced baseline,
+not a net-zero policy. There is no default storage percentage or carbon price.
+Choose values for the research question and modeled system. High carbon prices
+or storage targets near 100% can result in long model solve times.
+
+For example, the current comparison arbitrarily selects a 75% point-source
+storage target; this is a run-specific choice, not a default or recommendation:
+
+```toml
+[storage]
+requirement = "minimum_point_source_fraction"
+point_source_fraction = 0.75  # Arbitrary value selected for this comparison.
+minimum_cumulative_activity = 0
+```
+
+Gold resolves this share against the actual annual regional CO2 baseline after
+study-area filtering and graph snapping, using the same included point-source
+emissions as `CO2_CAP` availability. The annual injection minimum is the share
+times that baseline; the cumulative target also multiplies by period duration.
+Both the denominator and resolved target are recorded in the Gold manifest.
+Excluded facilities and future DAC supply are not included. This avoids
+overcommitting the point-source supply through a fixed tonnage chosen for a
+different model, but network, fuel-production, and geological constraints can
+still limit feasibility. Fractions must be greater than zero and at most one;
+100% may leave insufficient carbon for fuel production. The current
+`net_zero.toml` run selects 75%; choose a target or price for each new study.
+Its historical filename does not imply full net zero.
+
+For explicit absolute targets, `requirement = "minimum_cumulative_activity"` treats
 `minimum_cumulative_activity` as a system-wide storage target over the complete
 model period. Because Temoa's `LimitActivity` is annual, Gold divides that target
 by the period length before encoding the `CO2_INJECT` lower bound. For example,
@@ -595,6 +628,7 @@ fallback_gasoline_emission_factor = 0
 [storage]
 requirement = "none"
 minimum_cumulative_activity = 0
+point_source_fraction = 0
 ```
 
 The price is illustrative and must use the same currency basis as the other

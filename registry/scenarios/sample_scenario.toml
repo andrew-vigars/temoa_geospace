@@ -1,10 +1,14 @@
 # =============================================================================
-# GeoCANOE Gold-model scenario template — COMMITTED SAMPLE
+# GeoCANOE Gold-model scenario template â€” COMMITTED SAMPLE
 # =============================================================================
 #
 # This file is the committed, always-resolvable sample scenario. It demonstrates
 # carbon accounting at zero price with five CO2 EOS curves, kept under a stable
 # "sample_*" name so it is never overwritten by policy-specific scenarios.
+# This zero-price, no-target sample is an accounting baseline. For a net-zero
+# or carbon-policy study, explicitly select a positive storage target OR price.
+# There is no default percentage or price. High prices or targets near 100%
+# can result in long model solve times.
 #
 # registry/scenarios/*.toml (other than this file) are local, policy-specific
 # and are gitignored: they are not committed. To create your own scenario,
@@ -121,13 +125,17 @@ fallback_gasoline_emission_factor = 0
 # When changing requirement, also set the compatible cumulative value in the
 # same scenario so the merged configuration remains valid.
 #
-# Example A — optional storage (active in this sample):
+# Example A â€” optional storage (active in this sample):
 #
 [storage]
 requirement = "none"
 minimum_cumulative_activity = 0
 #
-# Example B — cumulative storage target:
+# Example B â€” cumulative storage target:
+# Recommended point-source alternative (set minimum_cumulative_activity = 0):
+# requirement = "minimum_point_source_fraction"
+# point_source_fraction = 0.75  # Arbitrary example, not a default or recommendation.
+# Absolute target alternative, with point_source_fraction = 0:
 #
 # [storage]
 # requirement = "minimum_cumulative_activity"

@@ -19,20 +19,15 @@ from geocanoe.schema.carbon import FACILITY_EMISSION, rebuild_carbon_accounting
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def registered_commodities():
+    from geocanoe.registry import Registry
+
+    return pd.read_csv(Registry().resolve_path("commodities")).drop(columns="policy")
+
+
 def carbon_fixture(price=100, storage_capacity=None):
     db = load_empty_temoa_v4_tables()
-    commodities = pd.DataFrame(
-        [
-            {"name": name, "flag": flag}
-            for name, flag in [
-                ("ethos", "s"),
-                ("co2", "a"),
-                ("co2_stored", "wa"),
-                ("gsl", "a"),
-                ("d_gsl", "d"),
-            ]
-        ]
-    )
+    commodities = registered_commodities().query("name not in ['h2', 'ch3oh', 'elc']").reset_index(drop=True)
     rebuild_static_supporting_tables(db, commodities, 2025, 2050, 0, 0)
     db["region"] = pd.DataFrame([{"region": "R0"}], columns=db["region"].columns)
     techs = ["CO2_CAP", "CO2_INJECT", "METOH_PLANT", "GSL_BACKUP", "GSL_DEMAND"]
@@ -125,6 +120,7 @@ def carbon_fixture(price=100, storage_capacity=None):
 
 def test_baseline_support_only_exists_in_positive_emission_regions():
     db = load_empty_temoa_v4_tables()
+    db["commodity"] = registered_commodities()
     rebuild_carbon_accounting(
         db, pd.DataFrame({"region": ["R0", "R1"], "co2": [100, 0]}),
         2025, 25, policy="emissions_price",
@@ -258,16 +254,6 @@ def test_utilization_and_transport_coefficients_use_input_carbon():
     raw = load_empty_temoa_v4_tables()
     for name in ["commodity", "technology", "efficiency"]:
         raw[name] = db[name].copy()
-    raw["commodity"] = raw["commodity"].loc[
-        ~raw["commodity"].name.isin(
-            [
-                "co2_raw",
-                "co2_released",
-                "co2_facility_emission",
-                "co2_fallback_emission",
-            ]
-        )
-    ]
     raw["technology"] = raw["technology"].loc[
         ~raw["technology"].tech.isin(["CO2_BASELINE", "CO2_RELEASE"])
     ]
@@ -301,3 +287,35 @@ def test_utilization_and_transport_coefficients_use_input_carbon():
     coefficients = raw["emission_activity"].set_index("tech").activity
     assert coefficients["METOH_PLANT"] == pytest.approx(2)
     assert coefficients["CO2_PIPE"] == pytest.approx(0.25)
+
+
+@pytest.mark.parametrize("name,flag", [("co2", "wa"), ("co2_raw", "s"), ("co2_released", "a"), ("co2_facility_emission", "a")])
+def test_carbon_rejects_incompatible_registry_flags_without_overriding(name, flag):
+    db = load_empty_temoa_v4_tables()
+    db["commodity"] = registered_commodities()
+    db["commodity"].loc[db["commodity"].name.eq(name), "flag"] = flag
+    before = db["commodity"].copy(deep=True)
+    with pytest.raises(ValueError, match="commodity registry definitions"):
+        rebuild_carbon_accounting(
+            db, pd.DataFrame({"region": ["R0"], "co2": [100]}),
+            2025, 25, policy="emissions_price",
+        )
+    pd.testing.assert_frame_equal(db["commodity"], before)
+
+
+def test_carbon_requires_registered_definitions():
+    db = load_empty_temoa_v4_tables()
+    db["commodity"] = registered_commodities().query("name != 'co2_raw'")
+    with pytest.raises(ValueError, match="co2_raw=a"):
+        rebuild_carbon_accounting(
+            db, pd.DataFrame({"region": ["R0"], "co2": [100]}),
+            2025, 25, policy="emissions_price",
+        )
+
+
+def test_carbon_preserves_commodity_definitions():
+    db = carbon_fixture()
+    pd.testing.assert_frame_equal(
+        db["commodity"],
+        registered_commodities().query("name not in ['h2', 'ch3oh', 'elc']").reset_index(drop=True),
+    )

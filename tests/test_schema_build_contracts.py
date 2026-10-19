@@ -74,10 +74,17 @@ def test_backup_gasoline_costs_are_limited_to_demand_regions() -> None:
     }
 
 
-def test_co2_registry_flags_balance_captured_co2_only() -> None:
-    registry = pd.read_csv(
-        Path(__file__).resolve().parents[1] / "registry" / "commodities.csv"
-    ).set_index("name")
+def test_active_registry_flags_conserve_intermediates() -> None:
+    from geocanoe.registry import Registry
+    from geocanoe.schema.build import COMMODITIES_PATH
+
+    active_path = Registry().resolve_path("commodities")
+    assert active_path == COMMODITIES_PATH
+    assert active_path.name == "commodities.csv"
+    registry = pd.read_csv(active_path).set_index("name")
+    assert registry.loc[["h2", "ch3oh", "gsl", "elc", "co2_raw"], "flag"].eq("a").all()
+    assert set(registry.index[registry.flag.eq("wa")]) == {"co2_stored", "co2_released"}
+    assert registry.loc[["co2_facility_emission", "co2_fallback_emission"], "flag"].eq("e").all()
 
     assert registry.loc["co2", "flag"] == "a"
     assert registry.loc["co2_stored", "flag"] == "wa"
@@ -1070,3 +1077,117 @@ def test_clear_output_tables_preserves_schema() -> None:
     assert tables["output_flow_out"].empty
     assert list(tables["output_flow_out"].columns) == ["scenario", "flow"]
     assert tables["output_cost"].empty
+
+
+@pytest.mark.parametrize("policy", ["none", "emissions_price"])
+def test_registry_policy_selects_carbon_definitions(policy):
+    from geocanoe.registry import Registry
+
+    raw = pd.read_csv(Registry().resolve_path("commodities"))
+    db = load_empty_temoa_v4_tables()
+    rebuild_static_supporting_tables(
+        db, raw, 2025, 2050, 0, 0, emissions_policy=policy,
+    )
+    expected = raw.loc[raw.policy.isin(["all", policy])].drop(columns="policy")
+    pd.testing.assert_frame_equal(db["commodity"], expected)
+    assert ("co2_raw" in set(db["commodity"].name)) == (policy == "emissions_price")
+
+
+@pytest.mark.parametrize("problem", ["duplicate", "missing_name", "flag", "policy"])
+def test_registry_rejects_invalid_commodity_definitions(problem):
+    from geocanoe.registry import Registry
+
+    raw = pd.read_csv(Registry().resolve_path("commodities"))
+    if problem == "duplicate":
+        raw.loc[1, "name"] = raw.loc[0, "name"]
+    elif problem == "missing_name":
+        raw.loc[0, "name"] = None
+    elif problem == "flag":
+        raw.loc[0, "flag"] = "invalid"
+    else:
+        raw.loc[0, "policy"] = "invalid"
+    with pytest.raises(ValueError, match="Commodity registry"):
+        rebuild_static_supporting_tables(load_empty_temoa_v4_tables(), raw, 2025, 2050, 0, 0)
+
+
+def test_commodity_version_and_contents_change_fingerprint(tmp_path, monkeypatch):
+    import geocanoe.schema.build as build
+
+    build_config = load_geospatial_build_config(
+        PROJECT_ROOT / "config/build_profiles/sample_build_profile.toml"
+    )
+    model = load_model_config(PROJECT_ROOT / "registry/model.toml")
+    table = tmp_path / "commodities.csv"
+    table.write_bytes(build.COMMODITIES_PATH.read_bytes())
+    monkeypatch.setattr(build, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(build, "COMMODITIES_PATH", table)
+    def fingerprint():
+        return build_schema_fingerprint(build_config, model, "sample", implementation_digest="fixed")
+    original = fingerprint()
+    table.write_text(table.read_text().replace("h2,a,", "h2,wa,"))
+    assert fingerprint() != original
+    changed_contents = fingerprint()
+    next_table = tmp_path / "commodities_v3.csv"
+    next_table.write_bytes(table.read_bytes())
+    monkeypatch.setattr(build, "COMMODITIES_PATH", next_table)
+    assert fingerprint() != changed_contents
+
+
+def test_v1_carbon_companion_preserves_original_definitions():
+    registry = PROJECT_ROOT / "registry"
+    original = pd.read_csv(PROJECT_ROOT / "data_files/old_files/commodities_v1.csv").set_index("name")
+    companion = pd.read_csv(PROJECT_ROOT / "data_files/old_files/commodities_v1_carbon.csv").set_index("name")
+    current = pd.read_csv(registry / "commodities.csv").set_index("name")
+    pd.testing.assert_frame_equal(companion.loc[original.index, original.columns], original)
+    added = companion.index.difference(original.index)
+    pd.testing.assert_frame_equal(companion.loc[added], current.loc[added])
+    differing_flags = companion.index[companion.flag.ne(current.flag)]
+    assert set(differing_flags) == {"h2", "ch3oh", "gsl", "elc"}
+
+
+@pytest.mark.parametrize("years", [10, 25])
+def test_fractional_storage_uses_included_regional_point_sources(years):
+    from geocanoe.schema.build import resolve_storage_target
+
+    # Reuse a full resolved-config-shaped object without unrelated GIS inputs.
+    from dataclasses import fields
+    values = {field.name: None for field in fields(ResolvedSchemaConfig)}
+    values.update(
+        storage_requirement="minimum_point_source_fraction",
+        storage_point_source_fraction=0.75,
+        storage_minimum_cumulative_activity=0.0,
+        model_start_year=2025,
+        model_end_year=2025 + years,
+    )
+    config = ResolvedSchemaConfig(**values)
+    sites = pd.DataFrame({"region": ["R0", "R1", "R2"], "co2": [100, 200, 0]})
+    resolved = resolve_storage_target(config, sites)
+    assert resolved.storage_point_source_annual_emissions == 300
+    assert resolved.storage_minimum_cumulative_activity == 225 * years
+    assert config.storage_minimum_cumulative_activity == 0
+    db = load_empty_temoa_v4_tables()
+    db["efficiency"] = pd.DataFrame([{"tech": "CO2_INJECT"}])
+    rebuild_storage_activity_limit(
+        db, resolved.storage_requirement,
+        resolved.storage_minimum_cumulative_activity, 2025, years,
+    )
+    assert db["limit_activity"].iloc[0].activity == 225
+
+
+@pytest.mark.parametrize("emissions", [[0, 0], [100, -1], [100, float("nan")]])
+def test_fractional_storage_rejects_invalid_source_baseline(emissions):
+    from dataclasses import fields
+    from geocanoe.schema.build import resolve_storage_target
+
+    values = {field.name: None for field in fields(ResolvedSchemaConfig)}
+    values.update(
+        storage_requirement="minimum_point_source_fraction",
+        storage_point_source_fraction=0.75,
+        storage_minimum_cumulative_activity=0.0,
+        model_start_year=2025, model_end_year=2050,
+    )
+    with pytest.raises(ValueError, match="point-source emissions"):
+        resolve_storage_target(
+            ResolvedSchemaConfig(**values),
+            pd.DataFrame({"region": ["R0", "R1"], "co2": emissions}),
+        )

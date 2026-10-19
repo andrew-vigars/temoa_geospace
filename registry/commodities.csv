@@ -1,9 +1,13 @@
-﻿name,flag,description
-h2,wa,hydrogen
-ch3oh,wa,methanol
-co2,a,co2 captured
-co2_stored,wa,geologically stored co2
-gsl,wa,gasoline
-elc,wa,electricity
-d_gsl,d,gasoline demand
-ethos,s,dummy
+name,flag,description,units,policy
+h2,a,hydrogen,,all
+ch3oh,a,methanol,,all
+co2,a,co2 captured,,all
+co2_stored,wa,geologically stored co2,,all
+gsl,a,gasoline,,all
+elc,a,electricity,,all
+d_gsl,d,gasoline demand,,all
+ethos,s,dummy,,all
+co2_raw,a,Fixed facility carbon before capture,t CO2e,emissions_price
+co2_released,wa,Carbon released to atmosphere,t CO2e,emissions_price
+co2_facility_emission,e,Facility-origin atmospheric emissions,t CO2e,emissions_price
+co2_fallback_emission,e,Optional fallback gasoline combustion emissions,t CO2,emissions_price

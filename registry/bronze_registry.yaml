@@ -2,7 +2,7 @@ datasets:
   - id: commodities
     path: registry/commodities.csv
     schema: commodities
-    description: "Commodity list CSV (raw)"
+    description: "Canonical commodity definitions (annual conservation and explicit carbon sinks)"
 
   - id: demand
     path: data_files/demand.csv

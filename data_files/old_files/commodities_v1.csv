@@ -1,0 +1,9 @@
+﻿name,flag,description
+h2,wa,hydrogen
+ch3oh,wa,methanol
+co2,a,co2 captured
+co2_stored,wa,geologically stored co2
+gsl,wa,gasoline
+elc,wa,electricity
+d_gsl,d,gasoline demand
+ethos,s,dummy

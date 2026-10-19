@@ -2,9 +2,12 @@
 # GeoCANOE Gold-model scenario — NET-ZERO CO2 TARGET
 # =============================================================================
 #
-# This is the canonical one-curve net-zero comparison case. It retains truck
-# and pipeline transport while requiring 6.8 billion tonnes of cumulative CO2
-# storage over the model period.
+# Define a positive carbon storage target OR a positive atmospheric emissions
+# price for a net-zero/carbon-policy scenario. Neither has a default value.
+# This current one-curve comparison arbitrarily selects 75% point-source
+# storage, with trucks and pipelines enabled. Select a value for each study;
+# 75% is a run-specific choice, not a default or recommendation.
+# High carbon prices or storage targets near 100% can result in long solve times.
 #
 # registry/scenarios/*.toml (other than this file) are local, policy-specific
 # and are gitignored: they are not committed. To create your own scenario,
@@ -32,7 +35,7 @@ id = "net-zero-25km"
 
 # Optional human-readable explanation recorded in the resolved scenario.
 # Changing only this description does not change model behaviour.
-description = "Net-zero CO2 target with one EOS pipeline curve and trucks"
+description = "Store 75% of modeled point-source CO2 with one EOS pipeline curve and trucks"
 
 
 # -----------------------------------------------------------------------------
@@ -87,44 +90,39 @@ description = "Net-zero CO2 target with one EOS pipeline curve and trucks"
 # for reporting and must not be encoded as annual LimitCapacity.
 # No other projection methods are currently implemented.
 #
-# [emissions]
-# projection_method = "constant"
+# Target-driven option selected for this run. For a price-driven alternative,
+# set policy = "emissions_price", choose a positive price_per_tonne in the
+# model's cost currency/t CO2e, and set the storage requirement and both target
+# fields below to "none", 0, and 0 respectively. Rebuild Gold after changing.
+[emissions]
+projection_method = "constant"
+policy = "none"
+price_per_tonne = 0
 
 
 # -----------------------------------------------------------------------------
-# Optional geological-storage policy overrides
+# Explicit geological-storage policy choice
 # -----------------------------------------------------------------------------
 #
-# Supported requirement values:
+# The target is resolved from the regional CO2 baseline actually encoded in
+# Gold, after study-area filtering, dropping invalid/nonpositive facility rows,
+# and graph snapping/outlier exclusion. It does not include prospective DAC.
+# Annual required injection = point_source_fraction * included annual emissions.
+# Cumulative target = annual requirement * model duration.
+# A percentage target avoids exceeding the point-source supply solely because
+# a fixed tonnage was chosen for a larger geography. Other network, fuel, and
+# geological constraints can still limit feasibility. The scenario name is
+# retained for compatibility; 75% storage is not a claim of full net zero.
 #
-#   "none"
-#       Geological storage remains available but has no required minimum.
-#       minimum_cumulative_activity must be exactly 0.
-#
-#   "minimum_cumulative_activity"
-#       Require at least the configured quantity of system-wide CO2 injection
-#       over the complete model period. minimum_cumulative_activity must be
-#       greater than 0 and is measured in t CO2e/model period.
-#
-# Temoa LimitActivity is annual. Gold therefore encodes the annual equivalent:
-#
-#   minimum_cumulative_activity / (end_year - start_year)
-#
-# Example: 7.5 billion tonnes over 25 years becomes 300 million tonnes/year.
-# When changing requirement, also set the compatible cumulative value in the
-# same scenario so the merged configuration remains valid.
-#
-# Example A — optional storage:
-#
-# [storage]
-# requirement = "none"
-# minimum_cumulative_activity = 0
-#
-# Example B — cumulative storage target:
+# Absolute targets remain available for explicitly constructed cases (including
+# future DAC supply) using requirement = "minimum_cumulative_activity" and a
+# positive minimum_cumulative_activity, with point_source_fraction = 0.
+# For no minimum: requirement = "none" and both numeric fields = 0.
 #
 [storage]
-requirement = "minimum_cumulative_activity"
-minimum_cumulative_activity = 6_800_000_000
+requirement = "minimum_point_source_fraction"
+point_source_fraction = 0.75  # Arbitrary choice for the current comparison only.
+minimum_cumulative_activity = 0
 
 
 # -----------------------------------------------------------------------------
