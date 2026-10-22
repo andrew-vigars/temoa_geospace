@@ -305,3 +305,32 @@ sources:
           glob: "*_CanadaGeologicalStorageUnified*_v*.csv"
           format: csv
           multiple: true
+
+  - id: copernicus_era5_canada_2018_renewables
+    kind: gridded_reanalysis
+    domain: renewable_weather
+    publisher: ECMWF / Copernicus Climate Change Service
+    title: ERA5 hourly single levels - Canada Census boundary extent 2018
+    licence: See CDS dataset licence and accepted terms
+    catalogue_url: https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels
+    acquisition:
+      stage: era5_renewables
+      module: geocanoe.acquisition.era5_renewables
+      config: config/era5/canada.toml
+      refresh_policy: immutable_request_cache
+      release_model: monthly_hourly_reanalysis
+    bronze:
+      root: data_files/raw/era5/canada_2018
+      primary_artifact: request_plan
+      artifacts:
+        request_plan:
+          path: request_plan.json
+          format: json
+        raw_payloads:
+          glob: "*.payload"
+          format: netcdf_or_zip
+          multiple: true
+        request_manifests:
+          glob: "????????????????.json"
+          format: json
+          multiple: true

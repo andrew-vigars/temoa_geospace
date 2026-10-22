@@ -1,0 +1,16 @@
+# Buffered Ontario extent from Notebook 22; CDS order: north, west, south, east.
+# Bounding box covers Ontario; province polygon clipping belongs in Silver.
+area = [57.0, -95.5, 41.75, -74.0]
+# Shared model weather year: aligns renewable supply with CANOE's
+# 2018 ResStock residential and ComStock commercial hourly demand profiles.
+# Change only together with the demand-profile weather-year contract.
+weather_year = 2018
+months = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+raw_dir = "data_files/raw/era5/ontario_pilot"
+# No per-run cap: acquire all missing requests sequentially.
+
+# CANOE explicitly uses 2018 weather alongside ATB 2024 technology/economic rows.
+[canoe]
+params = "../canoe-electricity-main/input_files/params.toml"
+generators = "../canoe-electricity-main/input_files/generator_technologies.csv"
+atb_edition = 2024

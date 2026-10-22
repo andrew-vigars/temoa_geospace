@@ -36,6 +36,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+era5 = ["cdsapi>=0.7.7,<0.8"]
 dev = [
     "pytest==8.4.1",
     "pytest-cov==6.2.1",

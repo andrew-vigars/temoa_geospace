@@ -1,0 +1,27 @@
+# National Bronze default: derive coverage from the complete Census boundary.
+# All provinces/territories, outward-snapped 0.25-degree grid plus one-cell buffer.
+# Raw CDS data remain rectangular; clipping/subsetting belongs in Silver.
+grid_degrees = 0.25 # Currently pinned by the ERA5 adapter.
+buffer_cells = 1
+request_interval_seconds = 1
+# Shared model weather year: aligns renewable supply with CANOE's
+# 2018 ResStock residential and ComStock commercial hourly demand profiles.
+# Change only together with the demand-profile weather-year contract.
+weather_year = 2018
+months = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+raw_dir = "data_files/raw/era5/canada_2018"
+# No per-run cap: acquire all missing requests sequentially.
+
+# CANOE explicitly uses 2018 weather alongside ATB 2024 technology/economic rows.
+[boundary]
+# Change kind to "digital" to use the full administrative boundary instead.
+# The selected file must already exist; ERA5 does not silently fetch basemaps.
+kind = "cartographic"
+census_year = 2021
+cartographic_file = "data_files/raw/basemaps/lpr_000b21a_e.shp"
+digital_file = "data_files/raw/basemaps/lpr_000a21a_e.shp"
+
+[canoe]
+params = "../canoe-electricity-main/input_files/params.toml"
+generators = "../canoe-electricity-main/input_files/generator_technologies.csv"
+atb_edition = 2024

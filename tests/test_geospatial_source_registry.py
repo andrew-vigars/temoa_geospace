@@ -31,6 +31,7 @@ def test_committed_registry_covers_current_bronze_stages() -> None:
         "nrcan_nhn_hhyd_national_en",
         "eccc_large_facility_ghg_2024",
         "canco2_unified_storage_selected_release",
+        "copernicus_era5_canada_2018_renewables",
     )
     assert tuple(
         registry.get(source_id)["acquisition"]["stage"]

@@ -34,6 +34,10 @@ data_files/raw/
 
 Notes
 -----
+ERA5 renewable weather is registered as ``era5_renewables``. It verifies local
+caches and writes a request plan by default; ``--era5-download`` enables bounded
+sequential acquisition using an explicit geographic extent in configuration.
+
 The bronze layer does not build any silver or gold product. Preprocessing
 these raw inputs into standardized intermediate products is a downstream
 silver-layer transformation handled by ``geocanoe.execution.silver``.
@@ -73,6 +77,7 @@ STAGE_MODULE_NAMES: dict[str, str] = {
     "nhn": "geocanoe.acquisition.nhn",
     "emissions": "geocanoe.acquisition.emissions",
     "co2_storage": "geocanoe.acquisition.co2_storage",
+    "era5_renewables": "geocanoe.acquisition.era5_renewables",
 }
 
 BRONZE_STAGE_ORDER = (
@@ -84,6 +89,7 @@ BRONZE_STAGE_ORDER = (
     "nhn",
     "emissions",
     "co2_storage",
+    "era5_renewables",
 )
 
 
@@ -137,6 +143,9 @@ class BronzeStageOptions:
     keep_nhn_archive: bool = False
     co2_source_gpkg: Path | None = None
     co2_source_repo: Path | None = None
+    era5_config: Path | None = None
+    era5_download: bool = False
+    era5_max_new_requests: int | None = None
 
 
 # =============================================================================
@@ -306,6 +315,13 @@ def execute_bronze_stage(
             source_gpkg=options.co2_source_gpkg,
             source_repo=options.co2_source_repo,
             overwrite=options.overwrite,
+        )
+
+    if stage_name == "era5_renewables":
+        return module.acquire_era5_renewables(
+            options.era5_config,
+            allow_download=options.era5_download,
+            max_new_requests=options.era5_max_new_requests,
         )
 
     raise ValueError(f"Unknown bronze stage: {stage_name!r}")
@@ -518,6 +534,21 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=Path,
         help="CanCO2 repository root for the co2_storage stage.",
     )
+    parser.add_argument(
+        "--era5-config",
+        type=Path,
+        help="ERA5 TOML config; defaults to config/era5/canada.toml.",
+    )
+    parser.add_argument(
+        "--era5-download",
+        action="store_true",
+        help="Allow missing ERA5 downloads; default only plans and verifies local caches.",
+    )
+    parser.add_argument(
+        "--era5-max-new-requests",
+        type=int,
+        help="Optional cap on new ERA5 data requests; default acquires all missing.",
+    )
     return parser.parse_args(argv)
 
 
@@ -545,6 +576,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         keep_nhn_archive=args.keep_nhn_archive,
         co2_source_gpkg=args.co2_source_gpkg,
         co2_source_repo=args.co2_source_repo,
+        era5_config=args.era5_config,
+        era5_download=args.era5_download,
+        era5_max_new_requests=args.era5_max_new_requests,
     )
     run_bronze_workflow(
         stages,
