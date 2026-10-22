@@ -334,3 +334,27 @@ sources:
           glob: "????????????????.json"
           format: json
           multiple: true
+
+  - id: atb_electricity_2025_v1
+    kind: tabular_dataset
+    domain: generation_technology
+    publisher: NREL / National Laboratory of the Rockies
+    title: Electricity Annual Technology Baseline 2025 v1.0.0
+    licence: See official ATB disclaimer and technical limitations
+    catalogue_url: https://atb.nlr.gov/electricity/2025/data
+    acquisition:
+      stage: atb
+      module: geocanoe.acquisition.atb
+      config: config/atb/electricity_2025.toml
+      refresh_policy: immutable_pinned_release
+      release_model: edition_and_revision
+    bronze:
+      root: data_files/raw/atb/2025/v1.0.0
+      primary_artifact: summary
+      artifacts:
+        summary:
+          path: ATBe.csv
+          format: csv
+        manifest:
+          path: acquisition_manifest.json
+          format: json

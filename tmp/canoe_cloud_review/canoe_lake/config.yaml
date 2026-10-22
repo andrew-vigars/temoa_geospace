@@ -1,0 +1,51 @@
+# Configuration for Data Lake Bronze Ingestors
+
+eia:
+  year: 2025
+  scenario: "ref2025"
+
+oedi:
+  year: 2024
+  comstock_release: "comstock_amy2018_release_2"
+  comstock_upgrade: 39
+  resstock_release: "resstock_amy2018_release_2"
+  resstock_upgrade: 16
+
+ieso:
+  weather_year: 2025
+
+atb:
+  year: 2024
+  version: "v3.0.0"
+
+epa:
+  year: 2025
+  url: "https://www.epa.gov/system/files/other-files/2025-01/ghg-emission-factors-hub-2025.xlsx"
+
+cer:
+  year: 2026
+
+nrcan:
+  year: 2023
+  handbook_year: 2021
+
+statcan:
+  year: 2023
+
+renewables_ninja:
+  date_from: "2022-01-01"
+  date_to: "2022-12-31"
+
+weather_mapping:
+  weather_year: 2018
+  regions:
+    "ON": {ca: "CA.ON", us: "MI"}
+    AB: {ca: "CA.AB", us: "MT"}
+    BC: {ca: "CA.BC", us: "WA"}
+    QC: {ca: "CA.QC", us: "ME"}
+    MB: {ca: "CA.MB", us: "ND"}
+    SK: {ca: "CA.SK", us: "ND"}
+    NLLAB: {ca: "CA.NF", us: "ME"}
+    PEI: {ca: "CA.PE", us: "ME"}
+    NS: {ca: "CA.NS", us: "ME"}
+    NB: {ca: "CA.NB", us: "ME"}

@@ -78,6 +78,7 @@ STAGE_MODULE_NAMES: dict[str, str] = {
     "emissions": "geocanoe.acquisition.emissions",
     "co2_storage": "geocanoe.acquisition.co2_storage",
     "era5_renewables": "geocanoe.acquisition.era5_renewables",
+    "atb": "geocanoe.acquisition.atb",
 }
 
 BRONZE_STAGE_ORDER = (
@@ -90,6 +91,7 @@ BRONZE_STAGE_ORDER = (
     "emissions",
     "co2_storage",
     "era5_renewables",
+    "atb",
 )
 
 
@@ -143,6 +145,7 @@ class BronzeStageOptions:
     keep_nhn_archive: bool = False
     co2_source_gpkg: Path | None = None
     co2_source_repo: Path | None = None
+    atb_config: Path | None = None
     era5_config: Path | None = None
     era5_download: bool = False
     era5_max_new_requests: int | None = None
@@ -316,6 +319,9 @@ def execute_bronze_stage(
             source_repo=options.co2_source_repo,
             overwrite=options.overwrite,
         )
+
+    if stage_name == "atb":
+        return module.acquire_atb(options.atb_config)
 
     if stage_name == "era5_renewables":
         return module.acquire_era5_renewables(
@@ -549,6 +555,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=int,
         help="Optional cap on new ERA5 data requests; default acquires all missing.",
     )
+    parser.add_argument(
+        "--atb-config",
+        type=Path,
+        help="ATB acquisition config; defaults to config/atb/electricity_2025.toml.",
+    )
     return parser.parse_args(argv)
 
 
@@ -576,6 +587,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         keep_nhn_archive=args.keep_nhn_archive,
         co2_source_gpkg=args.co2_source_gpkg,
         co2_source_repo=args.co2_source_repo,
+        atb_config=args.atb_config,
         era5_config=args.era5_config,
         era5_download=args.era5_download,
         era5_max_new_requests=args.era5_max_new_requests,
