@@ -264,6 +264,7 @@ STAGE_MODULE_NAMES = {
     "adjacency": "geocanoe.geospatial.adjacency",
     "roads": "geocanoe.geospatial.roads",
     "road_connectivity": "geocanoe.geospatial.road_connectivity",
+    "renewables_atlite": "geocanoe.preprocessing.renewables",
 }
 
 SILVER_STAGE_ORDER = (
@@ -284,6 +285,7 @@ SILVER_STAGE_ORDER = (
     "pipeline_edge_impedance",
     "roads",
     "road_connectivity",
+    "renewables_atlite",
 )
 
 SILVER_STAGE_DEPENDENCIES: dict[str, tuple[str, ...]] = {
@@ -309,6 +311,7 @@ SILVER_STAGE_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     ),
     "roads": (),
     "road_connectivity": ("basemaps", "adjacency", "roads"),
+    "renewables_atlite": ("basemaps",),
 }
 
 EXTERNAL_INPUT_DEPENDENCIES: dict[str, tuple[str, ...]] = {
@@ -356,6 +359,7 @@ EXTERNAL_INPUT_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "pipeline_edge_impedance": (),
     "roads": ("raw provincial and territorial NRN GeoPackages",),
     "road_connectivity": (),
+    "renewables_atlite": ("verified ERA5 national Bronze", "ATB selected source and subset", "renewable technology crosswalk and physical resources"),
 }
 
 
@@ -551,6 +555,9 @@ def build_stage_executors(
                 "h2_pipeline_cost_models",
             ),
             pass_config=False,
+        ),
+        "renewables_atlite": FunctionExecutor(
+            require_stage_callable(stage_modules["renewables_atlite"], "run_renewables_build", "renewables_atlite")
         ),
         "basemaps": FunctionExecutor(
             require_stage_callable(

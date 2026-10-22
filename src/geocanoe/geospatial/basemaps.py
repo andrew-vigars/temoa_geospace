@@ -37,7 +37,6 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-import shutil
 from typing import TypedDict
 
 import geopandas as gpd
@@ -1015,8 +1014,7 @@ def build_all_basemaps(
 The function iterates over each grid family and resolution defined in the
 shared build profile. For every configuration, it builds the retained grid,
 exports the regions to a GeoPackage, saves a diagnostic PNG preview, and
-collects a summary record. Existing preview outputs are removed before the
-current build begins.
+collects a summary record. Preview files for other study areas are preserved.
 
 Parameters
 ----------
@@ -1048,10 +1046,9 @@ ValueError
 
     preview_dir = output_dir / "preview"
 
-    if preview_dir.exists():
-        shutil.rmtree(preview_dir)
-
-    preview_dir.mkdir(parents=True)
+    # Each preview filename contains the study-area label and grid key. Preserve
+    # other studies' previews when adding a national basemap beside Ontario.
+    preview_dir.mkdir(parents=True, exist_ok=True)
 
     summary_rows: list[dict] = []
 

@@ -313,3 +313,8 @@ enabled = false
 classes = []
 
 [hydrography.lines.minimum_source_length_km]
+
+# Renewable resource profiles; use projected grids >=25 km.
+[renewables]
+enabled = false
+config = "config/renewables/atlite.toml"

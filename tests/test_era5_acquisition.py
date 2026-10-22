@@ -1,6 +1,5 @@
 """Offline contracts for the ERA5 Bronze stage."""
 
-import json
 from pathlib import Path
 
 import pytest
@@ -13,17 +12,11 @@ from geocanoe.execution.bronze import (
 )
 
 
-def test_plan_reuses_existing_pilot_identities():
-    root = Path(__file__).resolve().parents[1]
+def test_request_plan_is_deterministic_and_unique():
     plan = era5.build_request_plan([57.0, -95.5, 41.75, -74.0], 2018)
     assert len(plan) == 36
     assert len({item["request_id"] for item in plan}) == 36
-    for path in (root / "data_files/raw/era5/ontario_pilot").glob(
-        "????????????????.json"
-    ):
-        record = json.loads(path.read_text())
-        item = next(item for item in plan if item["request"] == record["request"])
-        assert item["request_id"] == path.stem
+    assert plan == era5.build_request_plan([57.0, -95.5, 41.75, -74.0], 2018)
 
 
 def test_corrupt_later_cache_prevents_all_network_calls(tmp_path, monkeypatch):

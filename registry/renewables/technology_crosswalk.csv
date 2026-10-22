@@ -1,0 +1,3 @@
+tech,technology,display_name,scenario,core_metric_case,tax_credit_case,crpyears,lifetime_years,capacity_basis,physical_reference
+WIND_GEN,LandbasedWind,Land-Based Wind - Class 7 - Technology 1,Moderate,R&D,,20,30,MW,T1_6MW_170m_115m
+SOLAR_GEN,UtilityPV,Utility PV - Class 3,Moderate,R&D,,20,30,MW_AC,CSi_horizontal_tracking_proxy

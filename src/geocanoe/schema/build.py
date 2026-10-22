@@ -332,6 +332,7 @@ class ResolvedSchemaConfig:
     fallback_gasoline_emission_factor: float = 0.0
     storage_point_source_fraction: float = 0.0
     storage_point_source_annual_emissions: float = 0.0
+    renewables_bundle_dir: Path | None = None
 
 
 @dataclass
@@ -790,6 +791,8 @@ def resolve_schema_configuration(
             "configured road-connectivity stage."
         )
 
+    from geocanoe.schema.renewables import configured_bundle_dir
+    renewables_bundle_dir = configured_bundle_dir(build_config, basemap_stem)
     implementation_digest = build_schema_implementation_digest()
     fingerprint = build_schema_fingerprint(
         build_config=build_config,
@@ -797,6 +800,9 @@ def resolve_schema_configuration(
         basemap_stem=basemap_stem,
         implementation_digest=implementation_digest,
     )
+    if renewables_bundle_dir is not None:
+        contract_digest = hashlib.sha256((renewables_bundle_dir / "contract.json").read_bytes()).hexdigest()
+        fingerprint = hashlib.sha256((fingerprint + contract_digest).encode()).hexdigest()[:len(fingerprint)]
     while True:
         artifact_barcode = secrets.token_hex(4)
         artifacts = resolve_schema_artifact_paths(
@@ -870,6 +876,7 @@ def resolve_schema_configuration(
         disabled_transport_technologies=model_config.transport_modes.disabled_technologies,
         pipeline_impedance_scope=pipeline_impedance_scope,
         pipeline_impedance_path=pipeline_impedance_path,
+        renewables_bundle_dir=renewables_bundle_dir,
     )
 
     validate_required_paths(config)
@@ -1034,6 +1041,9 @@ def validate_required_paths(config: ResolvedSchemaConfig) -> None:
         "graph_edges": config.graph_edge_path,
         "co2_storage": config.co2_storage_path,
     }
+    if config.renewables_bundle_dir is not None:
+        required_paths.pop("sites")
+        required_paths["renewable_contract"] = config.renewables_bundle_dir / "contract.json"
     if config.roads_enabled:
         required_paths.update({
             "road_edge_connections": config.road_edge_connections_path,
@@ -1691,7 +1701,10 @@ def load_inputs(config: ResolvedSchemaConfig) -> LoadedInputs:
             layer="regional_gasoline_demand",
         ),
         db=load_empty_temoa_v4_tables(),
-        sites_raw=pd.read_csv(SITES_PATH),
+        sites_raw=(pd.DataFrame({"lon": pd.Series(dtype=float), "lat": pd.Series(dtype=float),
+                                  "LCOE": pd.Series(dtype=float), "max_elec": pd.Series(dtype=float),
+                                  "province": pd.Series(dtype=str)})
+                   if config.renewables_bundle_dir is not None else pd.read_csv(SITES_PATH)),
         co2_raw=gpd.read_file(CO2_SOURCE_PATH),
         transport_techs_raw=pd.read_csv(TRANSPORT_TECHS_PATH),
         gen_efficiencies_raw=pd.read_csv(GEN_EFFICIENCIES_PATH),
@@ -2824,19 +2837,25 @@ def build_site_attributes(
     numeric_cols = raw_points_non_co2.select_dtypes(include="number").columns
     raw_points_non_co2[numeric_cols] = raw_points_non_co2[numeric_cols].fillna(0)
 
-    raw_points_non_co2, excluded_non_co2 = (
-        filter_to_configured_provinces(
-            data=raw_points_non_co2,
-            configured_provinces=build_config.study_area.provinces,
+    if raw_points_non_co2.empty:
+        # Renewable supply uses full Silver polygons, not legacy LCOE site points.
+        excluded_non_co2 = raw_points_non_co2.copy()
+        snapped_non_co2 = pd.DataFrame({"region": pd.Series(dtype=str),
+                                       "LCOE": pd.Series(dtype=float), "max_elec": pd.Series(dtype=float)})
+    else:
+        raw_points_non_co2, excluded_non_co2 = (
+            filter_to_configured_provinces(
+                data=raw_points_non_co2,
+                configured_provinces=build_config.study_area.provinces,
+                dataset_label="sites_full",
+            )
+        )
+
+        snapped_non_co2 = snap_points_to_graph_nodes(
+            points=raw_points_non_co2,
+            context=assignment_context,
             dataset_label="sites_full",
         )
-    )
-
-    snapped_non_co2 = snap_points_to_graph_nodes(
-        points=raw_points_non_co2,
-        context=assignment_context,
-        dataset_label="sites_full",
-    )
 
     co2_facilities = inputs.co2_raw.copy()
     co2_facilities["co2"] = pd.to_numeric(
@@ -6384,6 +6403,9 @@ def run_schema_build(
         price_per_tonne=config.emissions_price_per_tonne,
         fallback_gasoline_emission_factor=config.fallback_gasoline_emission_factor,
     )
+
+    from geocanoe.schema.renewables import apply_configured_renewables
+    apply_configured_renewables(db_encoded, build_config, config, canonical.valid_node_regions)
 
     print("\nValidating encoded database...")
     validate_encoded_region_coverage(

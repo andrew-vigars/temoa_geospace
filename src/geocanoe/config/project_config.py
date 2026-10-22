@@ -448,6 +448,8 @@ class GeospatialBuildConfig:
     pipeline_impedance: PipelineImpedanceConfig
     gasoline_demand: GasolineDemandConfig
     source_path: Path
+    renewables_enabled: bool = False
+    renewables_config: str = "config/renewables/atlite.toml"
 
 
 # =============================================================================
@@ -1463,6 +1465,8 @@ def load_geospatial_build_config(
         pipeline_impedance=pipeline_impedance,
         gasoline_demand=gasoline_demand,
         source_path=config_path,
+        renewables_enabled=require_bool(raw.get("renewables", {"enabled": False}), "enabled", "renewables"),
+        renewables_config=require_string({"config": "config/renewables/atlite.toml", **raw.get("renewables", {})}, "config", "renewables"),
     )
 
 

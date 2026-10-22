@@ -36,6 +36,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+renewables = ["atlite==0.7.0", "xarray==2026.9.0", "netCDF4==1.7.5", "dask==2026.8.0"]
 cloud = ["gdown>=5.2,<6", "pyarrow>=25,<26"]
 era5 = ["cdsapi>=0.7.7,<0.8"]
 dev = [
