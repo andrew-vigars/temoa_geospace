@@ -1,0 +1,16 @@
+# Full official source; technology/scenario selection belongs in Silver.
+edition = 2025
+revision = "v1.0.0"
+raw_dir = "data_files/raw/atb/2025/v1.0.0"
+source_page = "https://atb.nlr.gov/electricity/2025/data"
+url = "https://oedi-data-lake.s3.amazonaws.com/ATB/electricity/csv/2025/v1.0.0/ATBe.csv"
+filename = "ATBe.csv"
+expected_bytes = 320606895
+# Transport controls; one download at a time, bounded retries.
+timeout_seconds = 60
+max_attempts = 3
+retry_delay_seconds = 5
+
+# Prefer a verified published cache of this edition; preserve official fallback.
+[cloud]
+config = "config/canoe_cloud/sources.toml"

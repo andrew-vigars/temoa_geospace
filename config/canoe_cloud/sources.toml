@@ -1,0 +1,15 @@
+# External processed data are imported as Bronze inputs with their own provenance.
+repo_dir = "../CANOE_CLOUD"
+connector_reference_commit = "78aee5c080b3a31eaca76e69cf2886e5902f5998"
+cache_dir = "data_files/raw/canoe_cloud/extracted"
+# For a cache already synced using upstream GoldConnector, use:
+# cache_dir = "../CANOE_CLOUD/silver_cache"
+raw_dir = "data_files/raw/canoe_cloud"
+# Blank chooses the newest available dated Silver snapshot, then pins its file hash.
+target_date = ""
+required_atb_edition = 2025
+required_weather_year = 2018
+silver_archive_id = "163zEbqGWosuEih9Al83-MuT_fW7VnZgU"
+# Renewables archive is deliberately separate; metadata/year checks are required
+# before importing its profiles into model calculations.
+renewables_archive_id = "1U8SxKezPpENb94-OGR-aFoUbq73q-M99"

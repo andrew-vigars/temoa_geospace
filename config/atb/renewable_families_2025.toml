@@ -1,0 +1,7 @@
+source_selection = "data_files/raw/atb/selected_source.json"
+# Downstream subset from the complete immutable Bronze master.
+output_dir = "data_files/processed/atb/2025/v1.0.0/renewable_families"
+technologies = ["OffShoreWind", "LandbasedWind", "UtilityPV", "Utility-Scale PV-Plus-Battery", "Utility-Scale Battery Storage"]
+# Exact technology matching only. Preserve every class, scenario, case, metric,
+# recovery period, projection year, tax-credit case, unit and evidence field.
+# Later model selection must explicitly resolve these dimensions.
