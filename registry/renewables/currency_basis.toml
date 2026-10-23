@@ -1,15 +1,5 @@
-# Explicit economic rebasing assumption; values retained independently of CANOE.
+# Source metadata only; all FX and inflation policy lives in the shared config.
 source_currency = "USD"
 source_year = 2023
-target_currency = "CAD2020"
-target_scale = 1.0 # CAD dollars, not millions.
-# Bank of Canada annual average CAD per USD for 2023.
-cad_per_usd = 1.3497
-fx_source = "https://www.bankofcanada.ca/rates/exchange/annual-average-exchange-rates/"
-# Statistics Canada annual all-items CPI, Canada (2002=100).
-# Method: exchange USD2023 -> CAD2023, then CPI-rebase to CAD2020.
-source_price_index = 157.1
-target_price_index = 137.0
-price_index = "Canada annual all-items CPI (2002=100)"
-price_source = "https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1810000501"
-method = "cost_USD2023 * cad_per_usd * CPI_2020 / CPI_2023 / target_scale"
+source_scale = 1.0
+economic_config = "registry/economics.toml"

@@ -1,0 +1,26 @@
+# Pin a new raw_dir and checksum when adopting an upstream revision.
+raw_dir = "data_files/raw/economics/2026-10-23"
+economic_config = "registry/economics.toml"
+
+[[sources]]
+id = "canada_gdp"
+url = "https://www150.statcan.gc.ca/n1/tbl/csv/36100223-eng.zip"
+filename = "36100223-eng.zip"
+sha256 = "c0df3ea6f48cfd9b6f5bca9034076ae1d45300ebcc0e3ee19959b15d7e640ec2"
+kind = "statcan_zip"
+member = "36100223.csv"
+table = "36-10-0223-01"
+[sources.selectors]
+GEO = "Canada"
+Index = "Implicit price indexes"
+Estimates = "Gross domestic product at market prices"
+UOM = "Index, 2017=100"
+
+[[sources]]
+id = "exchange"
+# Local curated CANOE snapshot; a future verified web URL can replace local_path.
+local_path = "registry/economics/currency_exchange.csv"
+filename = "currency_exchange.csv"
+sha256 = "7f3efb877bdffa2f3612ef0bffefb15e40bc3b7dc6d26437c1047e7c61009967"
+kind = "exchange_csv"
+notes = "CANOE snapshot; market FX provenance unverified; 2023–2024 repeat 2022."

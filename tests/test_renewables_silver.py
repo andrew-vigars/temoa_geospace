@@ -140,7 +140,7 @@ def test_gold_replacement_uses_cad_dollars_and_requires_all_nodes(tmp_path):
     }
     tables = stage.gold_tables(annual, crosswalk, costs, settings, tmp_path)
     assert tables["cost_invest"][0]["cost"] == pytest.approx(
-        1_000_000 * 1.3497 * 137 / 157.1
+        1_000_000 * 1.225042 * 104.3 / 123.2
     )
     encoded = {
         name: pd.DataFrame(rows).iloc[:0].copy() for name, rows in tables.items()

@@ -79,6 +79,7 @@ STAGE_MODULE_NAMES: dict[str, str] = {
     "co2_storage": "geocanoe.acquisition.co2_storage",
     "era5_renewables": "geocanoe.acquisition.era5_renewables",
     "atb": "geocanoe.acquisition.atb",
+    "economics": "geocanoe.acquisition.economics",
 }
 
 BRONZE_STAGE_ORDER = (
@@ -92,6 +93,7 @@ BRONZE_STAGE_ORDER = (
     "co2_storage",
     "era5_renewables",
     "atb",
+    "economics",
 )
 
 
@@ -145,6 +147,7 @@ class BronzeStageOptions:
     keep_nhn_archive: bool = False
     co2_source_gpkg: Path | None = None
     co2_source_repo: Path | None = None
+    economics_config: Path | None = None
     atb_config: Path | None = None
     era5_config: Path | None = None
     era5_download: bool = False
@@ -319,6 +322,9 @@ def execute_bronze_stage(
             source_repo=options.co2_source_repo,
             overwrite=options.overwrite,
         )
+
+    if stage_name == "economics":
+        return module.acquire_economics(options.economics_config)
 
     if stage_name == "atb":
         return module.acquire_atb(options.atb_config)
@@ -555,6 +561,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=int,
         help="Optional cap on new ERA5 data requests; default acquires all missing.",
     )
+    parser.add_argument("--economics-config", type=Path, help="Economic source acquisition TOML.")
     parser.add_argument(
         "--atb-config",
         type=Path,
@@ -587,6 +594,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         keep_nhn_archive=args.keep_nhn_archive,
         co2_source_gpkg=args.co2_source_gpkg,
         co2_source_repo=args.co2_source_repo,
+        economics_config=args.economics_config,
         atb_config=args.atb_config,
         era5_config=args.era5_config,
         era5_download=args.era5_download,

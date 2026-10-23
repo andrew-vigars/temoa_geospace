@@ -1,0 +1,12 @@
+{
+  "written_utc": "2026-10-23T16:29:58.533761+00:00",
+  "source": "registry/economics/currency_exchange.csv",
+  "sha256": "7f3efb877bdffa2f3612ef0bffefb15e40bc3b7dc6d26437c1047e7c61009967",
+  "bronze": {
+    "manifest": "data_files\\raw\\economics\\2026-10-23\\exchange_manifest.json",
+    "manifest_sha256": "dd9136bcc3f5dca604899dd8ce720233a12585ae44b7521c48fe57b27ae145b7",
+    "source_sha256": "7f3efb877bdffa2f3612ef0bffefb15e40bc3b7dc6d26437c1047e7c61009967"
+  },
+  "notes": "CANOE snapshot; market FX provenance unverified; 2023\u20132024 repeat 2022.",
+  "convention": "CAD per source currency, indexed by source price year"
+}

@@ -1,0 +1,19 @@
+# Shared economic policy: currency conversion first, then Canadian GDP rebasing.
+target_currency = "CAD"
+target_year = 2020
+target_scale = 1.0
+method = "source_year_fx_then_canadian_gdp_index"
+index_path = "registry/economics/canada_gdp_implicit_price_index.csv"
+index_provenance = "registry/economics/gdp_index_provenance.json"
+exchange_path = "registry/economics/currency_exchange.csv"
+exchange_provenance = "registry/economics/exchange_provenance.json"
+first_year = 2000
+last_year = 2024
+
+[sources.h2_pipeline_workbook]
+currency = "CAD"
+price_year = 2020
+scale = 1.0
+already_converted = true
+conversion_location = "Upstream Excel workbook; embedded FX and rebasing factors have not been independently reconciled."
+policy = "Do not reconvert or relabel. Recover native costs when replacing workbook calculations in Python."

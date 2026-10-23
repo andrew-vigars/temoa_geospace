@@ -91,13 +91,14 @@ it), and `limit_annual_capacity_factor` rows. PV module conversion efficiency
 is already in Atlite; it is not multiplied into Temoa efficiency again. Annual
 availability does not represent storage dispatch or hourly adequacy.
 
-`registry/renewables/currency_basis.toml` converts native ATB USD2023 to CAD2020
-**dollars**, matching declared pipeline cost units, not millions:
-`USD2023 * 1.3497 * (137.0/157.1)`. FX is the 2023 Bank of Canada annual average;
-price rebasing uses Statistics Canada's annual all-items Canadian CPI, 2020 and
-2023. This CPI-based rebasing is explicit/configurable and does not inherit
-CANOE's currency tables or its different index assumptions. Source URLs and
-values are retained in the registry and bundle contract.
+`registry/renewables/currency_basis.toml` declares native ATB USD2023.
+The shared `registry/economics.toml` converts currency first using the source-year CAD/USD exchange entry, then rebases using Canada's GDP implicit price index from
+Statistics Canada table 36-10-0223-01: `USD2023 * 1.225042 * 104.3/123.2`.
+Exports use CAD2020 dollars, not millions. Index observations for 2000–2024,
+selectors, source checksum and exchange-table provenance are versioned in the registry.
+See `docs/economics.md` for scope and the preconverted H2 workbook exception.
+Existing immutable runs retain their original CPI conversion until explicitly
+refreshed; changing this policy does not rewrite historical bundles.
 
 Sources:
 https://www.bankofcanada.ca/rates/exchange/annual-average-exchange-rates/
@@ -206,7 +207,7 @@ These runs produce resource profiles, not validated buildable capacity.
 ### Monthly diagnostic gallery
 
 Silver automatically writes annual and twelve monthly paired wind/PV maps to
-`<output_dir>/preview/<build>_<grid>_<run>/` with consistent CF limits 0–1.
+`<output_dir>/preview/<build>_<grid>_<run>/` with consistent CF limits 0â€“1.
 Disable with `[previews].monthly=false`. To generate previews for an existing
 run without conversion, use `python -m geocanoe.preprocessing.renewables_preview <run-directory>`.
 The gallery includes per-region monthly means, hourly min/max and 5th/95th

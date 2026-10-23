@@ -1,0 +1,23 @@
+{
+  "written_utc": "2026-10-23T16:29:58.533761+00:00",
+  "source": "https://www150.statcan.gc.ca/n1/tbl/csv/36100223-eng.zip",
+  "table": "36-10-0223-01",
+  "archive_sha256": "c0df3ea6f48cfd9b6f5bca9034076ae1d45300ebcc0e3ee19959b15d7e640ec2",
+  "subset_sha256": "c0540ec21253ce420382eb4dc733434a5b39407625564e44dd9e18cfeab973ea",
+  "selectors": {
+    "GEO": "Canada",
+    "Index": "Implicit price indexes",
+    "Estimates": "Gross domestic product at market prices",
+    "UOM": "Index, 2017=100"
+  },
+  "years": [
+    2000,
+    2024
+  ],
+  "bronze": {
+    "manifest": "data_files\\raw\\economics\\2026-10-23\\canada_gdp_manifest.json",
+    "manifest_sha256": "b5eaf5bdc4a1b7d6e0f62f06a6529e1c60924dd4f68c7f292866a4926180a57d",
+    "source_sha256": "c0df3ea6f48cfd9b6f5bca9034076ae1d45300ebcc0e3ee19959b15d7e640ec2"
+  },
+  "config_sha256": "35d0129b12913ea18e24bda454e33b0d6babd9dd41ed679b253c18a7590b1b47"
+}

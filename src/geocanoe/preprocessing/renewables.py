@@ -29,6 +29,7 @@ from geocanoe.acquisition.era5_renewables import (
 )
 from geocanoe.config import load_geospatial_build_config
 from geocanoe.geospatial.basemaps import basemap_key
+from geocanoe.costs.economics import conversion_basis
 from geocanoe.paths import find_project_root
 from geocanoe.preprocessing.renewables_capacity import capacity_bounds
 from geocanoe.regions import PROVINCE_NAME_TO_CODE
@@ -222,26 +223,13 @@ def gold_tables(annual, crosswalk, costs, settings, output):
     currency = {"target_currency": "USD2023", "multiplier": 1.0}
     if "currency_basis" in settings:
         path = find_project_root() / settings["currency_basis"]
-        basis = tomllib.loads(path.read_text())
-        if (basis["source_currency"], basis["source_year"]) != ("USD", 2023):
+        source = tomllib.loads(path.read_text())
+        if (source["source_currency"], source["source_year"]) != ("USD", 2023):
             raise ValueError("Currency source must match ATB 2025 USD2023.")
-        inputs = [
-            basis[k]
-            for k in (
-                "cad_per_usd",
-                "target_price_index",
-                "source_price_index",
-                "target_scale",
-            )
-        ]
-        if not all(np.isfinite(v) and v > 0 for v in inputs):
-            raise ValueError("Currency factors must be finite and positive.")
-        currency = {
-            "target_currency": basis["target_currency"],
-            "multiplier": inputs[0] * inputs[1] / inputs[2] / inputs[3],
-            "basis": basis,
-            "basis_sha256": sha256(path),
-        }
+        currency = conversion_basis(
+            source["source_currency"], source["source_year"],
+            source.get("source_scale", 1.0), config=source["economic_config"],
+        )
     cost_currency = currency["target_currency"]
     period, vintage = settings["model_period"], settings["vintage"]
     tables = {

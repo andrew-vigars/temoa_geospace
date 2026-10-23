@@ -33,6 +33,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from geocanoe.costs.economics import validate_preconverted_source
 from geocanoe.paths import find_project_root
 
 # =============================================================================
@@ -728,6 +729,7 @@ def add_cost_model_metadata(
         metadata fields are added.
     """
 
+    validate_preconverted_source("h2_pipeline_workbook", currency, currency_year)
     output_table = cost_table.copy()
 
     output_table.insert(0, "technology", technology)
