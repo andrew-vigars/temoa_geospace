@@ -15,6 +15,7 @@ wind_resource_dir = "registry/renewables/resources"
 atb_subset = "data_files/processed/atb/2025/v1.0.0/renewable_families/technology_families.csv"
 atb_selection_manifest = "data_files/processed/atb/2025/v1.0.0/renewable_families/selection_manifest.json"
 cost_projection_year = 2030
+atb_scenario = "Moderate"
 lcoe_discount_rate = 0.03 # Ranking diagnostic only; not an additional Gold cost.
 model_period = 2025
 vintage = 2025
@@ -24,6 +25,7 @@ source_currency_year = 2023
 # Preserve native ATB costs and export Gold costs in CAD2020 dollars/MW.
 # Land eligibility, deployment density and maximum build capacity are not inferred.
 [technology]
+wind_representation = "selectable_t1_t2_t3"
 wind_plant_loss = 0.134
 pv_ilr = 1.34
 inverter_efficiency = 0.96
@@ -51,6 +53,17 @@ T3 = 9
 # Explicit input required before enabling; CFs do not establish buildable MW.
 enabled = false
 input_csv = "registry/renewables/regional_capacity_assumptions.csv"
+
+[land_exclusion]
+enabled = true
+resolution_m = 100
+wind_buffer_m = 100.0
+protected_status_codes = [1]
+wind_excluded_codes = [14, 17, 18]
+solar_excluded_codes = [14, 15, 17, 18]
+wind_land_km2_per_gw = 368.3
+solar_land_km2_per_gw = 34.4
+batch_size = 8
 
 [previews]
 monthly = true # Diagnostic PNG gallery and within-month hourly statistics.

@@ -8,6 +8,7 @@ import json
 import sqlite3
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from time import perf_counter
 import tomllib
 
 import geopandas as gpd
@@ -32,6 +33,13 @@ from geocanoe.geospatial.basemaps import basemap_key
 from geocanoe.costs.economics import conversion_basis
 from geocanoe.paths import find_project_root
 from geocanoe.preprocessing.renewables_capacity import capacity_bounds
+from geocanoe.preprocessing.wind_options import (
+    DESIGNS,
+    WIND_GROUP,
+    mode as wind_mode,
+    profile_field,
+    package_identity,
+)
 from geocanoe.regions import PROVINCE_NAME_TO_CODE
 from geocanoe.preprocessing.atb_wind import (
     canoe_wind_mapping,
@@ -56,7 +64,9 @@ def validate_resolutions(resolutions):
 
 
 def production_regions(basemap, boundary, provinces):
-    """Keep parent region IDs and clip production geometry to selected jurisdictions."""
+    """Reuse matching dissolved boundaries; retain IDs and clip production geometry."""
+    started = perf_counter()
+    print("Production polygons: loading model grid...", flush=True)
     cells = gpd.read_file(basemap, layer="regions").to_crs(3347)
     if not cells.region.is_unique:
         raise ValueError("Basemap region IDs must be unique.")
@@ -64,28 +74,111 @@ def production_regions(basemap, boundary, provinces):
         raise ValueError(
             "Basemap must declare a projected resolution of at least 25 km."
         )
-    # Filter at the reader: detailed northern coastlines are expensive to load.
-    names = [name for name, code in PROVINCE_NAME_TO_CODE.items() if code in provinces]
-    where = (
-        "PRENAME IN (" + ",".join("'" + n.replace("'", "''") + "'" for n in names) + ")"
+    print(
+        f"Production polygons: loaded {len(cells):,} cells in {perf_counter() - started:.1f}s",
+        flush=True,
     )
-    borders = gpd.read_file(boundary, where=where).to_crs(3347)
-    selected_codes = set(borders.PRENAME.map(PROVINCE_NAME_TO_CODE))
-    if selected_codes != set(provinces):
-        raise ValueError("Census boundary does not cover the selected province set.")
+    step = perf_counter()
+    borders = None
+    if "study_area" in cells and cells.study_area.nunique() == 1:
+        label = str(cells.study_area.iloc[0])
+        # Only a filename-safe label can identify a sibling basemap product.
+        if Path(label).name == label and "/" not in label and "\\" not in label:
+            cached = Path(basemap).parent / f"{label}_boundary_epsg3347.gpkg"
+            if cached.is_file():
+                print(
+                    f"Production polygons: checking existing boundary {cached.name}...",
+                    flush=True,
+                )
+                candidate = gpd.read_file(cached, layer="study_area_boundary")
+                if (
+                    len(candidate) == 1
+                    and "province_codes" in candidate
+                    and "study_area" in candidate
+                    and candidate.study_area.iloc[0] == label
+                    and set(str(candidate.province_codes.iloc[0]).split(","))
+                    == set(provinces)
+                ):
+                    if (
+                        candidate.crs is None
+                        or candidate.crs.to_epsg() != 3347
+                        or candidate.geometry.isna().any()
+                        or candidate.geometry.is_empty.any()
+                        or not candidate.is_valid.all()
+                    ):
+                        raise ValueError(
+                            f"Invalid existing study-area boundary: {cached}"
+                        )
+                    borders = candidate
+                    print(
+                        f"Production polygons: reused dissolved boundary in {perf_counter() - step:.1f}s",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        "Production polygons: existing boundary does not match requested jurisdictions; using Census source.",
+                        flush=True,
+                    )
+    if borders is None:
+        print("Production polygons: loading selected Census boundaries...", flush=True)
+        names = [
+            name for name, code in PROVINCE_NAME_TO_CODE.items() if code in provinces
+        ]
+        where = (
+            "PRENAME IN ("
+            + ",".join("'" + n.replace("'", "''") + "'" for n in names)
+            + ")"
+        )
+        borders = gpd.read_file(boundary, where=where).to_crs(3347)
+        if set(borders.PRENAME.map(PROVINCE_NAME_TO_CODE)) != set(provinces):
+            raise ValueError(
+                "Census boundary does not cover the selected province set."
+            )
+        print(
+            f"Production polygons: boundaries loaded in {perf_counter() - step:.1f}s; dissolving...",
+            flush=True,
+        )
+    step = perf_counter()
     geometry = (
         borders.geometry.iloc[0] if len(borders) == 1 else borders.geometry.union_all()
     )
     shapely.prepare(geometry)
-    cells = cells.loc[cells.centroid.map(geometry.covers)].copy()
-    interior = cells.geometry.map(geometry.covers)
-    cells.loc[~interior, "geometry"] = cells.loc[~interior].geometry.intersection(
-        geometry
+    print(
+        f"Production polygons: boundary prepared in {perf_counter() - step:.1f}s; selecting cell centroids...",
+        flush=True,
     )
+    step = perf_counter()
+    cells = cells.loc[shapely.covers(geometry, cells.centroid.array)].copy()
+    print(
+        f"Production polygons: selected {len(cells):,} cells in {perf_counter() - step:.1f}s; checking full-cell coverage...",
+        flush=True,
+    )
+    step = perf_counter()
+    interior = shapely.covers(geometry, cells.geometry.array)
+    positions = np.flatnonzero(~interior)
+    print(
+        f"Production polygons: coverage checked in {perf_counter() - step:.1f}s; clipping {len(positions):,} coastal/border cells...",
+        flush=True,
+    )
+    step = perf_counter()
+    for start in range(0, len(positions), 64):
+        selected = cells.index[positions[start : start + 64]]
+        cells.loc[selected, "geometry"] = cells.loc[selected].geometry.intersection(
+            geometry
+        )
+        print(
+            f"Production polygons: clipped {min(start + 64, len(positions)):,}/{len(positions):,} cells ({perf_counter() - step:.1f}s)",
+            flush=True,
+        )
+    step = perf_counter()
     cells["production_area_km2"] = cells.area / 1e6
     cells = cells.loc[cells.production_area_km2 > 0].set_index("region", drop=False)
     if cells.empty or not cells.is_valid.all():
         raise ValueError("Empty/invalid renewable production polygons.")
+    print(
+        f"Production polygons: area/validity checks {perf_counter() - step:.1f}s; total {perf_counter() - started:.1f}s",
+        flush=True,
+    )
     return cells, borders
 
 
@@ -131,6 +224,42 @@ def select_costs(settings, root):
     crosswalk = resolve_wind_crosswalk(
         crosswalk, mapping, int(representative.resource_class.iloc[0])
     )
+    scenario = settings.get("atb_scenario", "Moderate")
+    if scenario not in {"Moderate", "Conservative", "Advanced"}:
+        raise ValueError("Unsupported ATB scenario.")
+    crosswalk["scenario"] = scenario
+    if wind_mode(settings) in {"selectable_t1_t2_t3", "resource_assigned"}:
+        if wind_mode(settings) == "resource_assigned":
+            from geocanoe.preprocessing.wind_assignment import policy
+
+            policy(settings)
+            if not settings.get("land_exclusion", {}).get("enabled", False):
+                raise ValueError(
+                    "Resource-assigned wind requires land exclusions enabled."
+                )
+        if not settings.get("land_exclusion", {}).get(
+            "enabled", False
+        ) and not settings.get("capacity_limits", {}).get("enabled", False):
+            raise ValueError(
+                "Selectable wind designs require a shared resource-capacity bound."
+            )
+        rows = []
+        template = crosswalk.loc[crosswalk.tech == "WIND_GEN"].iloc[0]
+        for design, specs in DESIGNS.items():
+            row = template.copy()
+            selected_row = representatives.loc[
+                representatives.turbine_technology == int(design[1:])
+            ].iloc[0]
+            row["tech"] = f"WIND_GEN_{design}"
+            row["display_name"] = selected_row.display_name
+            row["physical_reference"] = (
+                f"{design}_{specs['rated_kw'] / 1000:g}MW_{specs['rotor_m']}m_{specs['hub_m']}m"
+            )
+            rows.append(row)
+        crosswalk = pd.concat(
+            [pd.DataFrame(rows), crosswalk.loc[crosswalk.tech == "SOLAR_GEN"]],
+            ignore_index=True,
+        )
     crosswalk.attrs["atb_wind_mapping"] = mapping
     crosswalk.attrs["canoe_wind_mapping"] = representatives
     print(
@@ -139,7 +268,11 @@ def select_costs(settings, root):
             f"T{r.turbine_technology}/Class{r.resource_class}"
             for r in representatives.itertuples()
         )
-        + "; no wind-speed class assignment.",
+        + (
+            "; annual wind-speed assignment."
+            if wind_mode(settings) == "resource_assigned"
+            else "; no wind-speed class assignment."
+        ),
         flush=True,
     )
     selected = []
@@ -166,6 +299,19 @@ def select_costs(settings, root):
             rows["tech"] = tech.tech
             rows["value_per_MW"] = value * 1000
             selected.append(rows)
+    if wind_mode(settings) == "resource_assigned":
+        attrs = crosswalk.attrs.copy()
+        crosswalk.attrs = {}
+        wind = crosswalk.loc[crosswalk.tech == "WIND_GEN_T1"].copy()
+        wind["tech"] = "WIND_GEN"
+        wind["display_name"] = "Spatially assigned T1/T2/T3 mixture"
+        wind["physical_reference"] = (
+            "eligible-capacity-weighted spatial T1/T2/T3 assignment"
+        )
+        crosswalk = pd.concat(
+            [wind, crosswalk.loc[crosswalk.tech == "SOLAR_GEN"]], ignore_index=True
+        )
+        crosswalk.attrs = attrs
     return crosswalk, pd.concat(selected, ignore_index=True)
 
 
@@ -175,16 +321,43 @@ def monthly_weather(items, bronze, cache, bounds, year, engine="netcdf4"):
         item["feature"]: sha256(bronze / f"{item['request_id']}.payload")
         for item in items
     }
+    import ast
+
+    source = Path(physical.__file__).read_text()
+    preparation = identity(
+        {
+            node.name: ast.get_source_segment(source, node)
+            for node in ast.parse(source).body
+            if isinstance(node, ast.FunctionDef)
+            and node.name in {"spatial_subset", "raw_dataset", "prepare_weather"}
+        }
+    )
     key = identity(
         {
             "raw": raw,
             "bounds": bounds,
-            "adapter": sha256(physical.__file__),
+            "adapter": preparation,
             "atlite": "0.7.0",
         }
     )
     path = cache / f"weather_{key}.nc"
     sidecar = path.with_suffix(".json")
+    if not path.exists():
+        # Legacy cache keys hashed the entire conversion module. The native ERA5
+        # preparation routines are unchanged by the wind-assignment change.
+        # Accept only source/bounds-identical legacy records, then verify bytes
+        # and complete temporal coverage below. New records pin preparation only.
+        for candidate in sorted(cache.glob("weather_*.json")):
+            entry = json.loads(candidate.read_text())
+            if (
+                entry.get("raw_sha256") == raw
+                and entry.get("bounds") == list(bounds)
+                and entry.get("preparation_sha256", preparation) == preparation
+            ):
+                candidate_path = candidate.with_suffix(".nc")
+                if candidate_path.is_file():
+                    path, sidecar = candidate_path, candidate
+                    break
     if path.exists():
         if not sidecar.exists() or json.loads(sidecar.read_text())["sha256"] != sha256(
             path
@@ -206,7 +379,15 @@ def monthly_weather(items, bronze, cache, bounds, year, engine="netcdf4"):
         temporary = path.with_suffix(".part")
         weather.to_netcdf(temporary, engine=engine)
         temporary.replace(path)
-        manifest(sidecar, {"sha256": sha256(path), "raw_sha256": raw, "bounds": bounds})
+        manifest(
+            sidecar,
+            {
+                "sha256": sha256(path),
+                "raw_sha256": raw,
+                "bounds": bounds,
+                "preparation_sha256": preparation,
+            },
+        )
     expected = pd.date_range(
         f"{year}-{items[0]['month']:02d}-01",
         periods=calendar.monthrange(year, items[0]["month"])[1] * 24,
@@ -227,10 +408,16 @@ def gold_tables(annual, crosswalk, costs, settings, output):
         if (source["source_currency"], source["source_year"]) != ("USD", 2023):
             raise ValueError("Currency source must match ATB 2025 USD2023.")
         currency = conversion_basis(
-            source["source_currency"], source["source_year"],
-            source.get("source_scale", 1.0), config=source["economic_config"],
+            source["source_currency"],
+            source["source_year"],
+            source.get("source_scale", 1.0),
+            config=source["economic_config"],
         )
     cost_currency = currency["target_currency"]
+    if wind_mode(settings) == "selectable_t1_t2_t3" and not settings.get(
+        "capacity_limits", {}
+    ).get("enabled", False):
+        raise ValueError("Selectable wind Gold export requires shared capacity limits.")
     period, vintage = settings["model_period"], settings["vintage"]
     tables = {
         name: []
@@ -245,17 +432,26 @@ def gold_tables(annual, crosswalk, costs, settings, output):
             "cost_variable",
         ]
     }
+    assigned = wind_mode(settings) == "resource_assigned"
+    mixture = (
+        pd.read_csv(
+            output.parent / "wind_resource/regional_mix.csv", dtype={"region": str}
+        ).set_index("region")
+        if assigned
+        else None
+    )
     for _, tech in crosswalk.iterrows():
-        field = "wind_cf" if tech.tech == "WIND_GEN" else "solar_cf"
+        field = profile_field(tech.tech)
+        cost_tech = "WIND_GEN_T1" if assigned and tech.tech == "WIND_GEN" else tech.tech
         investment = float(
             costs.loc[
-                (costs.tech == tech.tech) & (costs.core_metric_parameter == "OCC"),
+                (costs.tech == cost_tech) & (costs.core_metric_parameter == "OCC"),
                 "value_per_MW",
             ].iloc[0]
         )
         fixed = float(
             costs.loc[
-                (costs.tech == tech.tech)
+                (costs.tech == cost_tech)
                 & (costs.core_metric_parameter == "Fixed O&M"),
                 "value_per_MW",
             ].iloc[0]
@@ -274,6 +470,26 @@ def gold_tables(annual, crosswalk, costs, settings, output):
             }
         )
         for region, row in annual.iterrows():
+            regional_investment, regional_fixed = investment, fixed
+            if assigned and tech.tech == "WIND_GEN":
+                fractions = mixture.loc[str(region)]
+                values = {}
+                for metric in ["OCC", "Fixed O&M"]:
+                    values[metric] = (
+                        sum(
+                            float(fractions[f"{design}_fraction"])
+                            * float(
+                                costs.loc[
+                                    (costs.tech == f"WIND_GEN_{design}")
+                                    & (costs.core_metric_parameter == metric),
+                                    "value_per_MW",
+                                ].iloc[0]
+                            )
+                            for design in DESIGNS
+                        )
+                        * currency["multiplier"]
+                    )
+                regional_investment, regional_fixed = values["OCC"], values["Fixed O&M"]
             base = {"region": str(region), "tech": tech.tech}
             tables["efficiency"].append(
                 {
@@ -304,7 +520,7 @@ def gold_tables(annual, crosswalk, costs, settings, output):
                 {
                     **base,
                     "vintage": vintage,
-                    "cost": investment,
+                    "cost": regional_investment,
                     "units": f"{cost_currency}/MW",
                 }
             )
@@ -313,7 +529,7 @@ def gold_tables(annual, crosswalk, costs, settings, output):
                     **base,
                     "period": period,
                     "vintage": vintage,
-                    "cost": fixed,
+                    "cost": regional_fixed,
                     "units": f"{cost_currency}/MW/year",
                 }
             )
@@ -332,6 +548,20 @@ def gold_tables(annual, crosswalk, costs, settings, output):
         capacity_input = find_project_root() / bounds_config["input_csv"]
         rows, audit = capacity_bounds(capacity_input, annual.index, period)
         tables["limit_capacity"] = rows
+        if wind_mode(settings) == "selectable_t1_t2_t3":
+            for row in tables["limit_capacity"]:
+                if row["tech_or_group"] == "WIND_GEN":
+                    row["tech_or_group"] = WIND_GROUP
+            tables["tech_group"] = [
+                dict(
+                    group_name=WIND_GROUP,
+                    notes="Shared total wind MW; common Palmer-Wilson density across selectable designs",
+                )
+            ]
+            tables["tech_group_member"] = [
+                dict(group_name=WIND_GROUP, tech=f"WIND_GEN_{design}")
+                for design in DESIGNS
+            ]
         audit.to_csv(output / "capacity_limit_audit.csv", index=False)
         print(
             f"Renewables: exported {len(rows)} explicit regional MW capacity bounds.",
@@ -355,6 +585,22 @@ def gold_tables(annual, crosswalk, costs, settings, output):
             },
             "cost_projection_year": settings["cost_projection_year"],
             "weather_year": settings["weather_year"],
+            "wind_representation": wind_mode(settings),
+            "atb_scenario": settings.get("atb_scenario", "Moderate"),
+            "wind_assignment_manifest_sha256": sha256(
+                output.parent / "wind_resource/manifest.json"
+            )
+            if assigned
+            else None,
+            "wind_assignment_basis": "Annual ERA5 at 110 m; fixed eligible-capacity fractions; below 5.9 m/s excluded"
+            if assigned
+            else None,
+            "wind_curve_source": package_identity(settings)
+            if wind_mode(settings) != "t1_only"
+            else {"representation": "T1 reference"},
+            "shared_wind_capacity_group": WIND_GROUP
+            if wind_mode(settings) == "selectable_t1_t2_t3"
+            else None,
             "merge_ready": False,
             "requirements": [
                 "Verify target costs share the declared CAD2020 dollar scale",
@@ -405,7 +651,7 @@ def resource_summary(annual, crosswalk, tables, settings, output):
     for _, tech in crosswalk.iterrows():
         life = float(tech.lifetime_years)
         recovery = 1 / life if rate == 0 else rate / (1 - (1 + rate) ** (-life))
-        field = "wind_cf" if tech.tech == "WIND_GEN" else "solar_cf"
+        field = profile_field(tech.tech)
         for region, cf in annual[field].items():
             ci = investment.loc[(str(region), tech.tech)]
             fo = fixed.loc[(str(region), tech.tech)]
@@ -430,7 +676,9 @@ def resource_summary(annual, crosswalk, tables, settings, output):
                     else np.nan,
                     "diagnostic_lcoe_units": ci.units.split("/")[0] + "/MWh",
                     "lcoe_discount_rate": rate,
-                    "potential_status": "not_estimated",
+                    "potential_status": "land_constrained_scenario"
+                    if "limit_capacity" in tables
+                    else "not_estimated",
                 }
             )
     result = pd.DataFrame(rows)
@@ -497,7 +745,7 @@ def validate_temoa_tables(tables, schema_path):
         }
 
 
-def preview(regions, annual, output, year):
+def preview(regions, annual, output, year, land_enabled=False):
     joined = regions.join(annual)
     joined.to_file(
         output / "annual_capacity_factors.gpkg",
@@ -505,9 +753,17 @@ def preview(regions, annual, output, year):
         driver="GPKG",
         index=False,
     )
-    fig, axes = plt.subplots(1, 2, figsize=(13, 8), constrained_layout=True)
+    profiles = (
+        [(f"wind_cf_{t.lower()}", f"Onshore wind {t}") for t in DESIGNS]
+        if "wind_cf_t1" in annual
+        else [("wind_cf", "Onshore wind")]
+    )
+    profiles += [("solar_cf", "Utility PV (AC)")]
+    fig, axes = plt.subplots(
+        1, len(profiles), figsize=(6.5 * len(profiles), 8), constrained_layout=True
+    )
     for axis, field, label in zip(
-        axes, ["wind_cf", "solar_cf"], ["Onshore wind", "Utility PV (AC)"]
+        axes, [p[0] for p in profiles], [p[1] for p in profiles]
     ):
         joined.plot(
             column=field,
@@ -521,10 +777,27 @@ def preview(regions, annual, output, year):
         axis.set_title(label)
         axis.set_axis_off()
     fig.suptitle(
-        f"{year} annual capacity factors | area-weighted resource baseline\nERA5 0.25° weather; no subgrid disaggregation or land eligibility"
+        f"{year} annual capacity factors | "
+        + (
+            "eligible-land area weighting"
+            if land_enabled
+            else "area-weighted resource baseline"
+        )
+        + "\nERA5 0.25° weather; no subgrid weather disaggregation"
     )
     fig.savefig(output / "annual_capacity_factors.png", dpi=160)
     plt.close(fig)
+
+
+def renewable_export_settings(settings, output):
+    from geocanoe.preprocessing import renewables_land as land
+
+    exported = land.export_settings(settings, output)
+    if wind_mode(settings) == "resource_assigned":
+        from geocanoe.preprocessing.wind_assignment import export_settings
+
+        exported = export_settings(exported, output)
+    return exported
 
 
 def refresh_parameter_exports(output, settings_path=None):
@@ -536,7 +809,16 @@ def refresh_parameter_exports(output, settings_path=None):
     )
     settings = tomllib.loads(settings_path.read_text())
     record = json.loads((output / "manifest.json").read_text())
+    from geocanoe.preprocessing import renewables_land as land
+
+    if record["sources"].get(
+        "land_exclusion", {"policy": {"enabled": False}}
+    ) != land.source_identity(settings, root):
+        raise ValueError("Land exclusion inputs changed; rerun Silver conversion.")
     bundle = root / settings["wind_resource_dir"]
+    design_hashes = package_identity(settings)
+    if record["sources"].get("wind_designs", design_hashes) != design_hashes:
+        raise ValueError("Wind design inputs changed; rerun Silver conversion.")
     if (
         record["weather_year"] != settings["weather_year"]
         or record["sources"]["curve"] != sha256(bundle / "T1_curve.csv")
@@ -562,7 +844,13 @@ def refresh_parameter_exports(output, settings_path=None):
         months, settings["weather_year"], settings.get("netcdf_engine", "netcdf4")
     )
     crosswalk, costs = select_costs(settings, root)
-    tables = gold_tables(annual, crosswalk, costs, settings, output / "temoa_inputs")
+    tables = gold_tables(
+        annual,
+        crosswalk,
+        costs,
+        renewable_export_settings(settings, output),
+        output / "temoa_inputs",
+    )
     resource_summary(annual, crosswalk, tables, settings, output)
     validation = validate_temoa_tables(
         tables, root.parent / "temoa/temoa/db_schema/temoa_schema_v4.sql"
@@ -592,7 +880,9 @@ def refresh_parameter_exports(output, settings_path=None):
     return output
 
 
-def run_renewables_build(config, *, settings_path=None, force=False):
+def run_renewables_build(
+    config, *, settings_path=None, force=False, land_preview_only=False
+):
     if not force and not getattr(config, "renewables_enabled", False):
         print(
             "Renewables: disabled in build profile; set [renewables].enabled=true.",
@@ -616,6 +906,11 @@ def run_renewables_build(config, *, settings_path=None, force=False):
     )
     settings = tomllib.loads(settings_path.read_text())
     engine = settings.get("netcdf_engine", "netcdf4")
+    from geocanoe.preprocessing import renewables_land as land
+
+    land_identity = land.source_identity(settings, root)
+    if land_preview_only and not land_identity["policy"]["enabled"]:
+        raise ValueError("Land preview requires land_exclusion.enabled=true.")
     if engine not in {"h5netcdf", "netcdf4"}:
         raise ValueError("netcdf_engine must be h5netcdf or netcdf4.")
     resolutions = config.basemaps.projected_resolutions_km
@@ -657,7 +952,10 @@ def run_renewables_build(config, *, settings_path=None, force=False):
         "specs": sha256(bundle / "T1_specs.yaml"),
         "physical": sha256(physical.__file__),
         "stage": sha256(__file__),
+        "wind_assignment": sha256(Path(__file__).with_name("wind_assignment.py")),
         "atb_audit": sha256(root / settings["atb_selection_manifest"]),
+        "land_exclusion": land_identity,
+        "wind_designs": package_identity(settings),
     }
     outputs = []
     for resolution in resolutions:
@@ -678,35 +976,75 @@ def run_renewables_build(config, *, settings_path=None, force=False):
         regions, borders = production_regions(
             basemap, root / settings["boundary_file"], provinces
         )
+        step = perf_counter()
+        print("Renewables: transforming production bounds to WGS84...", flush=True)
         xmin, ymin, xmax, ymax = regions.to_crs(4326).total_bounds
+        print(
+            f"Renewables: transformed bounds in {perf_counter() - step:.1f}s",
+            flush=True,
+        )
         bounds = [
             np.floor(xmin / 0.25) * 0.25 - 0.25,
             np.floor(ymin / 0.25) * 0.25 - 0.25,
             np.ceil(xmax / 0.25) * 0.25 + 0.25,
             np.ceil(ymax / 0.25) * 0.25 + 0.25,
         ]
+        step = perf_counter()
+        print("Renewables: hashing basemap and production geometry...", flush=True)
+        basemap_digest = sha256(basemap)
+        geometry_identity = [
+            (r, g.wkb_hex) for r, g in zip(regions.region, regions.geometry)
+        ]
+        print(
+            f"Renewables: geometry hashes prepared in {perf_counter() - step:.1f}s; hashing {len(plan)} ERA5 payloads...",
+            flush=True,
+        )
+        raw_identity = []
+        step = perf_counter()
+        for item in tqdm(
+            plan, desc="Renewables: hashing ERA5 identity", unit="payload"
+        ):
+            raw_identity.append(
+                (item["request_id"], sha256(bronze / f"{item['request_id']}.payload"))
+            )
+        print(
+            f"Renewables: ERA5 hashing completed in {perf_counter() - step:.1f}s",
+            flush=True,
+        )
         run_id = identity(
             {
                 "sources": identities,
-                "basemap": sha256(basemap),
-                "geometry": [
-                    (r, g.wkb_hex) for r, g in zip(regions.region, regions.geometry)
-                ],
-                "raw": [
-                    (i["request_id"], sha256(bronze / f"{i['request_id']}.payload"))
-                    for i in plan
-                ],
+                "basemap": basemap_digest,
+                "geometry": geometry_identity,
+                "raw": raw_identity,
             }
         )
         output = root / settings["output_dir"] / config.build_id / key / run_id
         output.mkdir(parents=True, exist_ok=True)
         monthly = []
+        land_weights = None
+        resource_assignment = None
+        assignment_written = False
+        if wind_mode(settings) == "resource_assigned" and not land_preview_only:
+            from geocanoe.preprocessing.wind_assignment import annual_assignment
+
+            def weather_month(month):
+                return monthly_weather(
+                    [i for i in plan if i["month"] == month],
+                    bronze,
+                    root / settings["weather_cache_dir"],
+                    bounds,
+                    settings["weather_year"],
+                    engine,
+                )
+
+            resource_assignment = annual_assignment(output, settings, weather_month)
         for month in tqdm(
             range(1, 13), desc=f"Renewables: {resolution:g} km", unit="month"
         ):
             dest = output / f"month_{month:02d}.nc"
             record = dest.with_suffix(".json")
-            if dest.exists():
+            if dest.exists() and not land_preview_only:
                 if not record.exists() or json.loads(record.read_text())[
                     "sha256"
                 ] != sha256(dest):
@@ -733,9 +1071,30 @@ def run_renewables_build(config, *, settings_path=None, force=False):
                 time=slice(weather.time.values[0], weather.time.values[-1]),
             )
             cutout.data = weather
+            if land_identity["policy"]["enabled"] and land_weights is None:
+                land_weights = land.build_land_weights(
+                    cutout, regions, settings, root, output, land_identity
+                )
+            if land_preview_only:
+                weather.close()
+                outputs.append(output / "land_exclusion")
+                break
+            if resource_assignment is not None and not assignment_written:
+                from geocanoe.preprocessing.wind_assignment import regional_mix
+
+                regional_mix(
+                    resource_assignment, land_weights["wind"], regions, settings, output
+                )
+                assignment_written = True
             result, coverage = physical.convert(
-                cutout, regions, bundle, settings["technology"]
+                cutout,
+                regions,
+                bundle,
+                settings["technology"],
+                land_weights=land_weights,
+                resource_assignment=resource_assignment,
             )
+            result.attrs["land_exclusion_identity"] = identity(land_identity)
             result.attrs["weather_year"] = settings["weather_year"]
             temporary = dest.with_suffix(".part")
             result.to_netcdf(
@@ -755,11 +1114,19 @@ def run_renewables_build(config, *, settings_path=None, force=False):
             result.close()
             weather.close()
             monthly.append(dest)
+        if land_preview_only:
+            continue
         hourly, annual = physical.annual_profiles(
             monthly, settings["weather_year"], engine
         )
         annual.to_csv(output / "annual_capacity_factors.csv")
-        preview(regions, annual, output, settings["weather_year"])
+        preview(
+            regions,
+            annual,
+            output,
+            settings["weather_year"],
+            land_identity["policy"]["enabled"],
+        )
         costs.to_csv(output / "atb_selected_rows.csv", index=False)
         crosswalk.to_csv(output / "technology_crosswalk.csv", index=False)
         crosswalk.attrs["atb_wind_mapping"].to_csv(
@@ -769,7 +1136,11 @@ def run_renewables_build(config, *, settings_path=None, force=False):
             output / "canoe_wind_class_mapping.csv", index=False
         )
         tables = gold_tables(
-            annual, crosswalk, costs, settings, output / "temoa_inputs"
+            annual,
+            crosswalk,
+            costs,
+            renewable_export_settings(settings, output),
+            output / "temoa_inputs",
         )
         resource_summary(annual, crosswalk, tables, settings, output)
         validation = validate_temoa_tables(
@@ -789,9 +1160,15 @@ def run_renewables_build(config, *, settings_path=None, force=False):
                 "weather_year": settings["weather_year"],
                 "annual_cf_ready": True,
                 "resource_representation": "one_option_per_region",
-                "wind_physical_baseline": "T1; no inferred turbine capacity fractions",
+                "wind_physical_baseline": (
+                    "Spatially assigned T1/T2/T3, eligible-capacity weighted; T4 resource excluded"
+                    if wind_mode(settings) == "resource_assigned"
+                    else wind_mode(settings)
+                ),
                 "gold_merge_ready": False,
-                "weighting": "uniform area within Census-clipped production polygons",
+                "weighting": "eligible area within production polygons"
+                if land_identity["policy"]["enabled"]
+                else "uniform area within Census-clipped production polygons",
                 "monthly_sha256": {p.name: sha256(p) for p in monthly},
             },
         )
@@ -813,9 +1190,20 @@ def run_renewables_build(config, *, settings_path=None, force=False):
 
 
 if __name__ == "__main__":
+    import logging
+    import warnings
+
+    logging.basicConfig(level=logging.INFO)
+    logging.captureWarnings(True)
+    warnings.simplefilter("default", DeprecationWarning)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, help="Shared geospatial build profile")
     parser.add_argument("--settings", type=Path)
+    parser.add_argument(
+        "--land-preview-only",
+        action="store_true",
+        help="Build exclusion maps and bounds, stopping before CF conversion or Gold export",
+    )
     parser.add_argument(
         "--refresh-output",
         type=Path,
@@ -829,6 +1217,7 @@ if __name__ == "__main__":
             load_geospatial_build_config(args.config),
             settings_path=args.settings,
             force=True,
+            land_preview_only=args.land_preview_only,
         )
     else:
         parser.error("Specify --config or --refresh-output")

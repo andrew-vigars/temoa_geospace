@@ -1,5 +1,6 @@
 # National renewable Silver build: all 13 provinces and territories.
-# Gold integration and land constraints remain disabled.
+# Land exclusions enabled; resource-assigned T1/T2/T3 wind and tracking PV use ATB Moderate costs.
+# Gold replacement remains disabled. Run scripts/build_silver.py with this profile.
 
 [profile]
 id = "canada-vre"

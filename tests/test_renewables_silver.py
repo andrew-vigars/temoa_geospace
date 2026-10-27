@@ -202,3 +202,43 @@ def test_coarse_overlap_aggregation_preserves_area_weighted_resource(tmp_path):
     assert coarse_cf[0] == pytest.approx(np.average(fine_cf, weights=areas))
     np.testing.assert_allclose(fine_coverage, 1.0)
     np.testing.assert_allclose(coarse_coverage, 1.0)
+
+
+@pytest.mark.parametrize("reuse", [True, False])
+def test_production_regions_reuses_only_matching_boundary(tmp_path, capsys, reuse):
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    basemap = tmp_path / "sample_basemap_25km_centroid.gpkg"
+    cells = gpd.GeoDataFrame(
+        {
+            "region": ["A", "B"],
+            "resolution_km": [25.0, 25.0],
+            "study_area": ["sample", "sample"],
+        },
+        geometry=[box(0, 0, 25000, 25000), box(25000, 0, 50000, 25000)],
+        crs=3347,
+    )
+    cells.to_file(basemap, layer="regions")
+    clipped = box(0, 0, 40000, 25000)
+    dissolved = gpd.GeoDataFrame(
+        {"study_area": ["sample"], "province_codes": ["ON" if reuse else "BC"]},
+        geometry=[clipped],
+        crs=3347,
+    )
+    dissolved.to_file(
+        tmp_path / "sample_boundary_epsg3347.gpkg", layer="study_area_boundary"
+    )
+    boundary = tmp_path / "census.gpkg"
+    if not reuse:
+        gpd.GeoDataFrame(
+            {"PRENAME": ["Ontario"]}, geometry=[clipped], crs=3347
+        ).to_file(boundary)
+    # A missing raw boundary proves that the matching dissolved product is reused.
+    regions, _ = stage.production_regions(basemap, boundary, ["ON"])
+    assert list(regions.region) == ["A", "B"]
+    np.testing.assert_allclose(regions.production_area_km2, [625.0, 375.0])
+    output = capsys.readouterr().out
+    assert ("reused dissolved boundary" in output) == reuse
+    assert "clipped 1/1" in output
+    assert "area/validity checks" in output

@@ -1,5 +1,188 @@
 # Renewable Silver and Gold representation
 
+## Manual national regeneration
+
+From the repository root, install optional dependencies and use the standard
+Silver entry point with the national profile. Omitting `--stages` runs the entire
+Silver workflow, including renewables. No task-specific regeneration runner is
+required. Gold replacement remains a separate operation.
+
+```powershell
+.venv\Scripts\python.exe -m pip install -e ".[renewables]"
+.venv\Scripts\python.exe scripts/build_silver.py --config config/build_profiles/canada_renewables.toml
+```
+
+Profile: `config/build_profiles/canada_renewables.toml`; settings:
+`config/renewables/canada.toml`. National settings use PV ILR 1.32 to match
+ATB 2025. Other PV-proxy and technology-year limitations documented below remain.
+For exclusion previews alone, the renewable module supports `--land-preview-only`
+as documented below. Inspect `land_exclusion/` in the printed run directory.
+The full workflow reuses validated exclusion/month caches under the same run
+identity. Changing inputs/settings/code creates a different run. Stopping during
+geometry preparation may require repeating that preparation, but does not remove
+older completed runs. Renewable outputs are under
+`data_files/processed/renewables/canada-vre/25km_centroid/<run-id>/`.
+The stage validates exported tables against the Temoa schema before selecting the
+run. For an additional independent audit, use
+`python scripts/validate_renewables_run.py <completed-run-directory>`; this writes
+`validation_report.json`. It is a reusable validator, not a temporary task runner.
+
+## Resource-assigned wind (national default)
+
+`config/renewables/canada.toml` now uses `wind_representation = "resource_assigned"`.
+The national workflow first derives annual mean wind speed at 110 m from the
+complete configured ERA5 year, using Atlite logarithmic extrapolation. This is a
+single-year resource proxy, not a long-term climatology or subgrid wind atlas.
+It then assigns native weather cells using the ATB 2025 design thresholds:
+T1 at >=7.10 m/s, T2 at >=6.53 and <7.10, T3 at >=5.90 and <6.53.
+Values exactly at a breakpoint use the higher-resource class. These are
+resource-speed thresholds, not IEC turbine safety classes. The mapping describes
+ATB future turbine designs (2035�2060); using their curves with the currently
+configured 2030 cost year remains a representative-technology assumption.
+
+Sources: https://atb.nlr.gov/electricity/2025/land-based_wind
+
+The explicit baseline `low_resource_policy = "exclude"` removes wind capacity
+below 5.90 m/s because T4 is not represented. This is a modelling restriction,
+not a land exclusion, legal prohibition or evidence that these sites are
+uneconomic. Omitted eligible area is reported separately; solar is unaffected.
+Supporting T4 or changing thresholds requires a reviewed adapter extension.
+
+For every model region, eligible area assigned to each design defines a fixed
+capacity fraction (the same MW/km� is assumed for each design). Hourly output
+uses the design assigned at each weather cell before eligible-area aggregation.
+CAPEX and fixed O&M use those same fractions and ATB Moderate costs. Gold emits
+one `WIND_GEN` option per region with a resource-adjusted MW cap. Regions with
+no represented wind have zero MW, zero CF and zero weighted wind costs.
+This fixed mix does not let the optimizer preferentially build its best subset.
+
+`wind_resource/` contains the annual mean-speed/design raster in `resource.nc`,
+regional mixture CSV/GPKG, a preview map, omitted low-resource area, adjusted
+capacity assumptions and checksummed manifests. The existing `land_exclusion/`
+products retain physical land eligibility before the resource restriction.
+Annual means are cached; monthly CFs retain their existing checkpoints.
+Prepared-weather cache keys now depend on preparation functions rather than
+unrelated conversion changes; source/bounds-identical legacy weather caches
+are reused with checksum and full-month temporal validation.
+
+To rerun only this layer after the running process has finished or been stopped:
+
+```powershell
+.venv\Scripts\python.exe scripts/build_silver.py --config config/build_profiles/canada_renewables.toml --stages renewables_atlite --reuse-existing-basemaps
+```
+
+Changing settings creates a new renewable run identity. The prior run remains
+available. No new national regeneration is launched as part of this change.
+
+## Selectable wind designs (optional fallback)
+
+The default `[technology].wind_representation="selectable_t1_t2_t3"` exports
+`WIND_GEN_T1`, `WIND_GEN_T2` and `WIND_GEN_T3` plus one `SOLAR_GEN` option per
+region, without resource clustering or additional bins. Set `t1_only` to retain
+the original `WIND_GEN` fallback. This supersedes older T1-only descriptions below.
+`atb_scenario="Moderate"` is explicit in the renewable TOML files, selected-row
+audits and Gold contract. Designs use CANOE's representative ATB classes 7/8/9.
+
+Install `pip install -e ".[renewables]"` to include `turbine-models==0.2.2`.
+The published package supplies CSV curves and specifications through `Turbines`;
+there is no adjacent repository or runtime network request. T1: 6 MW, 170 m rotor,
+115 m hub; T2: 8.3 MW, 196 m rotor, 130 m hub; T3: 3.3 MW, 148 m rotor, 100 m hub.
+Source power in kW is converted to MW and normalized to each design's rating.
+The same explicit endpoint shutdown and plant-loss assumptions apply to all.
+Metadata checks verify design tag, rating, rotor, hub height and finite curves.
+Package version and source-file SHA-256 hashes enter run/cache identity.
+
+Silver computes `wind_cf_t1/t2/t3` with each design's own curve/hub height and
+the same eligible-land weights. `wind_cf` remains a T1 diagnostic alias only;
+Gold and multi-design previews use the separate profiles. Solar remains single
+axis. Each wind option has matching ATB investment/fixed-O&M costs and efficiency
+1.0. There is no automatic ATB CF uplift on top of explicit physical curves.
+
+Gold defines `WIND_RESOURCE` through `tech_group`/`tech_group_member`; each
+region has one upper bound on the sum of all three wind capacities, plus its
+separate solar bound. This assumes the same Palmer-Wilson MW/km² density for
+all three wind designs. It does not model different spacing densities or joint
+wind/solar land competition. Unbounded multi-design bundles are rejected, and
+Gold verifies complete group membership before replacing encoded rows.
+
+Existing technology-year caveats remain: the configured cost projection is 2030,
+Gold vintage is 2025, and these reference wind designs are associated with ATB's
+2035 characterization. They are declared scenario inputs, not a fully matched
+dated plant specification. The earlier solar ILR/performance-proxy caveats also
+remain. No existing CF runs or production Gold database are rewritten by this change.
+
+## Land-exclusion implementation (current)
+
+The following supersedes the historical deferred-land status below. Renewable
+settings now enable `[land_exclusion]` by default. `enabled=false` retains the
+unmasked area-weighted CF baseline; external `[capacity_limits]` remains a separate
+opt-in input and cannot be enabled at the same time as generated land bounds.
+
+Baseline scenario: exclude NALCMS wetland (14), built-up (17) and water (18)
+for wind; additionally exclude cropland (15) for solar. NoData and unknown codes
+are excluded using an explicit 1–19 class whitelist. Legend references:
+https://www.cec.org/files/pulications/cec_nalcms-en_final.pdf and
+https://developers.google.com/earth-engine/datasets/catalog/USGS_NLCD_RELEASES_2020_REL_NALCMS.
+Protected land uses terrestrial/freshwater CPCAD status 1 by default; OECM and
+interim categories can be selected explicitly in `protected_status_codes`.
+Both technologies exclude existing wind and Canada-labelled solar footprints.
+
+Wind footprints group NRCan points by province and project name, take convex
+hulls in EPSG:3347 and buffer by a configurable 100 m. This is a scenario
+approximation, not a regulatory setback or cadastral boundary. Single turbines
+and linear projects retain nonzero footprints. Solar uses the supplied TZ-SAM
+polygons; original-source geometry is unchanged. Silver applies make-valid to
+protected/solar geometries and preserves the derived vectors for audit.
+
+Atlite 0.7.0 `ExclusionContainer` uses a configurable 100 m analysis raster;
+this is distinct from native 30 m land cover and 0.25-degree ERA5 weather.
+`availabilitymatrix` results are batched into sparse region/weather-cell km²
+weights. Wind and solar use independent weights. Regional bounds use those same
+eligible areas multiplied by 1000/368.3 MW/km² for wind and 1000/34.4 MW AC/km²
+for solar (Palmer-Wilson 2019 medians, including footprint and spacing). PV is
+restricted to horizontal single-axis tracking for this baseline. No joint land
+competition constraint is imposed between future wind and solar deployments.
+
+All-zero eligible regions retain their region IDs, zero capacity bounds and zero
+CFs; zero CF is a model placeholder for an unavailable investment option, not a
+physical resource estimate. Wind curves and solar AC clipping are still applied
+at weather-cell level before aggregation. Source hashes, policies, geometry,
+weather-grid identity and implementation hashes protect against cache mixing.
+Parameter-only refresh rejects changed land inputs and validates land outputs.
+
+Before CF conversion, `<run>/land_exclusion/` contains derived exclusion vectors,
+regional eligible-area/fraction GeoPackage, sparse weights, generated capacity
+assumptions and wind/solar previews. Each preview combines a regional summary
+with the actual applied raster mask for the first region. Maps are scenario
+eligibility diagnostics, not a comprehensive regulatory compliance assessment.
+
+To review exclusion products before recalculating CFs:
+
+```powershell
+python -m geocanoe.preprocessing.renewables --config config/build_profiles/sample_renewables.toml --land-preview-only
+```
+
+This prepares/reuses the first month's weather grid to align masks, then stops
+before physical conversion, Gold export or changing the selected CF-run pointer.
+Omit `--land-preview-only` to build the new hourly/annual CF bundle and MW bounds.
+Prepared weather can be reused; prior CF caches are not overwritten. This is
+part of `renewables_atlite`, not an independently registered Silver stage.
+
+GEBCO is not acquired or used. The baseline does not use ERA5 geopotential height
+to decide land eligibility and has no elevation, slope or offshore-depth rule.
+Atlite recommends GEBCO when accurate heights/bathymetry are required:
+https://atlite.readthedocs.io/en/master/examples/using_gebco_heightmap.html.
+Adding such rules requires a separately reviewed Bronze source. GEBCO surface
+elevation is not turbine hub height. The standalone renewable CLI enables INFO
+logging, captures warnings and retains deprecation warnings, following Atlite's
+logging example. GeoPandas plots projected shapes; Atlite plots applied masks.
+
+Validation: synthetic Atlite raster exclusion, independent technology weighting,
+zero-area behavior, wind-project grouping and PV clipping tests pass. A real
+two-region southern Ontario mask pilot produced approximately 782.75 km² wind
+and 34.40 km² solar eligible area in total. This is not a national CF rebuild,
+empirical generation calibration or completed production Gold solve.
+
 ## Configuration and execution
 
 `src/geocanoe/preprocessing/renewables.py` registers Silver stage
@@ -254,3 +437,70 @@ Notebook source files and their helpers remain in `notebooks/`. Retired
 notebook-only external pilot configs, output copies, documentation and tests
 were removed. Production registry resources, Bronze caches, and Silver tests
 remain. Generated data and preview images are local outputs, not commit inputs.
+
+
+### Native-mask area accounting and recovery
+
+Land weights integrate Atlite `ExclusionContainer.compute_shape_availability` masks
+in EPSG:3347 at the configured raster resolution. Boundary pixels are intersected
+with the production polygon; their area is assigned to the weather cell containing
+the pixel centre. This preserves eligible area while approximating weather-cell
+allocation at the exclusion raster resolution. It avoids multiplying GDAL-averaged
+availability fractions by whole projected weather-cell areas, which was inaccurate
+for small model regions. The raster classification itself remains a raster-scale
+approximation; it is not a parcel survey.
+
+Completed batches are saved atomically under `land_exclusion/batches/<identity>/`
+with checksums. Re-running the same stage resumes those batches. Changed source,
+policy, implementation, region or weather-grid identities do not reuse old batches.
+Every newly computed region is checked before its batch is committed, with its
+region identifier and area in any error. Existing prepared weather caches remain
+usable. Resume the canonical workflow with `--stages renewables_atlite --reuse-existing-basemaps`; do not
+remove the successful upstream Silver products.
+
+Reference: https://atlite.readthedocs.io/en/master/examples/landuse-availability.html
+
+
+For a new CLI process, stage completion state is in memory only. Renewables-only
+recovery therefore requires `--reuse-existing-basemaps` together with
+`--stages renewables_atlite`. This validates the existing region layer's study
+area, province list, projected CRS, resolution, retention policy, geometry and
+unique region identifiers before satisfying the basemap dependency. It does not
+rebuild the basemaps. Add `--validate-only` to check this resume path without
+starting the renewable calculations.
+
+
+### Production polygon preparation
+
+Renewables reuses the sibling `<study_area>_boundary_epsg3347.gpkg` dissolved
+boundary when its study-area label and province set match the requested build.
+The reused layer must contain one valid nonempty EPSG:3347 geometry. Subsets or
+missing/mismatched products fall back to selected Census boundaries and a union.
+Centroid selection and full-cell coverage checks use vectorized prepared geometry
+predicates. Only coastal/border cells are intersected, in batches of 64, with
+progress and elapsed times. Loading, boundary preparation, selection, clipping,
+area validation, WGS84 bounds conversion and source hashing each report progress.
+These changes apply on the next process launch; a running process retains its
+loaded implementation.
+
+
+### Shared wind/solar eligibility pass
+
+Land eligibility now processes both technologies together. For each region,
+Atlite evaluates the common protected-area and existing-facility exclusions once;
+its `projected_mask` reads/reprojects categorical land cover once onto that same
+native raster. Separate whitelist filters then apply each technology's configured
+excluded codes, including solar-only cropland in the baseline. Unknown codes and
+NoData remain excluded. Native pixel geometry, production-boundary intersections,
+and weather-cell assignments are calculated once for the union of eligible
+pixels, then reused for independent wind and solar area weights. This supports
+non-nested configured code sets as well as the baseline solar subset.
+
+Shared checkpoints store two NPZ files per batch and commit a checksum manifest
+only after both are complete. A batch without the pair manifest is recomputed;
+missing/corrupted committed files fail validation. Batch messages report elapsed
+time and progress for both technologies. Output filenames, per-technology maps,
+capacity assumptions, and the separate low-wind resource restriction are retained.
+The implementation fingerprint changes the renewable run identity: old runs and
+checkpoints remain available, but are not automatically imported into the new
+shared-pass run. A currently running process retains its loaded implementation.

@@ -220,3 +220,50 @@ def test_workflow_definition_rejects_missing_script(tmp_path: Path) -> None:
 
     with pytest.raises(FileNotFoundError, match="missing.py"):
         validate_workflow_definition(definition)
+
+
+def test_existing_renewable_basemaps_validate_profile_and_geometry(tmp_path):
+    import geopandas as gpd
+    from shapely.geometry import box
+    from geocanoe.execution.silver import validate_existing_renewable_basemaps
+
+    config = SimpleNamespace(
+        study_area=SimpleNamespace(label="sample", provinces=["ON"]),
+        basemaps=SimpleNamespace(
+            geographic_resolutions_deg=[],
+            projected_resolutions_km=[25],
+            keep_method="centroid",
+        ),
+    )
+    path = tmp_path / "sample_basemap_25km_centroid.gpkg"
+    frame = gpd.GeoDataFrame(
+        {
+            "region": ["R0"],
+            "study_area": ["sample"],
+            "province_codes": ["ON"],
+            "grid_type": ["projected"],
+            "keep_method": ["centroid"],
+            "resolution_km": [25],
+        },
+        geometry=[box(0, 0, 25000, 25000)],
+        crs=3347,
+    )
+    frame.to_file(path, layer="regions")
+    assert validate_existing_renewable_basemaps(config, tmp_path) == [path]
+    config.study_area.provinces = ["BC"]
+    with pytest.raises(ValueError, match="province_codes"):
+        validate_existing_renewable_basemaps(config, tmp_path)
+    config.study_area.provinces = ["ON"]
+    frame["region"] = None
+    frame.to_file(path, layer="regions")
+    with pytest.raises(ValueError, match="regions/resolution"):
+        validate_existing_renewable_basemaps(config, tmp_path)
+
+
+def test_resume_option_is_explicit():
+    from geocanoe.execution.silver import parse_args
+
+    assert not parse_args([]).reuse_existing_basemaps
+    assert parse_args(
+        ["--stages", "renewables_atlite", "--reuse-existing-basemaps"]
+    ).reuse_existing_basemaps

@@ -359,7 +359,11 @@ EXTERNAL_INPUT_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "pipeline_edge_impedance": (),
     "roads": ("raw provincial and territorial NRN GeoPackages",),
     "road_connectivity": (),
-    "renewables_atlite": ("verified ERA5 national Bronze", "ATB selected source and subset", "renewable technology crosswalk and physical resources"),
+    "renewables_atlite": (
+        "verified ERA5 national Bronze",
+        "ATB selected source and subset",
+        "renewable technology crosswalk and physical resources",
+    ),
 }
 
 
@@ -557,7 +561,11 @@ def build_stage_executors(
             pass_config=False,
         ),
         "renewables_atlite": FunctionExecutor(
-            require_stage_callable(stage_modules["renewables_atlite"], "run_renewables_build", "renewables_atlite")
+            require_stage_callable(
+                stage_modules["renewables_atlite"],
+                "run_renewables_build",
+                "renewables_atlite",
+            )
         ),
         "basemaps": FunctionExecutor(
             require_stage_callable(
@@ -721,13 +729,11 @@ def validate_workflow_definition(
     )
     if unknown_dependencies:
         errors.append(
-            "The dependency graph references unknown stages: "
-            f"{unknown_dependencies}"
+            f"The dependency graph references unknown stages: {unknown_dependencies}"
         )
 
     positions = {
-        stage_name: index
-        for index, stage_name in enumerate(definition.stage_order)
+        stage_name: index for index, stage_name in enumerate(definition.stage_order)
     }
     invalid_order = [
         (stage_name, dependency)
@@ -749,7 +755,9 @@ def validate_workflow_definition(
         )
 
     if errors:
-        raise ValueError("Invalid silver workflow definition:\n  - " + "\n  - ".join(errors))
+        raise ValueError(
+            "Invalid silver workflow definition:\n  - " + "\n  - ".join(errors)
+        )
 
     for stage_name, executor in definition.executors.items():
         if isinstance(executor, FunctionExecutor):
@@ -798,13 +806,9 @@ def print_workflow_summary(definition: SilverWorkflowDefinition) -> None:
         print(f"\n{index:>2}. {stage_name}")
         print(f"    Execution method:    {executor.method}")
         print(f"    Execution target:    {execution_target}")
+        print("    Silver dependencies: " + (", ".join(stage_dependencies) or "none"))
         print(
-            "    Silver dependencies: "
-            + (", ".join(stage_dependencies) or "none")
-        )
-        print(
-            "    External inputs:     "
-            + (", ".join(external_dependencies) or "none")
+            "    External inputs:     " + (", ".join(external_dependencies) or "none")
         )
 
     function_count = sum(
@@ -1069,17 +1073,13 @@ def validate_external_inputs(
             checks,
             stage_name="hydrography",
             input_name="registered Bronze NHN GeoPackage",
-            path=source_registry.resolve_bronze_path(
-                config.hydrography.source_id
-            ),
+            path=source_registry.resolve_bronze_path(config.hydrography.source_id),
         )
         check_required_file(
             checks,
             stage_name="hydrography",
             input_name="registered NHN metadata XML",
-            path=source_registry.resolve_metadata_path(
-                config.hydrography.source_id
-            ),
+            path=source_registry.resolve_metadata_path(config.hydrography.source_id),
         )
         check_required_file(
             checks,
@@ -1138,9 +1138,7 @@ def validate_external_inputs(
             checks,
             stage_name="aboriginal_lands",
             input_name="registered Aboriginal Lands acquisition manifest",
-            path=source_registry.resolve_acquisition_manifest_path(
-                penalty.source_id
-            ),
+            path=source_registry.resolve_acquisition_manifest_path(penalty.source_id),
         )
         check_required_file(
             checks,
@@ -1441,8 +1439,7 @@ def validate_requested_stages(
     positions = [canonical_order.index(stage) for stage in selected]
     if positions != sorted(positions):
         raise ValueError(
-            "Requested stages must follow the canonical silver-stage order: "
-            f"{selected}"
+            f"Requested stages must follow the canonical silver-stage order: {selected}"
         )
 
     return selected
@@ -1534,9 +1531,7 @@ def run_silver_workflow(
             print(f"Failed stage:   {stage_name}")
             print(f"Exception type: {type(exc).__name__}")
             print(f"Exception:      {exc}")
-            print(
-                f"Total elapsed:  {perf_counter() - workflow_start:,.2f} seconds"
-            )
+            print(f"Total elapsed:  {perf_counter() - workflow_start:,.2f} seconds")
             raise
 
         state.history.append(
@@ -1550,10 +1545,7 @@ def run_silver_workflow(
         )
 
     print_header("Silver-layer workflow completed")
-    print(
-        f"Completed stages: {len(state.completed_stages):,}/"
-        f"{len(selected_stages):,}"
-    )
+    print(f"Completed stages: {len(state.completed_stages):,}/{len(selected_stages):,}")
     print(f"Total elapsed:    {perf_counter() - workflow_start:,.2f} seconds")
     print_stage_timing(state.history)
 
@@ -1627,7 +1619,9 @@ def verify_silver_build(
     expected = set(expected_stages)
     missing_completed = sorted(expected - state.completed_stages)
     missing_results = sorted(expected - set(state.stage_results))
-    failed_records = [record for record in state.history if record["status"] != "completed"]
+    failed_records = [
+        record for record in state.history if record["status"] != "completed"
+    ]
 
     history_stage_counts = {
         stage: sum(record["stage"] == stage for record in state.history)
@@ -1739,7 +1733,9 @@ def verify_silver_build(
         errors.append(f"No files were found under {processed_root}")
 
     if errors:
-        raise RuntimeError("Silver build verification failed:\n  - " + "\n  - ".join(errors))
+        raise RuntimeError(
+            "Silver build verification failed:\n  - " + "\n  - ".join(errors)
+        )
 
     print("\nSilver build verification passed.")
 
@@ -1758,6 +1754,62 @@ def default_config_path() -> Path:
         CONFIG_DIR / "build_profiles" / "provinces_only.toml",
     )
     return next((path for path in candidates if path.is_file()), candidates[0])
+
+
+def validate_existing_renewable_basemaps(config, directory=None):
+    """Validate persisted basemap inputs for an explicit renewables-only resume."""
+    import geopandas as gpd
+    import numpy as np
+    from geocanoe.geospatial.basemaps import basemap_key
+
+    directory = (
+        Path(directory)
+        if directory is not None
+        else DATA_FILES / "processed" / "basemaps"
+    )
+    if (
+        config.basemaps.geographic_resolutions_deg
+        or not config.basemaps.projected_resolutions_km
+    ):
+        raise ValueError("Renewables resume requires projected basemap resolutions.")
+    validated = []
+    for resolution in config.basemaps.projected_resolutions_km:
+        key = basemap_key(
+            grid_type="projected",
+            resolution=float(resolution),
+            keep_method=config.basemaps.keep_method,
+        )
+        path = directory / f"{config.study_area.label}_basemap_{key}.gpkg"
+        frame = gpd.read_file(path, layer="regions")
+        expected = {
+            "study_area": config.study_area.label,
+            "province_codes": ",".join(config.study_area.provinces),
+            "grid_type": "projected",
+            "keep_method": config.basemaps.keep_method,
+        }
+        if frame.empty or frame.crs is None or frame.crs.to_epsg() != 3347:
+            raise ValueError(f"Invalid persisted renewable basemap: {path}")
+        for column, value in expected.items():
+            if column not in frame or not frame[column].eq(value).all():
+                raise ValueError(
+                    f"Persisted basemap {column} does not match build profile: {path}"
+                )
+        if (
+            "resolution_km" not in frame
+            or not np.allclose(frame.resolution_km, resolution)
+            or "region" not in frame
+            or frame.region.isna().any()
+            or frame.region.duplicated().any()
+            or frame.geometry.isna().any()
+            or frame.geometry.is_empty.any()
+            or not frame.geometry.is_valid.all()
+        ):
+            raise ValueError(
+                f"Invalid persisted renewable basemap regions/resolution: {path}"
+            )
+        print(f"Validated existing basemap: {path} ({len(frame):,} regions)")
+        validated.append(path)
+    return validated
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -1785,6 +1837,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "Ordered subset of Silver stages to run. Omit to execute the "
             "complete workflow."
         ),
+    )
+    parser.add_argument(
+        "--reuse-existing-basemaps",
+        action="store_true",
+        help="For --stages renewables_atlite only: validate and reuse existing basemaps from this profile.",
     )
     parser.add_argument(
         "--validate-only",
@@ -1826,17 +1883,28 @@ def main(argv: Sequence[str] | None = None) -> None:
     print_workflow_summary(definition)
     validate_external_inputs(build_config, stage_modules)
 
+    selected_stages = tuple(args.stages) if args.stages else definition.stage_order
+    if args.reuse_existing_basemaps:
+        if selected_stages != ("renewables_atlite",):
+            raise ValueError(
+                "--reuse-existing-basemaps requires --stages renewables_atlite only."
+            )
+        validate_existing_renewable_basemaps(build_config)
+
     if args.validate_only:
         print("\nSilver workflow validation passed. No stages were executed.")
         return
 
     selected_stages = tuple(args.stages) if args.stages else definition.stage_order
     state = SilverWorkflowState.empty()
+    if args.reuse_existing_basemaps:
+        state.completed_stages.add("basemaps")
     run_silver_workflow(
         config=build_config,
         definition=definition,
         state=state,
         stages=selected_stages,
+        reset_state=False,
     )
     verify_silver_build(
         config=build_config,

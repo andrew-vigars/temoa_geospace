@@ -1,6 +1,6 @@
 # Build profile controls study area and projected basemap resolutions (>=25 km).
 netcdf_engine = "netcdf4"
-# One WIND_GEN and one SOLAR_GEN option per region; no within-region bins.
+# Three selectable wind designs and one tracking-PV option per region; no resource bins.
 resource_representation = "one_option_per_region"
 weather_year = 2018
 months = [1,2,3,4,5,6,7,8,9,10,11,12]
@@ -15,6 +15,7 @@ wind_resource_dir = "registry/renewables/resources"
 atb_subset = "data_files/processed/atb/2025/v1.0.0/renewable_families/technology_families.csv"
 atb_selection_manifest = "data_files/processed/atb/2025/v1.0.0/renewable_families/selection_manifest.json"
 cost_projection_year = 2030
+atb_scenario = "Moderate"
 lcoe_discount_rate = 0.03 # Ranking diagnostic only; not an additional Gold cost.
 model_period = 2025
 vintage = 2025
@@ -24,8 +25,9 @@ source_currency_year = 2023
 # Preserve native ATB costs and export Gold costs in CAD2020 dollars/MW.
 # Land eligibility, deployment density and maximum build capacity are not inferred.
 [technology]
+wind_representation = "resource_assigned"
 wind_plant_loss = 0.134
-pv_ilr = 1.34
+pv_ilr = 1.32 # ATB 2025 utility PV representative inverter loading ratio.
 inverter_efficiency = 0.96
 pv_additional_loss = 0.0
 pv_panel = "CSi"
@@ -52,5 +54,27 @@ T3 = 9
 enabled = false
 input_csv = "registry/renewables/regional_capacity_assumptions.csv"
 
+[land_exclusion]
+enabled = true
+resolution_m = 100
+wind_buffer_m = 100.0
+protected_status_codes = [1]
+wind_excluded_codes = [14, 17, 18]
+solar_excluded_codes = [14, 15, 17, 18]
+wind_land_km2_per_gw = 368.3
+solar_land_km2_per_gw = 34.4
+batch_size = 8
+
 [previews]
 monthly = true # Diagnostic PNG gallery and within-month hourly statistics.
+
+# Fixed design assignment from annual ERA5 wind at 110 m. Single-year proxy.
+# resource_assigned / selectable_t1_t2_t3 / t1_only are supported modes.
+[wind_assignment]
+atb_edition = 2025
+reference_height_m = 110
+t1_min_ms = 7.10
+t2_min_ms = 6.53
+t3_min_ms = 5.90
+# T4 is not represented: report and exclude its potential instead of assigning T3.
+low_resource_policy = "exclude"

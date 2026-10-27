@@ -28,8 +28,13 @@ def month_statistics(ds):
     if not (np.diff(time.values) == np.timedelta64(1, "h")).all():
         raise ValueError("Preview requires continuous hourly data.")
     rows = []
-    means = ds.mean("time").to_dataframe()[["wind_cf", "solar_cf"]]
-    for field, tech in [("wind_cf", "WIND_GEN"), ("solar_cf", "SOLAR_GEN")]:
+    means = ds.mean("time").to_dataframe()[list(ds.data_vars)]
+    profiles = (
+        [(f"wind_cf_{t.lower()}", f"WIND_GEN_{t}") for t in ("T1", "T2", "T3")]
+        if "wind_cf_t1" in ds
+        else [("wind_cf", "WIND_GEN")]
+    )
+    for field, tech in profiles + [("solar_cf", "SOLAR_GEN")]:
         data = ds[field].transpose("region", "time").values
         summary = pd.DataFrame(
             {
@@ -49,13 +54,21 @@ def month_statistics(ds):
     return means, pd.concat(rows, ignore_index=True)
 
 
-def plot_maps(regions, means, path, title):
+def plot_maps(regions, means, path, title, land_enabled=False):
     joined = regions.join(means)
     if joined[["wind_cf", "solar_cf"]].isna().any().any():
         raise ValueError("Preview geometry does not match profile region IDs.")
-    fig, axes = plt.subplots(1, 2, figsize=(14, 9), constrained_layout=True)
+    profiles = (
+        [(f"wind_cf_{t.lower()}", f"Onshore wind {t}") for t in ("T1", "T2", "T3")]
+        if "wind_cf_t1" in means
+        else [("wind_cf", "Onshore wind")]
+    )
+    profiles += [("solar_cf", "Utility PV (AC)")]
+    fig, axes = plt.subplots(
+        1, len(profiles), figsize=(7 * len(profiles), 9), constrained_layout=True
+    )
     for axis, field, label in zip(
-        axes, ["wind_cf", "solar_cf"], ["Onshore wind", "Utility PV (AC)"]
+        axes, [p[0] for p in profiles], [p[1] for p in profiles]
     ):
         joined.plot(
             column=field,
@@ -71,7 +84,12 @@ def plot_maps(regions, means, path, title):
         axis.set_axis_off()
     fig.suptitle(
         title
-        + "\nArea-weighted resource baseline; fixed CF scale 0–1; no land eligibility"
+        + (
+            "\nEligible-land area weighting"
+            if land_enabled
+            else "\nArea-weighted resource baseline; no land eligibility"
+        )
+        + "; fixed CF scale 0–1"
     )
     fig.savefig(path, dpi=160)
     plt.close(fig)
@@ -89,14 +107,22 @@ def build_previews(output, preview_root=None, engine="netcdf4"):
         output / "annual_capacity_factors.gpkg", layer="capacity_factors"
     )
     regions = regions.set_index("region", drop=False)
-    regions = regions.drop(columns=["wind_cf", "solar_cf"])
+    regions = regions.drop(
+        columns=[c for c in regions if c.startswith("wind_cf") or c == "solar_cf"]
+    )
     annual = pd.read_csv(output / "annual_capacity_factors.csv", index_col=0)
-    print(f"Renewables: rendering annual preview for {len(annual):,} regions.", flush=True)
+    print(
+        f"Renewables: rendering annual preview for {len(annual):,} regions.", flush=True
+    )
     plot_maps(
         regions,
         annual,
         destination / "annual_capacity_factors.png",
         f"{record['weather_year']} annual mean capacity factors",
+        record.get("sources", {})
+        .get("land_exclusion", {})
+        .get("policy", {})
+        .get("enabled", False),
     )
     summaries = []
     weighted = annual * 0
@@ -124,6 +150,10 @@ def build_previews(output, preview_root=None, engine="netcdf4"):
             means,
             destination / f"month_{month:02d}_capacity_factors.png",
             f"{record['weather_year']}-{month:02d} monthly mean capacity factors (UTC)",
+            record.get("sources", {})
+            .get("land_exclusion", {})
+            .get("policy", {})
+            .get("enabled", False),
         )
     if not np.allclose(weighted / total_hours, annual, rtol=1e-10, atol=1e-12):
         raise ValueError("Hour-weighted monthly means do not reproduce annual CFs.")

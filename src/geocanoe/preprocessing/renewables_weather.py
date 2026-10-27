@@ -96,27 +96,48 @@ def aggregation_matrix(cutout, regions):
 
 
 def t1_config(bundle):
-    import yaml
+    return turbine_config(bundle, "T1")
 
-    curve = pd.read_csv(Path(bundle) / "T1_curve.csv")
-    specs = yaml.safe_load((Path(bundle) / "T1_specs.yaml").read_text())
+
+def turbine_config(bundle, design):
+    from geocanoe.preprocessing.wind_options import DESIGNS
+    from geocanoe.preprocessing.wind_options import model_name
+    from turbine_models import Turbines
+
+    expected = DESIGNS[design]
+    library = Turbines()
+    curve = library.table(model_name(design), group="onshore")
+    specs = library.specs(model_name(design), group="onshore")
     if (specs["turbine_class"], specs["rated_power"], specs["hub_height"]) != (
-        "T1",
-        6000,
-        115,
+        design,
+        expected["rated_kw"],
+        expected["hub_m"],
     ):
-        raise ValueError("Expected class-tagged T1 6 MW / 115 m metadata.")
-    speeds = curve["Wind Speed [m/s]"].to_numpy(float)
-    power = curve["Power [kW]"].to_numpy(float) / 1000
+        raise ValueError(f"Unexpected {design} turbine metadata.")
+    if specs["rotor_diameter"] != expected["rotor_m"]:
+        raise ValueError(f"Unexpected {design} rotor diameter.")
+    speeds = curve["wind_speed_ms"].to_numpy(float)
+    power = curve["power_kw"].to_numpy(float) / 1000
+    rating = expected["rated_kw"] / 1000
+    if (
+        not np.isfinite(speeds).all()
+        or not np.isfinite(power).all()
+        or (np.diff(speeds) <= 0).any()
+        or (power < 0).any()
+        or power.max() > rating * 1.01
+    ):
+        raise ValueError(f"Invalid {design} power curve.")
     return {
         "V": np.r_[speeds, speeds[-1]],
-        "POW": np.r_[np.minimum(power, 6), 0],
-        "P": 6.0,
-        "hub_height": 115.0,
+        "POW": np.r_[np.minimum(power, rating), 0],
+        "P": rating,
+        "hub_height": float(expected["hub_m"]),
     }
 
 
-def convert(cutout, regions, bundle, config):
+def convert(
+    cutout, regions, bundle, config, land_weights=None, resource_assignment=None
+):
     from atlite.resource import get_solarpanelconfig
 
     for key in ["wind_plant_loss", "pv_additional_loss"]:
@@ -143,6 +164,9 @@ def convert(cutout, regions, bundle, config):
         aggregate_time=None,
         dask_kwargs={"scheduler": "single-threaded"},
     )
+    if land_weights is not None:
+        # Compute weather-cell CFs first, then use independent technology masks.
+        common = dict(aggregate_time=None, dask_kwargs={"scheduler": "single-threaded"})
     wind = cutout.wind(
         turbine=t1_config(bundle),
         add_cutout_windspeed=False,
@@ -168,7 +192,14 @@ def convert(cutout, regions, bundle, config):
         * config["inverter_efficiency"]
         * (1 - config["pv_additional_loss"])
     ).clip(max=1)
-    weights = matrix.multiply(layout.values.ravel())
+    wind_cell = wind
+    if land_weights is not None:
+        wind = weighted_profile(wind, land_weights["wind"], regions.region.to_numpy())
+    weights = (
+        land_weights["solar"]
+        if land_weights is not None
+        else matrix.multiply(layout.values.ravel())
+    )
     denominator = np.asarray(weights.sum(axis=1)).ravel()
     solar = (
         weights
@@ -177,22 +208,103 @@ def convert(cutout, regions, bundle, config):
         .T
     )
     solar = xr.DataArray(
-        solar / denominator[:, None],
+        np.divide(
+            solar,
+            denominator[:, None],
+            out=np.zeros_like(solar),
+            where=denominator[:, None] > 0,
+        ),
         dims=("region", "time"),
         coords={"region": regions.region.to_numpy(), "time": solar_cell.time},
     )
     result = xr.Dataset(
         {"wind_cf": wind * (1 - config["wind_plant_loss"]), "solar_cf": solar}
     )
+    if config.get("wind_representation", "t1_only") == "selectable_t1_t2_t3":
+        from geocanoe.preprocessing.wind_options import DESIGNS
+
+        for design in DESIGNS:
+            if design == "T1":
+                profile = wind
+            else:
+                profile = cutout.wind(
+                    turbine=turbine_config(bundle, design),
+                    add_cutout_windspeed=False,
+                    interpolation_method="logarithmic",
+                    **common,
+                )
+                if land_weights is not None:
+                    profile = weighted_profile(
+                        profile, land_weights["wind"], regions.region.to_numpy()
+                    )
+            result[f"wind_cf_{design.lower()}"] = profile * (
+                1 - config["wind_plant_loss"]
+            )
+        result.attrs["wind_cf_alias"] = (
+            "T1 diagnostic only; Gold uses design-specific profiles"
+        )
+    if config.get("wind_representation") == "resource_assigned":
+        if land_weights is None or resource_assignment is None:
+            raise ValueError(
+                "Resource-assigned wind requires land weights and an annual resource assignment."
+            )
+        xr.align(
+            wind_cell.isel(time=0, drop=True), resource_assignment.design, join="exact"
+        )
+        design = resource_assignment.design.transpose("y", "x").values.ravel()
+        weights = land_weights["wind"].multiply(design > 0).tocsr()
+        composite = xr.zeros_like(wind_cell)
+        for number, label in [(1, "T1"), (2, "T2"), (3, "T3")]:
+            cell = (
+                wind_cell
+                if number == 1
+                else cutout.wind(
+                    turbine=turbine_config(bundle, label),
+                    add_cutout_windspeed=False,
+                    interpolation_method="logarithmic",
+                    **common,
+                )
+            )
+            composite = composite + cell.where(resource_assignment.design == number, 0)
+        result["wind_cf"] = weighted_profile(
+            composite, weights, regions.region.to_numpy()
+        ) * (1 - config["wind_plant_loss"])
+        result.attrs["wind_representation"] = (
+            "Fixed spatial design assignment; eligible-capacity weighted"
+        )
     values = result.to_array().values
     if not np.isfinite(values).all() or values.min() < 0 or values.max() > 1 + 1e-8:
         raise ValueError("Invalid converted capacity factors.")
     result.attrs.update(
         timezone="UTC",
-        spatial_weighting="Native Atlite overlap, equal-area uniform capacity density; no eligibility masks",
+        spatial_weighting=(
+            "Atlite eligible land area, technology-specific weights"
+            if land_weights is not None
+            else "Native Atlite overlap, equal-area uniform capacity density; no eligibility masks"
+        ),
         configuration=json.dumps(config, sort_keys=True),
     )
     return result, coverage
+
+
+def weighted_profile(cell_cf, weights, region_ids):
+    """Apply sparse eligible-area weights; excluded regions have zero CF and MW."""
+    denominator = np.asarray(weights.sum(axis=1)).ravel()
+    values = (
+        weights
+        @ cell_cf.transpose("time", "y", "x").values.reshape(len(cell_cf.time), -1).T
+    )
+    averaged = np.divide(
+        values,
+        denominator[:, None],
+        out=np.zeros_like(values),
+        where=denominator[:, None] > 0,
+    )
+    return xr.DataArray(
+        averaged,
+        dims=("region", "time"),
+        coords={"region": region_ids, "time": cell_cf.time},
+    )
 
 
 def annual_profiles(paths, year, engine="netcdf4"):
@@ -211,4 +323,4 @@ def annual_profiles(paths, year, engine="netcdf4"):
         )
     if not np.isfinite(ds.to_array().values).all():
         raise ValueError("Missing capacity factors cannot be silently averaged.")
-    return ds, ds.mean("time", skipna=False).to_dataframe()[["wind_cf", "solar_cf"]]
+    return ds, ds.mean("time", skipna=False).to_dataframe()[list(ds.data_vars)]

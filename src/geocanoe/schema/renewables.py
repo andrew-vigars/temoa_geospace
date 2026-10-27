@@ -14,12 +14,16 @@ from geocanoe.geospatial.basemaps import basemap_key
 from geocanoe.paths import find_project_root
 
 RENEWABLE_TECHS = {"WIND_GEN", "SOLAR_GEN"}
+SELECTABLE_TECHS = {"WIND_GEN_T1", "WIND_GEN_T2", "WIND_GEN_T3", "SOLAR_GEN"}
+WIND_GROUP = "WIND_RESOURCE"
 
 
 def apply_bundle(db_encoded, bundle_dir, nodes, model_period):
     """Validate first, then replace legacy rows atomically in the encoded mapping."""
     bundle_dir = Path(bundle_dir)
     contract = json.loads((bundle_dir / "contract.json").read_text())
+    selectable = contract.get("wind_representation", "t1_only") == "selectable_t1_t2_t3"
+    renewable_techs = SELECTABLE_TECHS if selectable else RENEWABLE_TECHS
     if (
         contract["currency"],
         contract["capacity_unit"],
@@ -45,9 +49,21 @@ def apply_bundle(db_encoded, bundle_dir, nodes, model_period):
             table["region"] = table.region.astype(str)
             table = table.loc[table.region.isin(nodes)].copy()
         tables[name] = table
-    if set(tables["technology"].tech) != RENEWABLE_TECHS:
-        raise ValueError("Expected WIND_GEN and SOLAR_GEN technology definitions.")
-    for tech in RENEWABLE_TECHS:
+    if set(tables["technology"].tech) != renewable_techs:
+        raise ValueError("Unexpected renewable technology definitions.")
+    if selectable:
+        if not contract.get("capacity_bounds", {}).get("enabled", False):
+            raise ValueError("Selectable wind requires shared capacity bounds.")
+        groups = tables.get("tech_group", pd.DataFrame())
+        members = tables.get("tech_group_member", pd.DataFrame())
+        if (
+            list(groups.get("group_name", [])) != [WIND_GROUP]
+            or len(members) != 3
+            or set(zip(members.get("group_name", []), members.get("tech", [])))
+            != {(WIND_GROUP, t) for t in SELECTABLE_TECHS - {"SOLAR_GEN"}}
+        ):
+            raise ValueError("Invalid shared wind resource group membership.")
+    for tech in renewable_techs:
         for name in [
             "efficiency",
             "capacity_to_activity",
@@ -77,7 +93,10 @@ def apply_bundle(db_encoded, bundle_dir, nodes, model_period):
         if "limit_capacity" not in tables:
             raise ValueError("Capacity-bounded bundle is missing limit_capacity.")
         bounds = tables["limit_capacity"]
-        for tech in RENEWABLE_TECHS:
+        bound_targets = {WIND_GROUP, "SOLAR_GEN"} if selectable else RENEWABLE_TECHS
+        if set(bounds.tech_or_group) != bound_targets:
+            raise ValueError("Unexpected renewable capacity-bound targets.")
+        for tech in bound_targets:
             selected = bounds.loc[bounds.tech_or_group == tech]
             if len(selected) != len(nodes) or set(selected.region) != nodes:
                 raise ValueError("Capacity bounds must cover every selected Gold node.")
@@ -93,9 +112,11 @@ def apply_bundle(db_encoded, bundle_dir, nodes, model_period):
     removed = {}
     for name, frame in db_encoded.items():
         keep = pd.Series(True, index=frame.index)
-        for column in ["tech", "tech_or_group", "tech_in", "tech_out"]:
+        for column in ["tech", "tech_or_group", "tech_in", "tech_out", "group_name"]:
             if column in frame:
-                keep &= ~frame[column].isin(RENEWABLE_TECHS | {"ELC_GEN"})
+                keep &= ~frame[column].isin(
+                    RENEWABLE_TECHS | SELECTABLE_TECHS | {"ELC_GEN", WIND_GROUP}
+                )
         removed[name] = int((~keep).sum())
         updated[name] = frame.loc[keep].copy()
     for name, table in tables.items():
@@ -110,7 +131,7 @@ def apply_bundle(db_encoded, bundle_dir, nodes, model_period):
     db_encoded.update(updated)
     return {
         "replaced_legacy": "ELC_GEN",
-        "technologies": sorted(RENEWABLE_TECHS),
+        "technologies": sorted(renewable_techs),
         "nodes": len(nodes),
         "removed_rows": removed,
     }
@@ -162,7 +183,7 @@ def apply_configured_renewables(db_encoded, build_config, runtime_config, nodes)
         return None
     report = apply_bundle(db_encoded, bundle, nodes, runtime_config.model_start_year)
     print(
-        f"Renewable Gold replacement: {report['nodes']} nodes; WIND_GEN + SOLAR_GEN replace ELC_GEN.",
+        f"Renewable Gold replacement: {report['nodes']} nodes; {', '.join(report['technologies'])} replace ELC_GEN.",
         flush=True,
     )
     return report
