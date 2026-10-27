@@ -1,0 +1,9 @@
+voltage_kv,conductor_kcmil,conductor_type,subconductors_per_phase,circuit_current_a,capacity_mva_per_circuit,row_width_ft,source_table,source_pdf_page,source_printed_page,rating_basis
+69,477,ACSS,1,1175,140,80,3.1-5; ROW from 3.1-1,34,33,MISO indicative per-circuit rating; weather/temperature not specified here
+115,795,ACSS,1,1650,329,90,3.1-5; ROW from 3.1-1,34,33,MISO indicative per-circuit rating; weather/temperature not specified here
+138,795,ACSS,1,1650,394,95,3.1-5; ROW from 3.1-1,34,33,MISO indicative per-circuit rating; weather/temperature not specified here
+161,795,ACSS,1,1650,460,100,3.1-5; ROW from 3.1-1,34,33,MISO indicative per-circuit rating; weather/temperature not specified here
+230,795,ACSS,1,1650,657,125,3.1-5; ROW from 3.1-1,34,33,MISO indicative per-circuit rating; weather/temperature not specified here
+345,795,ACSS,2,3000,1792,175,3.1-5; ROW from 3.1-1,34,33,MISO indicative per-circuit rating; weather/temperature not specified here
+500,954,ACSR,3,3000,2598,200,3.1-5; ROW from 3.1-1,34,33,MISO indicative per-circuit rating; weather/temperature not specified here
+765,795,ACSR,6,5000,6625,225,3.1-5; ROW from 3.1-1,34,33,MISO indicative per-circuit rating; weather/temperature not specified here

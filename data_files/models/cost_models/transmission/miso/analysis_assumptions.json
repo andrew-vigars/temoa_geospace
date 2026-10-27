@@ -1,0 +1,16 @@
+{
+  "source_price_year": 2024,
+  "price_year_sensitivity": [2023, 2024],
+  "minimum_voltage_kv": 115,
+  "power_factor_scenario": 1.0,
+  "contingency_fraction": 0.30,
+  "afudc_fraction": 0.075,
+  "distance_basis": "route_km_interpretation",
+  "reference_state": "Minnesota",
+  "reference_voltage_kv": 230,
+  "terminal_bus_arrangement": "ring",
+  "route_lengths_km": [10, 50, 100, 250, 500],
+  "project_scope": "new AC line plus one or two ring-bus line positions at each existing terminal; excludes unmodeled transformation and other project-specific work",
+  "capacity_basis": "summed indicative circuit MVA times selected power factor; not N-1 firm or network-constrained MW",
+  "use_for_production": false
+}

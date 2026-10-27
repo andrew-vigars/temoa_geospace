@@ -1,0 +1,211 @@
+state,voltage_kv,circuits,cost_usd_per_mile,source_table,source_pdf_page,source_printed_page,cost_scope
+Arkansas,69,1,1700000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Arkansas,115,1,1900000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Arkansas,138,1,2000000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Arkansas,161,1,2100000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Arkansas,230,1,2200000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Arkansas,345,1,3500000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Arkansas,500,1,4400000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Arkansas,765,1,5500000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Illinois,69,1,1800000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Illinois,115,1,2000000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Illinois,138,1,2000000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Illinois,161,1,2100000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Illinois,230,1,2200000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Illinois,345,1,3600000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Illinois,500,1,4500000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Illinois,765,1,5600000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Indiana,69,1,1700000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Indiana,115,1,1900000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Indiana,138,1,2000000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Indiana,161,1,2000000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Indiana,230,1,2100000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Indiana,345,1,3400000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Indiana,500,1,4300000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Indiana,765,1,5400000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Iowa,69,1,1700000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Iowa,115,1,1900000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Iowa,138,1,2000000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Iowa,161,1,2100000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Iowa,230,1,2200000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Iowa,345,1,3500000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Iowa,500,1,4400000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Iowa,765,1,5600000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Kentucky,69,1,1800000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Kentucky,115,1,2000000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Kentucky,138,1,2100000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Kentucky,161,1,2200000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Kentucky,230,1,2300000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Kentucky,345,1,3700000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Kentucky,500,1,4600000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Kentucky,765,1,5800000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Louisiana,69,1,2000000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Louisiana,115,1,2200000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Louisiana,138,1,2300000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Louisiana,161,1,2400000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Louisiana,230,1,2600000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Louisiana,345,1,4099999.9999999995,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Louisiana,500,1,5100000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Louisiana,765,1,6300000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Michigan,69,1,1800000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Michigan,115,1,2000000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Michigan,138,1,2100000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Michigan,161,1,2200000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Michigan,230,1,2300000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Michigan,345,1,3700000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Michigan,500,1,4600000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Michigan,765,1,5800000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Minnesota,69,1,1800000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Minnesota,115,1,2000000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Minnesota,138,1,2100000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Minnesota,161,1,2100000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Minnesota,230,1,2300000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Minnesota,345,1,3600000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Minnesota,500,1,4500000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Minnesota,765,1,5700000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Mississippi,69,1,2000000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Mississippi,115,1,2200000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Mississippi,138,1,2300000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Mississippi,161,1,2400000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Mississippi,230,1,2600000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Mississippi,345,1,4099999.9999999995,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Mississippi,500,1,5000000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Mississippi,765,1,6300000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Missouri,69,1,1700000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Missouri,115,1,1900000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Missouri,138,1,2000000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Missouri,161,1,2000000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Missouri,230,1,2200000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Missouri,345,1,3500000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Missouri,500,1,4400000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Missouri,765,1,5500000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Montana,69,1,1600000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Montana,115,1,1800000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Montana,138,1,1900000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Montana,161,1,1900000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Montana,230,1,2000000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Montana,345,1,3200000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Montana,500,1,4099999.9999999995,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Montana,765,1,5200000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+North Dakota,69,1,1600000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+North Dakota,115,1,1800000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+North Dakota,138,1,1900000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+North Dakota,161,1,1900000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+North Dakota,230,1,2000000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+North Dakota,345,1,3300000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+North Dakota,500,1,4099999.9999999995,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+North Dakota,765,1,5200000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+South Dakota,69,1,1600000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+South Dakota,115,1,1800000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+South Dakota,138,1,1900000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+South Dakota,161,1,1900000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+South Dakota,230,1,2000000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+South Dakota,345,1,3300000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+South Dakota,500,1,4099999.9999999995,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+South Dakota,765,1,5200000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Texas,69,1,1900000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Texas,115,1,2200000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Texas,138,1,2300000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Texas,161,1,2300000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Texas,230,1,2500000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Texas,345,1,4000000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Texas,500,1,4900000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Texas,765,1,6100000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Wisconsin,69,1,1800000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Wisconsin,115,1,2000000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Wisconsin,138,1,2100000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Wisconsin,161,1,2200000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Wisconsin,230,1,2300000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Wisconsin,345,1,3700000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Wisconsin,500,1,4600000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Wisconsin,765,1,5800000.0,4.1-1,39,38,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Arkansas,69,2,2500000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Arkansas,115,2,2800000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Arkansas,138,2,2900000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Arkansas,161,2,3000000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Arkansas,230,2,3600000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Arkansas,345,2,5800000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Illinois,69,2,2500000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Illinois,115,2,2800000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Illinois,138,2,3000000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Illinois,161,2,3000000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Illinois,230,2,3600000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Illinois,345,2,5900000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Indiana,69,2,2400000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Indiana,115,2,2700000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Indiana,138,2,2900000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Indiana,161,2,3000000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Indiana,230,2,3500000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Indiana,345,2,5800000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Iowa,69,2,2500000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Iowa,115,2,2800000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Iowa,138,2,2900000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Iowa,161,2,3000000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Iowa,230,2,3600000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Iowa,345,2,5800000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Kentucky,69,2,2600000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Kentucky,115,2,2900000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Kentucky,138,2,3000000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Kentucky,161,2,3100000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Kentucky,230,2,3700000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Kentucky,345,2,6000000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Louisiana,69,2,2800000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Louisiana,115,2,3100000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Louisiana,138,2,3300000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Louisiana,161,2,3300000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Louisiana,230,2,4000000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Louisiana,345,2,6400000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Michigan,69,2,2600000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Michigan,115,2,2900000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Michigan,138,2,3000000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Michigan,161,2,3100000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Michigan,230,2,3700000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Michigan,345,2,6000000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Minnesota,69,2,2500000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Minnesota,115,2,2800000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Minnesota,138,2,3000000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Minnesota,161,2,3100000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Minnesota,230,2,3600000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Minnesota,345,2,6000000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Mississippi,69,2,2700000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Mississippi,115,2,3100000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Mississippi,138,2,3200000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Mississippi,161,2,3300000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Mississippi,230,2,4000000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Mississippi,345,2,6400000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Missouri,69,2,2500000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Missouri,115,2,2800000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Missouri,138,2,2900000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Missouri,161,2,3000000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Missouri,230,2,3500000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Missouri,345,2,5800000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Montana,69,2,2300000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Montana,115,2,2600000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Montana,138,2,2800000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Montana,161,2,2800000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Montana,230,2,3300000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Montana,345,2,5500000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+North Dakota,69,2,2400000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+North Dakota,115,2,2700000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+North Dakota,138,2,2800000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+North Dakota,161,2,2900000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+North Dakota,230,2,3400000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+North Dakota,345,2,5600000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+South Dakota,69,2,2400000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+South Dakota,115,2,2700000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+South Dakota,138,2,2800000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+South Dakota,161,2,2900000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+South Dakota,230,2,3400000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+South Dakota,345,2,5600000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Texas,69,2,2700000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Texas,115,2,3000000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Texas,138,2,3200000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Texas,161,2,3300000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Texas,230,2,3900000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Texas,345,2,6300000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Wisconsin,69,2,2600000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Wisconsin,115,2,2900000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Wisconsin,138,2,3000000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Wisconsin,161,2,3100000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Wisconsin,230,2,3700000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC
+Wisconsin,345,2,6000000.0,4.1-2,40,39,exploratory new AC line including 30% contingency and 7.5% AFUDC

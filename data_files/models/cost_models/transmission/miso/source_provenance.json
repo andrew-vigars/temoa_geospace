@@ -1,0 +1,25 @@
+{
+  "publisher": "MISO",
+  "edition": "MTEP24",
+  "publication_date": "2024-05-01",
+  "url": "https://cdn.misoenergy.org/20240501%20PSC%20Item%2004%20MISO%20Transmission%20Cost%20Estimation%20Guide%20for%20MTEP24632680.pdf",
+  "pdf_file": "MISO_MTEP24_2024-05-01.pdf",
+  "pdf_sha256": "708b0103f8ea2ff458a09aa46334a537817a833814c8300a04fd07e4a74de167",
+  "local_snapshot_date": "2026-10-27",
+  "draft_used_for_prices": false,
+  "extraction": "Line, station and state tables parsed from clean PDF text with expected row counts; rating and terrain-adder values transcribed and relevant pages visually checked.",
+  "price_year_working_interpretation": 2024,
+  "price_year_ambiguity": "Printed p. 1 says all costs are 2023 USD, then says escalated from 2023 to 2024 by 5%. Working interpretation is 2024; retain 2023 sensitivity.",
+  "price_year_support_url": "https://cdn.misoenergy.org/20240131%20PSC%20Item%2005%20Transmission%20Cost%20Estimation%20Guide%20for%20MTEP24631525.pdf",
+  "price_year_support": "Official January 2024 update presentation: unit costs escalated to 2024 dollars.",
+  "sample_unit": "engineered state/design scenario, not actual independent project",
+  "distance_basis_assumption": "$/mile for a single/double-circuit line interpreted as route-mile; no extra circuit multiplier on line cost",
+  "capacity_basis": "MISO rounded MVA per circuit; double-circuit total is analyst sum of two circuits, not firm or N-1 capacity",
+  "files": {
+    "ac_line_costs.csv": "93dcd88983788873221d61c4fbe29ce21b1ab5252a43c1e6125d43a98ad8b922",
+    "ac_design_ratings.csv": "55a5d20747bb29402164927e784c91d5f8a17352a2356da7cd1f885d98b14c02",
+    "state_land_terrain.csv": "86bffcfa05ed4c60d76d4b05e938b227fdb803481604e2bf054c94bb04fd91f0",
+    "ac_station_costs.csv": "60275ebcd4def6d1162aea23a8c54ce64c03a13bfdf2d3c6b69230d2104b3aa9",
+    "terrain_adders.csv": "1a697a5c1695aff2595b9c0c691ac6c1a8c0825f95d3604d6445c876665aa453"
+  }
+}
