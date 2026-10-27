@@ -38,7 +38,7 @@ pv_azimuth = 180
 [gold]
 # When the build profile enables renewables, replace ELC_GEN only if Silver
 # covers every selected Gold graph node; incomplete coverage fails explicitly.
-enabled = false
+enabled = true
 legacy_policy = "replace"
 
 [wind_mapping]

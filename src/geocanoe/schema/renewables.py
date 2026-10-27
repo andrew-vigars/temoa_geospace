@@ -124,6 +124,10 @@ def apply_bundle(db_encoded, bundle_dir, nodes, model_period):
             raise ValueError(
                 f"Target Gold build is missing renewable parameter table {name}."
             )
+        # Core technology reconstruction omits this optional Temoa v4 column.
+        # Keep the validated bundle's descriptions when merging into that frame.
+        if name == "technology" and "description" not in updated[name]:
+            updated[name]["description"] = None
         unknown = set(table.columns) - set(updated[name].columns)
         if unknown:
             raise ValueError(f"Target Temoa schema mismatch {name}: {unknown}")
