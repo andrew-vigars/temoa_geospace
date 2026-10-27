@@ -80,9 +80,17 @@ STAGE_MODULE_NAMES: dict[str, str] = {
     "era5_renewables": "geocanoe.acquisition.era5_renewables",
     "atb": "geocanoe.acquisition.atb",
     "economics": "geocanoe.acquisition.economics",
+    "land_cover": "geocanoe.acquisition.land_cover",
+    "protected_areas": "geocanoe.acquisition.protected_areas",
+    "wind_turbines": "geocanoe.acquisition.wind_turbines",
+    "solar_facilities": "geocanoe.acquisition.solar_facilities",
 }
 
 BRONZE_STAGE_ORDER = (
+    "land_cover",
+    "protected_areas",
+    "wind_turbines",
+    "solar_facilities",
     "basemaps",
     "residential",
     "gasoline_demand",
@@ -325,6 +333,18 @@ def execute_bronze_stage(
 
     if stage_name == "economics":
         return module.acquire_economics(options.economics_config)
+
+    if stage_name == "land_cover":
+        return module.acquire_land_cover()
+
+    if stage_name == "protected_areas":
+        return module.acquire_protected_areas()
+
+    if stage_name == "wind_turbines":
+        return module.acquire_wind_turbines()
+
+    if stage_name == "solar_facilities":
+        return module.acquire_solar_facilities()
 
     if stage_name == "atb":
         return module.acquire_atb(options.atb_config)

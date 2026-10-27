@@ -1,6 +1,157 @@
 schema_version: 2
 
 sources:
+  - id: nrcan_land_cover_2020
+    kind: raster_dataset
+    domain: land_cover
+    publisher: Natural Resources Canada, CCRS/CCMEO
+    creator: Dr. Rasim Latifovic
+    title: 2020 Land Cover of Canada
+    licence: Open Government Licence - Canada
+    record_id: ee1580ab-a23d-4f86-a09b-79763677eb47
+    record_released: '2022-08-11'
+    record_modified: '2025-09-23'
+    catalogue_url: https://open.canada.ca/data/en/dataset/ee1580ab-a23d-4f86-a09b-79763677eb47
+    metadata_url: https://open.canada.ca/data/api/action/package_show?id=ee1580ab-a23d-4f86-a09b-79763677eb47
+    distribution_url: https://datacube-prod-data-public.s3.ca-central-1.amazonaws.com/store/land/landcover/landcover-2020-classification.tif
+    acquisition:
+      stage: land_cover
+      module: geocanoe.acquisition.land_cover
+      refresh_policy: manual_new_snapshot_directory
+      release_model: fixed_2020_observations_mutable_distribution
+    bronze:
+      root: data_files/raw/geography/land_cover/2020
+      primary_artifact: classification
+      artifacts:
+        classification:
+          path: landcover-2020-classification.tif
+          format: geotiff
+        metadata:
+          path: catalogue.json
+          format: json
+        acquisition_manifest:
+          path: acquisition_manifest.json
+          format: json
+  - id: eccc_cpcad_2025
+    kind: vector_dataset
+    domain: protected_conserved_areas
+    publisher: Environment and Climate Change Canada
+    title: Canadian Protected and Conserved Areas Database, 2025
+    licence: Open Government Licence - Canada
+    record_id: 6c343726-1e92-451a-876a-76e17d398a1c
+    release: December 2025
+    distribution_listing_date: '2026-03-25'
+    catalogue_url: https://open.canada.ca/data/en/dataset/6c343726-1e92-451a-876a-76e17d398a1c
+    metadata_url: https://open.canada.ca/data/api/action/package_show?id=6c343726-1e92-451a-876a-76e17d398a1c
+    distribution_directory: https://data-donnees.az.ec.gc.ca/data/species/protectrestore/canadian-protected-conserved-areas-database/Databases
+    distribution_url: https://data-donnees.az.ec.gc.ca/api/file?path=%2Fspecies%2Fprotectrestore%2Fcanadian-protected-conserved-areas-database%2FDatabases%2FProtectedConservedArea_2025.zip
+    acquisition:
+      stage: protected_areas
+      module: geocanoe.acquisition.protected_areas
+      refresh_policy: manual_new_snapshot_directory
+      release_model: dated_2025_release_mutable_distribution
+    bronze:
+      root: data_files/raw/geography/protected_areas/2025
+      primary_artifact: geodatabase
+      artifacts:
+        geodatabase:
+          path: source/ProtectedConservedArea_2025.gdb
+          format: file_geodatabase
+        archive:
+          path: ProtectedConservedArea_2025.zip
+          format: zip
+        metadata:
+          path: catalogue.json
+          format: json
+        dictionary:
+          glob: source/*.xlsx
+          format: xlsx
+        source_metadata:
+          glob: source/*.xml
+          format: xml
+        acquisition_manifest:
+          path: acquisition_manifest.json
+          format: json
+
+  - id: nrcan_wind_turbines_snapshot_20261023
+    kind: vector_dataset
+    domain: existing_wind_turbines
+    publisher: Natural Resources Canada, CanmetENERGY-Ottawa
+    title: Canadian Wind Turbine Database, English capture 2026-10-23
+    licence: Open Government Licence - Canada
+    credit: CanmetENERGY-Ottawa and University of Alberta CABREE, under contract from NRCan
+    record_id: 79fdad93-9025-49ad-ba16-c26d718cc070
+    date_published: '2024-09-20'
+    date_modified: '2025-11-28'
+    temporal_coverage: 1993-01-01 to 2025-09-16
+    update_frequency: irregular
+    status: ongoing
+    observed_layer: WTD_en_Feb02_2026
+    version_note: Catalogue modification date differs from the downloaded layer name; capture identity is pinned by hashes.
+    catalogue_url: https://open.canada.ca/data/en/dataset/79fdad93-9025-49ad-ba16-c26d718cc070
+    metadata_url: https://open.canada.ca/data/api/action/package_show?id=79fdad93-9025-49ad-ba16-c26d718cc070
+    distribution_url: https://ftp.cartes.canada.ca/pub/nrcan_rncan/Wind-energy_Energie-eolienne/wind_turbines_database/wind_turbine_database_en.gdb.zip
+    acquisition:
+      stage: wind_turbines
+      module: geocanoe.acquisition.wind_turbines
+      refresh_policy: manual_new_snapshot_directory
+      release_model: irregular_mutable_distribution_captured_20261023
+    bronze:
+      root: data_files/raw/geography/wind_turbines/snapshot-2026-10-23
+      primary_artifact: geodatabase
+      artifacts:
+        geodatabase:
+          path: source/wind_turbine_database_en.gdb
+          format: file_geodatabase
+        archive:
+          path: wind_turbine_database_en.gdb.zip
+          format: zip
+        metadata:
+          path: catalogue.json
+          format: json
+        acquisition_manifest:
+          path: acquisition_manifest.json
+          format: json
+
+  - id: transitionzero_solar_2024q1
+    kind: vector_tabular_bundle
+    domain: existing_solar_footprints
+    publisher: TransitionZero
+    title: Solar Asset Mapper, Q1 2024, version 1.0
+    licence: CC BY-NC 4.0
+    attribution: TransitionZero Solar Asset Mapper, TransitionZero, May 2024 release
+    catalogue_url: https://zenodo.org/records/11368204
+    metadata_url: https://zenodo.org/api/records/11368204
+    distribution_base: https://zenodo.org/records/11368204/files/
+    methodology_url: https://blog.transitionzero.org/hubfs/Data%20Products/TZ-SAM/tz-sam-scientific-methodology-Q12024.pdf
+    acquisition:
+      stage: solar_facilities
+      module: geocanoe.acquisition.solar_facilities
+      refresh_policy: manual_new_snapshot_directory
+      release_model: zenodo_record_11368204_version_1_0
+    bronze:
+      root: data_files/raw/geography/solar_facilities/tz-sam-2024q1
+      primary_artifact: polygons
+      artifacts:
+        polygons:
+          path: 2024Q1_final_analysis_polygons.gpkg
+          format: geopackage
+        assets:
+          path: 2024Q1_final_analysis_polygons.csv
+          format: csv
+        lineage:
+          path: 2024Q1_final_sources.csv
+          format: csv
+        metadata:
+          path: zenodo_record.json
+          format: json
+        methodology:
+          path: tz-sam-scientific-methodology-Q12024.pdf
+          format: pdf
+        acquisition_manifest:
+          path: acquisition_manifest.json
+          format: json
+
   - id: statcan_2021_province_territory_boundaries
     kind: vector_dataset
     domain: administrative_boundaries

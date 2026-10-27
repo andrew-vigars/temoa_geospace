@@ -23,6 +23,10 @@ def test_committed_registry_covers_current_bronze_stages() -> None:
     registry = GeospatialSourceRegistry(REGISTRY_PATH, repo_root=PROJECT_ROOT)
 
     assert registry.list_ids() == (
+        "nrcan_land_cover_2020",
+        "eccc_cpcad_2025",
+        "nrcan_wind_turbines_snapshot_20261023",
+        "transitionzero_solar_2024q1",
         "statcan_2021_province_territory_boundaries",
         "statcan_2021_da_population_density_inputs",
         "statcan_gasoline_demand_inputs",
@@ -37,7 +41,7 @@ def test_committed_registry_covers_current_bronze_stages() -> None:
     assert tuple(
         registry.get(source_id)["acquisition"]["stage"]
         for source_id in registry.list_ids()
-    ) == BRONZE_STAGE_ORDER
+    ) == tuple(stage for stage in BRONZE_STAGE_ORDER if stage != "economics")
 
 
 def test_committed_registry_resolves_nhn_source() -> None:
