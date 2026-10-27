@@ -132,6 +132,18 @@ def apply_bundle(db_encoded, bundle_dir, nodes, model_period):
         if unknown:
             raise ValueError(f"Target Temoa schema mismatch {name}: {unknown}")
         updated[name] = pd.concat([updated[name], table], ignore_index=True)
+    # Technology sectors are propagated to output tables, where Temoa enforces
+    # sector_label foreign keys even though technology itself has no such FK.
+    if "sector_label" in updated:
+        labels = updated["sector_label"]
+        missing = set(tables["technology"].sector.dropna()) - set(labels.sector)
+        if missing:
+            updated["sector_label"] = pd.concat(
+                [labels, pd.DataFrame(
+                    {"sector": sorted(missing),
+                     "notes": [f"{sector} sector" for sector in sorted(missing)]}
+                )], ignore_index=True,
+            )
     db_encoded.update(updated)
     return {
         "replaced_legacy": "ELC_GEN",

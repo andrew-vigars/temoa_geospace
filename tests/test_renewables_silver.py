@@ -154,6 +154,9 @@ def test_gold_replacement_uses_cad_dollars_and_requires_all_nodes(tmp_path):
         encoded[name] = frame
     # Production core reconstruction omits optional technology descriptions.
     encoded["technology"] = encoded["technology"].drop(columns="description")
+    encoded["sector_label"] = pd.DataFrame(
+        {"sector": ["industrial"], "notes": ["industrial sector"]}
+    )
     before = {name: frame.copy() for name, frame in encoded.items()}
     with pytest.raises(ValueError, match="every selected Gold node"):
         apply_bundle(encoded, tmp_path, {"R1", "R2", "R3"}, 2025)
@@ -163,6 +166,7 @@ def test_gold_replacement_uses_cad_dollars_and_requires_all_nodes(tmp_path):
     assert result["replaced_legacy"] == "ELC_GEN"
     assert set(encoded["technology"].tech) == {"WIND_GEN", "SOLAR_GEN"}
     assert encoded["technology"].description.notna().all()
+    assert set(encoded["sector_label"].sector) == {"industrial", "electricity"}
     assert len(encoded["limit_annual_capacity_factor"]) == 4
     assert (encoded["cost_variable"].cost == 0).all()
     for frame in encoded.values():
