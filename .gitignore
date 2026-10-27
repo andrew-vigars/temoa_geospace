@@ -150,6 +150,7 @@ config/build_profiles/*.toml
 !config/build_profiles/sample_build_profile.toml
 !config/build_profiles/sample_renewables.toml
 !config/build_profiles/canada_renewables.toml
+!config/build_profiles/canada_renewables_t4_gcc.toml
 
 registry/scenarios/**/*.toml
 !registry/scenarios/baseline.toml

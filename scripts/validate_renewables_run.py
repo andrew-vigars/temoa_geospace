@@ -9,7 +9,9 @@ import pandas as pd
 
 from geocanoe.acquisition.era5_renewables import sha256
 from geocanoe.preprocessing.renewables_weather import annual_profiles
-from geocanoe.preprocessing.wind_options import MULTI_TECHS, WIND_GROUP, profile_field
+from geocanoe.preprocessing.wind_options import WIND_GROUP, profile_field
+
+SELECTABLE_TECHS = {"WIND_GEN_T1", "WIND_GEN_T2", "WIND_GEN_T3"}
 
 
 def validate(output, previous_output=None):
@@ -37,7 +39,8 @@ def validate(output, previous_output=None):
     costs = pd.read_csv(output / "atb_selected_rows.csv")
     basis = contract["currency_conversion"]["basis"]
     multiplier = (
-        basis["cad_per_source_currency"] * basis["source_scale"]
+        basis["cad_per_source_currency"]
+        * basis["source_scale"]
         * basis["target_price_index"]
         / basis["source_price_index"]
         / basis["target_scale"]
@@ -51,13 +54,16 @@ def validate(output, previous_output=None):
         for name, digest in assignment_record["sha256"].items():
             assert sha256(directory / name) == digest
         mixture = pd.read_csv(directory / "regional_mix.csv").set_index("region")
-        fractions = mixture[["T1_fraction", "T2_fraction", "T3_fraction"]]
+        designs = ["T1", "T2", "T3"]
+        if "T4_fraction" in mixture:
+            designs.append("T4")
+        fractions = mixture[[f"{design}_fraction" for design in designs]]
         assert np.isfinite(fractions).all().all() and fractions.ge(0).all().all()
         assert np.allclose(
             fractions.sum(axis=1), mixture.represented_wind_km2.gt(0).astype(float)
         )
     expected_techs = (
-        MULTI_TECHS | {"SOLAR_GEN"} if selectable else {"WIND_GEN", "SOLAR_GEN"}
+        SELECTABLE_TECHS | {"SOLAR_GEN"} if selectable else {"WIND_GEN", "SOLAR_GEN"}
     )
     for name in [
         "cost_invest",
@@ -74,19 +80,37 @@ def validate(output, previous_output=None):
         for tech in expected_techs:
             selected = frame.loc[frame.tech == tech]
             if name in {"cost_invest", "cost_fixed"}:
-                metric = "OCC" if name == "cost_invest" else "Fixed O&M"
+                metrics = (
+                    list(contract.get("investment_cost_components", ["OCC"]))
+                    if name == "cost_invest"
+                    else ["Fixed O&M"]
+                )
+                # Older immutable runs contain OCC only; new runs retain GCC.
+                if (
+                    name == "cost_invest"
+                    and "GCC" not in metrics
+                    and costs.core_metric_parameter.eq("GCC").any()
+                ):
+                    metrics.append("GCC")
                 if assigned and tech == "WIND_GEN":
+                    for design in designs:
+                        components = costs.loc[
+                            costs.tech.eq(f"WIND_GEN_{design}")
+                            & costs.core_metric_parameter.isin(metrics)
+                        ]
+                        assert len(components) == len(metrics)
+                        assert set(components.core_metric_parameter) == set(metrics)
                     expected = (
                         sum(
                             mixture[f"{design}_fraction"]
                             * float(
                                 costs.loc[
                                     (costs.tech == f"WIND_GEN_{design}")
-                                    & (costs.core_metric_parameter == metric),
+                                    & (costs.core_metric_parameter.isin(metrics)),
                                     "value_per_MW",
-                                ].iloc[0]
+                                ].sum()
                             )
-                            for design in ["T1", "T2", "T3"]
+                            for design in designs
                         )
                         * multiplier
                     )
@@ -96,11 +120,12 @@ def validate(output, previous_output=None):
                     )
                     continue
                 source = costs.loc[
-                    (costs.tech == tech) & (costs.core_metric_parameter == metric)
+                    (costs.tech == tech) & (costs.core_metric_parameter.isin(metrics))
                 ]
-                assert len(source) == 1
+                assert len(source) == len(metrics)
+                assert set(source.core_metric_parameter) == set(metrics)
                 assert np.allclose(
-                    selected.cost, float(source.value.iloc[0]) * 1000 * multiplier
+                    selected.cost, float(source.value.sum()) * 1000 * multiplier
                 )
             elif name == "efficiency":
                 assert (selected.efficiency == 1).all()
@@ -113,7 +138,7 @@ def validate(output, previous_output=None):
     if selectable:
         members = pd.read_csv(tables / "tech_group_member.csv")
         assert set(zip(members.group_name, members.tech)) == {
-            (WIND_GROUP, tech) for tech in MULTI_TECHS
+            (WIND_GROUP, tech) for tech in SELECTABLE_TECHS
         }
         bounds = pd.read_csv(tables / "limit_capacity.csv")
         assert len(bounds) == 2 * len(annual)

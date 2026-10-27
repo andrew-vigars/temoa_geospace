@@ -1,6 +1,6 @@
 # Build profile controls study area and projected basemap resolutions (>=25 km).
 netcdf_engine = "netcdf4"
-# Three selectable wind designs and one tracking-PV option per region; no resource bins.
+# One spatially weighted T1/T2/T3/T4 wind option and one tracking-PV option per region.
 resource_representation = "one_option_per_region"
 weather_year = 2018
 months = [1,2,3,4,5,6,7,8,9,10,11,12]
@@ -42,12 +42,13 @@ enabled = true
 legacy_policy = "replace"
 
 [wind_mapping]
-# CANOE representative ATB cost rows; no ERA5 wind-speed classification.
+# ATB representative cost rows; annual ERA5 classification supplies spatial weights.
 mode = "canoe_representative"
 [wind_mapping.classes]
 T1 = 7
 T2 = 8
 T3 = 9
+T4 = 10
 
 [capacity_limits]
 # Explicit input required before enabling; CFs do not establish buildable MW.
@@ -76,5 +77,5 @@ reference_height_m = 110
 t1_min_ms = 7.10
 t2_min_ms = 6.53
 t3_min_ms = 5.90
-# T4 is not represented: report and exclude its potential instead of assigning T3.
-low_resource_policy = "exclude"
+# Include low-resource sites using the Class 10 / T4 turbine.
+low_resource_policy = "t4"

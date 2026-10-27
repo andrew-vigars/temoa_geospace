@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_thresholds_invalid_values_and_low_resource():
     np.testing.assert_array_equal(
         assignment.classify([0, 5.899, 5.9, 6.529, 6.53, 7.099, 7.1, 15], {}),
-        [0, 0, 3, 3, 2, 2, 1, 1],
+        [4, 4, 3, 3, 2, 2, 1, 1],
     )
     with pytest.raises(ValueError, match="Invalid annual"):
         assignment.classify([np.nan], {})
@@ -68,7 +68,7 @@ def test_spatial_cf_mixture_and_gold_costs_share_capacity_weights(
     weights = sparse.csr_matrix([[1.0, 3.0, 6.0, 10.0], [0.0, 0.0, 0.0, 2.0]])
     resource = xr.Dataset(
         {
-            "design": (("y", "x"), [[1, 2, 3, 0]]),
+            "design": (("y", "x"), [[1, 2, 3, 4]]),
             "mean_wind_speed_110m": (("y", "x"), [[8.0, 6.8, 6.1, 5.0]]),
         },
         coords={"y": [50], "x": [-100, -99, -98, -97]},
@@ -92,10 +92,12 @@ def test_spatial_cf_mixture_and_gold_costs_share_capacity_weights(
     assignment.regional_mix(resource, weights, regions, settings, tmp_path)
     mix = pd.read_csv(tmp_path / "wind_resource/regional_mix.csv")
     np.testing.assert_allclose(
-        mix.loc[0, ["T1_fraction", "T2_fraction", "T3_fraction"]].astype(float),
-        [0.1, 0.3, 0.6],
+        mix.loc[0, ["T1_fraction", "T2_fraction", "T3_fraction", "T4_fraction"]].astype(
+            float
+        ),
+        [0.05, 0.15, 0.3, 0.5],
     )
-    assert mix.loc[0, "excluded_low_resource_km2"] == 10
+    assert mix.loc[0, "excluded_low_resource_km2"] == 0
 
     class Cutout:
         def wind(self, turbine, **kwargs):
@@ -122,9 +124,11 @@ def test_spatial_cf_mixture_and_gold_costs_share_capacity_weights(
     result, _ = physical.convert(
         Cutout(), regions, None, config, {"wind": weights, "solar": weights}, resource
     )
-    expected = (0.1 * 115 / 130 + 3 * 0.2 + 6 * 0.3 * 100 / 130) / 10
+    expected = (
+        0.1 * 115 / 130 + 3 * 0.2 + 6 * 0.3 * 100 / 130 + 10 * 0.9 * 140 / 130
+    ) / 20
     assert result.wind_cf.sel(region="R1").item() == pytest.approx(expected)
-    assert result.wind_cf.sel(region="R0").item() == 0
+    assert result.wind_cf.sel(region="R0").item() == pytest.approx(0.9 * 140 / 130)
     exported = assignment.export_settings(settings, tmp_path)
     annual = result.mean("time").to_dataframe()
     tables = stage.gold_tables(
@@ -147,16 +151,17 @@ def test_spatial_cf_mixture_and_gold_costs_share_capacity_weights(
         bounds.loc[
             (bounds.region == "R0") & (bounds.tech_or_group == "WIND_GEN"), "capacity"
         ].iloc[0]
-        == 0
+        == 2 * 2
     )
     investment = pd.DataFrame(tables["cost_invest"])
     expected_cost = sum(
         f
         * costs.loc[
-            (costs.tech == f"WIND_GEN_T{k}") & (costs.core_metric_parameter == "OCC"),
+            (costs.tech == f"WIND_GEN_T{k}")
+            & (costs.core_metric_parameter.isin(["OCC", "GCC"])),
             "value_per_MW",
-        ].iloc[0]
-        for k, f in [(1, 0.1), (2, 0.3), (3, 0.6)]
+        ].sum()
+        for k, f in [(1, 0.05), (2, 0.15), (3, 0.3), (4, 0.5)]
     )
     # Use native dollars for an unambiguous test of the weighted ATB cost.
     native = {k: v for k, v in exported.items() if k != "currency_basis"}
@@ -167,3 +172,14 @@ def test_spatial_cf_mixture_and_gold_costs_share_capacity_weights(
     assert investment.loc[
         (investment.region == "R1") & (investment.tech == "WIND_GEN"), "cost"
     ].iloc[0] == pytest.approx(expected_cost)
+    solar_components = costs.loc[
+        costs.tech.eq("SOLAR_GEN")
+        & costs.core_metric_parameter.isin(["OCC", "GCC"])
+    ]
+    assert set(solar_components.core_metric_parameter) == {"OCC", "GCC"}
+    assert solar_components.loc[
+        solar_components.core_metric_parameter.eq("GCC"), "value_per_MW"
+    ].item() > 0
+    assert investment.loc[
+        investment.region.eq("R1") & investment.tech.eq("SOLAR_GEN"), "cost"
+    ].item() == pytest.approx(solar_components.value_per_MW.sum())

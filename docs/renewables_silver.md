@@ -42,11 +42,12 @@ configured 2030 cost year remains a representative-technology assumption.
 
 Sources: https://atb.nlr.gov/electricity/2025/land-based_wind
 
-The explicit baseline `low_resource_policy = "exclude"` removes wind capacity
-below 5.90 m/s because T4 is not represented. This is a modelling restriction,
-not a land exclusion, legal prohibition or evidence that these sites are
-uneconomic. Omitted eligible area is reported separately; solar is unaffected.
-Supporting T4 or changing thresholds requires a reviewed adapter extension.
+The baseline `low_resource_policy = "t4"` assigns sites below 5.90 m/s to
+ATB Class 10 / T4 (6 MW, 196 m rotor, 140 m hub). These sites remain subject
+to the same land exclusions and deployment density as the other wind designs.
+T4 uses its own packaged physical curve and ATB cost rows. Old Silver bundles
+must be regenerated, followed by a Gold rebuild and solve; existing solved
+outputs retain their original assumptions.
 
 For every model region, eligible area assigned to each design defines a fixed
 capacity fraction (the same MW/km² is assumed for each design). Hourly output
@@ -228,7 +229,10 @@ will require a larger Silver conversion before replacing a national Gold model.
   WIND_GEN/ LandbasedWind Class 7 Technology 1 and SOLAR_GEN/ UtilityPV Class 3,
   Moderate, R&D, no tax credits, 20-year financial recovery period. This is a
   declared scenario selection, not an automatic replacement for ATB 2024 Market.
-- Retain raw ATB OCC and fixed O&M selections and units. No ATB LCOE is used as an
+- Retain raw ATB OCC, GCC and fixed O&M selections and units. Investment cost
+  is OCC + GCC, converted together from USD2023 per kW to the target currency
+  per MW. Resource-assigned wind uses the same design fractions for all three
+  components. No ATB LCOE is used as an
   additional generation charge; no ATB CF uplift is applied to physical profiles.
 - Physical wind uses the pinned NREL T1 6 MW / 170 m / 115 m reference curve and
   logarithmic height interpolation. The 13.4% plant loss is inherited as an
@@ -304,8 +308,9 @@ Gold requires every selected node to have CFs. The initial Ontario subset cannot
 replace ELC_GEN across a larger multi-province graph. `merge_ready=false` in the
 Silver contract indicates that it is not an unconditional merge artifact; the
 Gold adapter performs target-specific validation. Land eligibility, installed
-fleet weighting, wind/solar potential caps, grid/spur costs and empirical
-calibration remain future additions. Unconstrained resource-baseline builds must
+fleet weighting and empirical calibration remain separate from the resource baseline.
+The national resource-assigned mode adds land-based capacity caps and ATB GCC;
+site-specific distance-based grid/spur costs remain outside this representation. Unconstrained resource-baseline builds must
 not be interpreted as deployable land potential.
 
 CANOE comparison: `new_wind_solar.py` uses LCOE to sort resource bins, then
@@ -334,7 +339,9 @@ in the optimization in addition to CAPEX/OPEX.
 ### CANOE representative wind mapping
 
 The default `[wind_mapping]` configuration follows CANOE's `new_wind_techs`:
-T1 uses Class 7, T2 uses Class 8, and T3 uses Class 9. These selections are
+T1 uses Class 7, T2 uses Class 8, and T3 uses Class 9; national resource-assigned
+wind also uses Class 10 for T4. T1 is the turbine design for ATB Classes 1–7;
+Class 7 is its representative cost row, not a restriction to Class 7 sites. These selections are
 validated against the native ATB resource/turbine columns. Cost selection uses
 the representative row matching the configured physical turbine reference.
 Exports retain the complete `atb_wind_class_mapping.csv` audit and the selected
@@ -343,10 +350,11 @@ not introduce ERA5 wind-speed classification or class-aware spatial weighting.
 
 CANOE obtains T1/T2/T3 capacity fractions from its external Cluster Composition
 dataset, not from this mapping. We do not invent those fractions or transfer
-Ontario cluster mixtures to other provinces. The current physical profile is
-still the T1 baseline. A mixed-fleet extension needs explicit capacity fractions
-and validated T2/T3 curves. Ordinary area-weighted weather aggregation over
-basemap polygons remains in place. No ATB CF uplift is applied automatically.
+Ontario cluster mixtures to other provinces. National resource-assigned wind
+instead derives local T1/T2/T3/T4 fractions from annual ERA5 wind and eligible
+land, and uses each design's physical curve before regional aggregation.
+The optional `t1_only` mode retains the original baseline. No ATB CF uplift
+is applied automatically.
 
 Mapping provenance: sister repo `canoe-electricity-main/input_files/params.toml`,
 `[new_wind_techs]`; weighting logic in `canoe_electricity/new_wind_solar.py`.
@@ -354,7 +362,7 @@ The local config is self-contained: CANOE is not a runtime dependency.
 
 ### Regional investment options
 
-The configured representation is `one_option_per_region`: each basemap region has exactly one WIND_GEN and one SOLAR_GEN investment option. Hourly CFs vary with local weather, but the physical configuration is fixed for the run. Costs are assigned per option and do not increase with cumulative deployment within a region. No resource bins or inferred turbine mixtures are introduced. Wind currently uses the documented T1 baseline and CANOE representative Class 7 ATB costs; solar uses the configured PV baseline. Regional capacity limits still require a separate land-eligibility and deployment-density assessment.
+The configured representation is `one_option_per_region`: each basemap region has exactly one WIND_GEN and one SOLAR_GEN investment option. Hourly CFs vary with local weather, but the physical configuration is fixed for the run. Costs are assigned per option and do not increase with cumulative deployment within a region. No resource bins are introduced. National resource-assigned wind combines T1/T2/T3/T4 with fixed local eligible-area fractions and matching ATB costs; solar uses the configured PV baseline. Regional capacity limits use the land-eligibility and deployment-density assessment.
 
 ### Separate Ontario validation run
 
@@ -504,3 +512,19 @@ capacity assumptions, and the separate low-wind resource restriction are retaine
 The implementation fingerprint changes the renewable run identity: old runs and
 checkpoints remain available, but are not automatically imported into the new
 shared-pass run. A currently running process retains its loaded implementation.
+
+## Post-solve deployment-weighted profiles
+
+Successful renewable solves automatically create `renewable_profiles/` in the
+run directory. `grid_monthly.csv` retains each deployed cell and technology;
+`province_monthly.csv` aggregates wind and solar separately using solved net
+installed MW, summed across vintages, for each scenario and model period.
+Both tables include capacity, monthly capacity factor, potential mean MW and
+potential MWh. Zero-capacity cells do not contribute to provincial averages.
+Province assignment reuses the demand workflow's centroid-based mapping.
+Provincial monthly curves and a grid-cell capacity-factor plot accompany the
+CSV tables. These report availability before dispatch and curtailment.
+The annual model still solves with annual capacity factors; these monthly
+profiles are diagnostics from the exact checksum-verified Silver bundle
+recorded in the Gold manifest, not additional intra-annual model constraints.
+Export errors are recorded in the run manifest without discarding a solve.

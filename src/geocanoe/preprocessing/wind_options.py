@@ -4,6 +4,7 @@ DESIGNS = {
     "T1": dict(rated_kw=6000, rotor_m=170, hub_m=115, atb_class=7),
     "T2": dict(rated_kw=8300, rotor_m=196, hub_m=130, atb_class=8),
     "T3": dict(rated_kw=3300, rotor_m=148, hub_m=100, atb_class=9),
+    "T4": dict(rated_kw=6000, rotor_m=196, hub_m=140, atb_class=10),
 }
 WIND_GROUP = "WIND_RESOURCE"
 MULTI_TECHS = {f"WIND_GEN_{t}" for t in DESIGNS}
@@ -20,7 +21,13 @@ def package_identity(settings):
     from geocanoe.acquisition.era5_renewables import sha256
 
     library = Turbines()
-    selected = DESIGNS if mode(settings) != "t1_only" else ["T1"]
+    selected = (
+        ["T1"]
+        if mode(settings) == "t1_only"
+        else ["T1", "T2", "T3"]
+        if mode(settings) == "selectable_t1_t2_t3"
+        else DESIGNS
+    )
     return {
         "package": "turbine-models",
         "version": version("turbine-models"),

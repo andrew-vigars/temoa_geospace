@@ -221,9 +221,7 @@ def convert(
         {"wind_cf": wind * (1 - config["wind_plant_loss"]), "solar_cf": solar}
     )
     if config.get("wind_representation", "t1_only") == "selectable_t1_t2_t3":
-        from geocanoe.preprocessing.wind_options import DESIGNS
-
-        for design in DESIGNS:
+        for design in ("T1", "T2", "T3"):
             if design == "T1":
                 profile = wind
             else:
@@ -254,7 +252,7 @@ def convert(
         design = resource_assignment.design.transpose("y", "x").values.ravel()
         weights = land_weights["wind"].multiply(design > 0).tocsr()
         composite = xr.zeros_like(wind_cell)
-        for number, label in [(1, "T1"), (2, "T2"), (3, "T3")]:
+        for number, label in [(1, "T1"), (2, "T2"), (3, "T3"), (4, "T4")]:
             cell = (
                 wind_cell
                 if number == 1

@@ -209,9 +209,12 @@ def select_costs(settings, root):
         raise ValueError(
             "Only explicit CANOE representative wind mapping is supported."
         )
-    representatives = canoe_wind_mapping(
-        mapping, policy.get("classes", {"T1": 7, "T2": 8, "T3": 9})
-    )
+    selections = dict(policy.get("classes", {"T1": 7, "T2": 8, "T3": 9}))
+    if wind_mode(settings) == "resource_assigned":
+        selections.setdefault("T4", 10)
+    else:
+        selections.pop("T4", None)
+    representatives = canoe_wind_mapping(mapping, selections)
     reference = crosswalk.loc[crosswalk.tech == "WIND_GEN", "physical_reference"].iloc[
         0
     ]
@@ -246,6 +249,8 @@ def select_costs(settings, root):
         rows = []
         template = crosswalk.loc[crosswalk.tech == "WIND_GEN"].iloc[0]
         for design, specs in DESIGNS.items():
+            if design == "T4" and wind_mode(settings) != "resource_assigned":
+                continue
             row = template.copy()
             selected_row = representatives.loc[
                 representatives.turbine_technology == int(design[1:])
@@ -287,14 +292,18 @@ def select_costs(settings, root):
             "crpyears",
         ]:
             mask &= master[col] == tech[col]
-        for metric, unit in [("OCC", "$/kW"), ("Fixed O&M", "$/kW-yr")]:
+        for metric, unit in [
+            ("OCC", "$/kW"),
+            ("GCC", "$/kW"),
+            ("Fixed O&M", "$/kW-yr"),
+        ]:
             rows = master.loc[mask & (master.core_metric_parameter == metric)].copy()
             if len(rows) != 1 or rows.units.iloc[0] != unit:
                 raise ValueError(
                     f"ATB selector must resolve exactly one {metric} row with {unit}: {tech.tech}"
                 )
             value = float(rows.value.iloc[0])
-            if not np.isfinite(value) or value <= 0:
+            if not np.isfinite(value) or value < 0 or (metric != "GCC" and value == 0):
                 raise ValueError("Invalid ATB cost value.")
             rows["tech"] = tech.tech
             rows["value_per_MW"] = value * 1000
@@ -304,9 +313,9 @@ def select_costs(settings, root):
         crosswalk.attrs = {}
         wind = crosswalk.loc[crosswalk.tech == "WIND_GEN_T1"].copy()
         wind["tech"] = "WIND_GEN"
-        wind["display_name"] = "Spatially assigned T1/T2/T3 mixture"
+        wind["display_name"] = "Spatially assigned T1/T2/T3/T4 mixture"
         wind["physical_reference"] = (
-            "eligible-capacity-weighted spatial T1/T2/T3 assignment"
+            "eligible-capacity-weighted spatial T1/T2/T3/T4 assignment"
         )
         crosswalk = pd.concat(
             [wind, crosswalk.loc[crosswalk.tech == "SOLAR_GEN"]], ignore_index=True
@@ -433,6 +442,26 @@ def gold_tables(annual, crosswalk, costs, settings, output):
         ]
     }
     assigned = wind_mode(settings) == "resource_assigned"
+    required_metrics = {"OCC", "GCC", "Fixed O&M"}
+    for cost_tech, rows in costs.groupby("tech"):
+        if (
+            len(rows) != len(required_metrics)
+            or set(rows.core_metric_parameter) != required_metrics
+            or not np.isfinite(rows.value_per_MW).all()
+            or (rows.value_per_MW < 0).any()
+        ):
+            raise ValueError(
+                f"Require exactly one OCC, GCC and Fixed O&M cost for {cost_tech}."
+            )
+    expected_cost_techs = (
+        {f"WIND_GEN_{design}" for design in DESIGNS} | {"SOLAR_GEN"}
+        if assigned
+        else set(crosswalk.tech)
+    )
+    if set(costs.tech) != expected_cost_techs:
+        raise ValueError(
+            "ATB cost technologies do not match the renewable representation."
+        )
     mixture = (
         pd.read_csv(
             output.parent / "wind_resource/regional_mix.csv", dtype={"region": str}
@@ -445,9 +474,10 @@ def gold_tables(annual, crosswalk, costs, settings, output):
         cost_tech = "WIND_GEN_T1" if assigned and tech.tech == "WIND_GEN" else tech.tech
         investment = float(
             costs.loc[
-                (costs.tech == cost_tech) & (costs.core_metric_parameter == "OCC"),
+                (costs.tech == cost_tech)
+                & (costs.core_metric_parameter.isin(["OCC", "GCC"])),
                 "value_per_MW",
-            ].iloc[0]
+            ].sum()
         )
         fixed = float(
             costs.loc[
@@ -474,7 +504,7 @@ def gold_tables(annual, crosswalk, costs, settings, output):
             if assigned and tech.tech == "WIND_GEN":
                 fractions = mixture.loc[str(region)]
                 values = {}
-                for metric in ["OCC", "Fixed O&M"]:
+                for metric in ["OCC", "GCC", "Fixed O&M"]:
                     values[metric] = (
                         sum(
                             float(fractions[f"{design}_fraction"])
@@ -489,7 +519,10 @@ def gold_tables(annual, crosswalk, costs, settings, output):
                         )
                         * currency["multiplier"]
                     )
-                regional_investment, regional_fixed = values["OCC"], values["Fixed O&M"]
+                regional_investment, regional_fixed = (
+                    values["OCC"] + values["GCC"],
+                    values["Fixed O&M"],
+                )
             base = {"region": str(region), "tech": tech.tech}
             tables["efficiency"].append(
                 {
@@ -560,7 +593,7 @@ def gold_tables(annual, crosswalk, costs, settings, output):
             ]
             tables["tech_group_member"] = [
                 dict(group_name=WIND_GROUP, tech=f"WIND_GEN_{design}")
-                for design in DESIGNS
+                for design in ("T1", "T2", "T3")
             ]
         audit.to_csv(output / "capacity_limit_audit.csv", index=False)
         print(
@@ -577,6 +610,7 @@ def gold_tables(annual, crosswalk, costs, settings, output):
             "activity_unit": "MWh/year",
             "currency": cost_currency,
             "currency_conversion": currency,
+            "investment_cost_components": ["OCC", "GCC"],
             "model_hours": 8760,
             "capacity_bounds": {
                 "enabled": capacity_input is not None,
@@ -592,7 +626,7 @@ def gold_tables(annual, crosswalk, costs, settings, output):
             )
             if assigned
             else None,
-            "wind_assignment_basis": "Annual ERA5 at 110 m; fixed eligible-capacity fractions; below 5.9 m/s excluded"
+            "wind_assignment_basis": "Annual ERA5 at 110 m; fixed eligible-capacity fractions; below 5.9 m/s assigned T4"
             if assigned
             else None,
             "wind_curve_source": package_identity(settings)
@@ -754,7 +788,7 @@ def preview(regions, annual, output, year, land_enabled=False):
         index=False,
     )
     profiles = (
-        [(f"wind_cf_{t.lower()}", f"Onshore wind {t}") for t in DESIGNS]
+        [(f"wind_cf_{t.lower()}", f"Onshore wind {t}") for t in ("T1", "T2", "T3")]
         if "wind_cf_t1" in annual
         else [("wind_cf", "Onshore wind")]
     )
@@ -1189,7 +1223,7 @@ def run_renewables_build(
                 "annual_cf_ready": True,
                 "resource_representation": "one_option_per_region",
                 "wind_physical_baseline": (
-                    "Spatially assigned T1/T2/T3, eligible-capacity weighted; T4 resource excluded"
+                    "Spatially assigned T1/T2/T3/T4, eligible-capacity weighted; includes low-resource T4"
                     if wind_mode(settings) == "resource_assigned"
                     else wind_mode(settings)
                 ),

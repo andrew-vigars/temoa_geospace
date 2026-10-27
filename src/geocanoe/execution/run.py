@@ -960,6 +960,14 @@ def main() -> None:
 
     manifest["results"]["objectives"] = extract_objective_from_db(solved_db_archive)
 
+    from geocanoe.analysis.renewables import export_renewable_profiles
+
+    try:
+        manifest["renewable_profiles"] = export_renewable_profiles(solved_db_archive, output_dir)
+    except Exception as exc:
+        print(f"WARNING: Renewable profile export failed: {exc}")
+        manifest["renewable_profiles"] = {"status": "failed", "error": str(exc)}
+
     manifest["maps"] = generate_output_map(solved_db_archive, output_dir, enabled=not args.no_map)
 
     write_manifest(manifest_path, manifest)

@@ -1,5 +1,5 @@
 # National renewable Silver build: all 13 provinces and territories.
-# Land exclusions enabled; resource-assigned T1/T2/T3 wind and tracking PV use ATB Moderate costs.
+# Land exclusions enabled; resource-assigned T1/T2/T3/T4 wind and tracking PV use ATB Moderate costs.
 # Gold uses the validated selected renewable bundle to replace legacy ELC_GEN.
 
 [profile]

@@ -47,7 +47,7 @@ def resolve_wind_crosswalk(crosswalk, mapping, resource_class=7):
 
 def canoe_wind_mapping(mapping, selections):
     """Select CANOE's representative ATB rows, without assigning spatial fractions."""
-    if set(selections) != {"T1", "T2", "T3"}:
+    if set(selections) not in ({"T1", "T2", "T3"}, {"T1", "T2", "T3", "T4"}):
         raise ValueError("CANOE wind mapping requires T1, T2 and T3 selections.")
     selected = []
     for turbine, resource_class in selections.items():

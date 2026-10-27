@@ -39,7 +39,7 @@ def test_annual_temoa_tables_have_valid_capacity_and_currency_contract(tmp_path)
         [
             {"tech": t, "core_metric_parameter": m, "value_per_MW": v}
             for t in crosswalk.tech
-            for m, v in [("OCC", 1_000_000.0), ("Fixed O&M", 25_000.0)]
+            for m, v in [("OCC", 1_000_000.0), ("GCC", 0.0), ("Fixed O&M", 25_000.0)]
         ]
     )
     annual = pd.DataFrame(
@@ -66,6 +66,22 @@ def test_annual_temoa_tables_have_valid_capacity_and_currency_contract(tmp_path)
     }
     assert not json.loads((tmp_path / "contract.json").read_text())["merge_ready"]
     assert SILVER_STAGE_DEPENDENCIES["renewables_atlite"] == ("basemaps",)
+    with pytest.raises(ValueError, match="exactly one OCC, GCC"):
+        stage.gold_tables(
+            annual,
+            crosswalk,
+            costs.loc[costs.core_metric_parameter.ne("GCC")],
+            settings,
+            tmp_path / "missing_gcc",
+        )
+    with pytest.raises(ValueError, match="exactly one OCC, GCC"):
+        stage.gold_tables(
+            annual,
+            crosswalk,
+            pd.concat([costs, costs.iloc[[0]]]),
+            settings,
+            tmp_path / "duplicate_component",
+        )
 
 
 def test_monthly_weather_cache_restores_atlite_module_and_checks_temporal_coverage(
@@ -125,7 +141,7 @@ def test_gold_replacement_uses_cad_dollars_and_requires_all_nodes(tmp_path):
         [
             {"tech": t, "core_metric_parameter": m, "value_per_MW": v}
             for t in crosswalk.tech
-            for m, v in [("OCC", 1_000_000.0), ("Fixed O&M", 25_000.0)]
+            for m, v in [("OCC", 1_000_000.0), ("GCC", 0.0), ("Fixed O&M", 25_000.0)]
         ]
     )
     annual = pd.DataFrame(

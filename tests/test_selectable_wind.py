@@ -77,7 +77,7 @@ def test_package_curves_match_designs_and_moderate_costs():
         "SOLAR_GEN",
     }
     assert crosswalk.scenario.eq("Moderate").all()
-    assert len(costs) == 8
+    assert len(costs) == 12
     for design, power, height in [("T1", 6.0, 115), ("T2", 8.3, 130), ("T3", 3.3, 100)]:
         curve = turbine_config(None, design)
         assert curve["P"] == power

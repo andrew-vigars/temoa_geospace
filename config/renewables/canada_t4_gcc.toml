@@ -1,0 +1,83 @@
+# Overnight refresh: T4 included; investment costs use audited ATB OCC + GCC.
+# Separate output root preserves the previous selected renewable run.
+# Build profile controls study area and projected basemap resolutions (>=25 km).
+netcdf_engine = "netcdf4"
+# One spatially weighted T1/T2/T3/T4 wind option and one tracking-PV option per region.
+resource_representation = "one_option_per_region"
+weather_year = 2018
+months = [1,2,3,4,5,6,7,8,9,10,11,12]
+bronze_dir = "data_files/raw/era5/canada_2018"
+boundary_file = "data_files/raw/basemaps/lpr_000b21a_e.shp"
+# [] uses all provinces and territories selected in the national build profile.
+province_subset = []
+output_dir = "data_files/processed/renewables/t4-gcc"
+weather_cache_dir = "data_files/processed/renewables/weather_cache"
+technology_crosswalk = "registry/renewables/technology_crosswalk.csv"
+wind_resource_dir = "registry/renewables/resources"
+atb_subset = "data_files/processed/atb/2025/v1.0.0/renewable_families/technology_families.csv"
+atb_selection_manifest = "data_files/processed/atb/2025/v1.0.0/renewable_families/selection_manifest.json"
+cost_projection_year = 2030
+atb_scenario = "Moderate"
+lcoe_discount_rate = 0.03 # Ranking diagnostic only; not an additional Gold cost.
+model_period = 2025
+vintage = 2025
+currency_basis = "registry/renewables/currency_basis.toml"
+source_currency = "USD"
+source_currency_year = 2023
+# Preserve native ATB costs and export Gold costs in CAD2020 dollars/MW.
+# Land eligibility, deployment density and maximum build capacity are not inferred.
+[technology]
+wind_representation = "resource_assigned"
+wind_plant_loss = 0.134
+pv_ilr = 1.32 # ATB 2025 utility PV representative inverter loading ratio.
+inverter_efficiency = 0.96
+pv_additional_loss = 0.0
+pv_panel = "CSi"
+pv_tracking = "horizontal"
+pv_slope = 0
+pv_azimuth = 180
+
+[gold]
+# When the build profile enables renewables, replace ELC_GEN only if Silver
+# covers every selected Gold graph node; incomplete coverage fails explicitly.
+enabled = true
+legacy_policy = "replace"
+
+[wind_mapping]
+# ATB representative cost rows; annual ERA5 classification supplies spatial weights.
+mode = "canoe_representative"
+[wind_mapping.classes]
+T1 = 7
+T2 = 8
+T3 = 9
+T4 = 10
+
+[capacity_limits]
+# Explicit input required before enabling; CFs do not establish buildable MW.
+enabled = false
+input_csv = "registry/renewables/regional_capacity_assumptions.csv"
+
+[land_exclusion]
+enabled = true
+resolution_m = 100
+wind_buffer_m = 100.0
+protected_status_codes = [1]
+wind_excluded_codes = [14, 17, 18]
+solar_excluded_codes = [14, 15, 17, 18]
+wind_land_km2_per_gw = 368.3
+solar_land_km2_per_gw = 34.4
+batch_size = 8
+
+[previews]
+monthly = true # Diagnostic PNG gallery and within-month hourly statistics.
+
+# Fixed design assignment from annual ERA5 wind at 110 m. Single-year proxy.
+# resource_assigned / selectable_t1_t2_t3 / t1_only are supported modes.
+[wind_assignment]
+atb_edition = 2025
+reference_height_m = 110
+t1_min_ms = 7.10
+t2_min_ms = 6.53
+t3_min_ms = 5.90
+# Include low-resource sites using the Class 10 / T4 turbine.
+low_resource_policy = "t4"

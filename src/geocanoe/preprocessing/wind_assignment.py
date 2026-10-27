@@ -17,7 +17,7 @@ def policy(settings):
         t1_min_ms=7.10,
         t2_min_ms=6.53,
         t3_min_ms=5.90,
-        low_resource_policy="exclude",
+        low_resource_policy="t4",
         atb_edition=2025,
     )
     result = {**expected, **result}
@@ -36,7 +36,7 @@ def classify(speed, settings):
     return np.select(
         [speed >= p["t1_min_ms"], speed >= p["t2_min_ms"], speed >= p["t3_min_ms"]],
         [1, 2, 3],
-        default=0,
+        default=4,
     )
 
 
@@ -100,7 +100,7 @@ def annual_assignment(output, settings, weather_month):
         weather_year=settings["weather_year"],
         reference_height_m=110,
         classification_basis="single-year ERA5 proxy; not a multiyear climatology",
-        design_zero="Excluded: below T3 threshold; T4 not represented",
+        design_four="Below T3 threshold; ATB Class 10 / T4",
     )
     temporary = path.with_suffix(".partial.nc")
     result.to_netcdf(temporary, engine="netcdf4")
@@ -125,7 +125,7 @@ def regional_mix(resource, weights, regions, settings, output):
     areas = np.column_stack(
         [
             np.asarray(weights.multiply(design == k).sum(axis=1)).ravel()
-            for k in [1, 2, 3]
+            for k in [1, 2, 3, 4]
         ]
     )
     represented = areas.sum(axis=1)
@@ -143,7 +143,7 @@ def regional_mix(resource, weights, regions, settings, output):
             "excluded_low_resource_km2": np.maximum(total - represented, 0),
         }
     )
-    for k in range(3):
+    for k in range(4):
         frame[f"T{k + 1}_fraction"] = fractions[:, k]
     frame.to_csv(directory / "regional_mix.csv", index=False)
     capacity = pd.read_csv(
@@ -183,17 +183,19 @@ def plot_resource_assignment(audit, resource, path):
     """Label the native ERA5 geographic axes independently of coordinate attrs."""
     import matplotlib.pyplot as plt
 
-    fig, axes = plt.subplots(1, 4, figsize=(18, 5))
-    for ax, column in zip(axes[:3], ["T1_fraction", "T2_fraction", "T3_fraction"]):
+    fig, axes = plt.subplots(1, 5, figsize=(22, 5))
+    for ax, column in zip(
+        axes[:4], ["T1_fraction", "T2_fraction", "T3_fraction", "T4_fraction"]
+    ):
         audit.plot(column=column, ax=ax, vmin=0, vmax=1, legend=True)
         ax.set_title(column)
         ax.set_axis_off()
     resource.mean_wind_speed_110m.plot.pcolormesh(
-        ax=axes[3], x="x", y="y", cbar_kwargs={"label": "Wind speed (m/s)"}
+        ax=axes[4], x="x", y="y", cbar_kwargs={"label": "Wind speed (m/s)"}
     )
-    axes[3].set_xlabel("Longitude (degrees east)")
-    axes[3].set_ylabel("Latitude (degrees north)")
-    axes[3].set_title("Annual mean wind at 110 m (m/s)")
+    axes[4].set_xlabel("Longitude (degrees east)")
+    axes[4].set_ylabel("Latitude (degrees north)")
+    axes[4].set_title("Annual mean wind at 110 m (m/s)")
     fig.tight_layout()
     fig.savefig(path, dpi=150)
     plt.close(fig)
