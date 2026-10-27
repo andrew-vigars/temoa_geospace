@@ -165,18 +165,7 @@ def regional_mix(resource, weights, regions, settings, output):
         .merge(frame, on="region", validate="one_to_one")
     )
     audit.to_file(directory / "regional_mix.gpkg", layer="wind_mix", index=False)
-    import matplotlib.pyplot as plt
-
-    fig, axes = plt.subplots(1, 4, figsize=(18, 5))
-    for ax, column in zip(axes[:3], ["T1_fraction", "T2_fraction", "T3_fraction"]):
-        audit.plot(column=column, ax=ax, vmin=0, vmax=1, legend=True)
-        ax.set_title(column)
-        ax.set_axis_off()
-    resource.mean_wind_speed_110m.plot(ax=axes[3])
-    axes[3].set_title("Annual mean wind at 110 m (m/s)")
-    fig.tight_layout()
-    fig.savefig(directory / "resource_assignment.png", dpi=150)
-    plt.close(fig)
+    plot_resource_assignment(audit, resource, directory / "resource_assignment.png")
     manifest(
         directory / "manifest.json",
         {
@@ -188,6 +177,26 @@ def regional_mix(resource, weights, regions, settings, output):
             },
         },
     )
+
+
+def plot_resource_assignment(audit, resource, path):
+    """Label the native ERA5 geographic axes independently of coordinate attrs."""
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(1, 4, figsize=(18, 5))
+    for ax, column in zip(axes[:3], ["T1_fraction", "T2_fraction", "T3_fraction"]):
+        audit.plot(column=column, ax=ax, vmin=0, vmax=1, legend=True)
+        ax.set_title(column)
+        ax.set_axis_off()
+    resource.mean_wind_speed_110m.plot.pcolormesh(
+        ax=axes[3], x="x", y="y", cbar_kwargs={"label": "Wind speed (m/s)"}
+    )
+    axes[3].set_xlabel("Longitude (degrees east)")
+    axes[3].set_ylabel("Latitude (degrees north)")
+    axes[3].set_title("Annual mean wind at 110 m (m/s)")
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
 
 
 def export_settings(settings, output):

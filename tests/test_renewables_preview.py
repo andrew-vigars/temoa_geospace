@@ -2,8 +2,68 @@ import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
+import geopandas as gpd
+from shapely.geometry import box
 
 from geocanoe.preprocessing.renewables_preview import month_statistics
+from geocanoe.preprocessing.renewables_preview import (
+    raw_weather_means,
+    build_raw_weather_preview,
+    project_weather_means,
+)
+
+
+def test_weather_maps_use_production_geometry_and_overlap_area():
+    means = xr.Dataset(
+        {"wind_100m": (("latitude", "longitude"), [[2.0, 6.0], [2.0, 6.0]])},
+        coords={"latitude": [50.0, 51.0], "longitude": [-120.0, -119.0]},
+    )
+    regions = gpd.GeoDataFrame(
+        {"region": ["west", "east"]},
+        geometry=[box(-120.4, 49.6, -119.6, 51.4), box(-119.4, 49.6, -118.6, 51.4)],
+        crs=4326,
+    )
+    mapped = project_weather_means(means, regions)
+    assert mapped.crs.to_epsg() == 3347
+    assert mapped.region.tolist() == ["west", "east"]
+    assert np.allclose(mapped.wind_100m, [2.0, 6.0])
+    assert mapped.geometry.equals(regions.to_crs(3347).geometry)
+
+
+def test_raw_preview_averages_speed_before_direction_cancellation(tmp_path):
+    coords = {
+        "valid_time": pd.date_range("2018-01-01", periods=2, freq="h"),
+        "latitude": [50.0, 51.0],
+        "longitude": [-120.0, -119.0],
+    }
+    dims = ("valid_time", "latitude", "longitude")
+    u = np.array([np.full((2, 2), 3.0), np.full((2, 2), -3.0)])
+    wind = xr.Dataset(
+        {
+            f"{component}{height}": (dims, u if component == "u" else u * 4 / 3)
+            for height in (10, 100)
+            for component in ("u", "v")
+        },
+        coords=coords,
+    )
+    influx = xr.Dataset({"ssrd": (dims, np.full((2, 2, 2), 360000.0))}, coords=coords)
+    means = raw_weather_means(wind, influx)
+    assert np.allclose(means.wind_100m, 5)
+    assert np.allclose(means.solar_downwards, 100)
+    assert means.solar_downwards.attrs["units"] == "W m-2"
+    assert means.wind_100m.attrs["units"] == "m s-1"
+    paths = {"wind": tmp_path / "wind.nc", "influx": tmp_path / "influx.nc"}
+    wind.to_netcdf(paths["wind"])
+    influx.to_netcdf(paths["influx"])
+    png = build_raw_weather_preview(
+        paths, tmp_path / "preview", 2018, 1, [-121, 49, -118, 52]
+    )
+    assert png.stat().st_size > 0
+    modified = png.stat().st_mtime_ns
+    build_raw_weather_preview(
+        paths, tmp_path / "preview", 2018, 1, [-121, 49, -118, 52]
+    )
+    assert png.stat().st_mtime_ns == modified
 
 
 def test_monthly_mean_preserves_energy_but_removes_hourly_variation():

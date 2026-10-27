@@ -1021,6 +1021,34 @@ def run_renewables_build(
         )
         output = root / settings["output_dir"] / config.build_id / key / run_id
         output.mkdir(parents=True, exist_ok=True)
+        if not land_preview_only:
+            from geocanoe.preprocessing.renewables_preview import (
+                build_raw_weather_preview,
+            )
+
+            raw_preview = (
+                root
+                / settings["output_dir"]
+                / "preview"
+                / f"{config.build_id}_{key}_{run_id}"
+                / "era5"
+            )
+            for month in tqdm(
+                range(1, 13), desc="Renewables: raw ERA5 previews", unit="month"
+            ):
+                build_raw_weather_preview(
+                    {
+                        i["feature"]: bronze / f"{i['request_id']}.payload"
+                        for i in plan
+                        if i["month"] == month
+                    },
+                    raw_preview,
+                    settings["weather_year"],
+                    month,
+                    bounds,
+                    engine,
+                    regions=regions,
+                )
         monthly = []
         land_weights = None
         resource_assignment = None
