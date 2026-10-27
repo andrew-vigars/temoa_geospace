@@ -1,6 +1,7 @@
 """Regression coverage for map units and non-intercepting local context."""
 import sqlite3
 from pathlib import Path
+from types import SimpleNamespace
 
 import geopandas as gpd
 import pandas as pd
@@ -8,6 +9,23 @@ import pytest
 from shapely.geometry import box
 
 from geocanoe.analysis import maps
+
+
+def test_node_layers_include_renewables_and_legacy_generation():
+    techs = ["ELC_GEN", "WIND_GEN", "WIND_GEN_T1", "WIND_GEN_T2", "WIND_GEN_T3", "SOLAR_GEN"]
+    tables = SimpleNamespace(
+        flow_out=pd.DataFrame({"region": ["R0"] * len(techs),
+                               "tech": techs, "flow": [10.0] * len(techs)}),
+        limit_capacity=pd.DataFrame(columns=["region", "tech_or_group", "capacity"]),
+    )
+    sites = pd.DataFrame({"lon": [-80.0], "lat": [45.0]}, index=["R0"])
+    layers = maps.build_node_layers(tables, SimpleNamespace(sites=sites))
+    for label in ["Electricity", "Electricity wind", "Electricity wind T1",
+                  "Electricity wind T2", "Electricity wind T3", "Electricity solar"]:
+        frame, _ = layers[label]
+        assert frame.flow.sum() == 10.0
+        assert frame.lon.tolist() == [-80.0]
+        assert maps.format_map_value(10.0, label) == "10 MWh"
 
 
 @pytest.mark.parametrize(

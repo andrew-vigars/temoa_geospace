@@ -1542,14 +1542,24 @@ def build_node_layers(tables: ModelTables, geodata: GeospatialData) -> dict[str,
     co2_cap = co2_cap.groupby("region", as_index=False).agg(flow=("flow", "sum"))
     co2_cap = add_site_coords(co2_cap, geodata.sites, idx_col="region")
 
-    return {
+    layers = {
         "Electricity": (elc_gen, "#0072B2"),
         "H2": (h2_plant, "#009E73"),
         "CO2": (co2_cap, "#777777"),
         "CO2 storage": (co2_storage, "#CC79A7"),
-        "Methanol": (metoh_plant, "#E69F00"),
+        "Methanol": (metoh_plant, "#9467BD"),
         "Gasoline": (gsl_plant, "#D55E00"),
     }
+    for tech, label, color in [
+        ("WIND_GEN", "Electricity wind", "#0072B2"),
+        ("WIND_GEN_T1", "Electricity wind T1", "#56B4E9"),
+        ("WIND_GEN_T2", "Electricity wind T2", "#2986CC"),
+        ("WIND_GEN_T3", "Electricity wind T3", "#0072B2"),
+        ("SOLAR_GEN", "Electricity solar", "#F0E442"),
+    ]:
+        if tech in set(tables.flow_out["tech"]):
+            layers[label] = (slice_with_coords(tables.flow_out, geodata.sites, tech), color)
+    return layers
 
 
 def build_transport_layers(
@@ -1641,8 +1651,8 @@ def build_transport_layers(
         "H2 truck": (h2_truck, "#009E73", "--", 1.0),
         "CO2 pipeline": (co2_pipe, "#777777", "-", 2.5),
         "CO2 truck": (co2_truck, "#777777", "--", 1.0),
-        "Methanol pipeline": (meth_pipe, "#E69F00", "-", 2.5),
-        "Methanol truck": (meth_truck, "#E69F00", "--", 1.0),
+        "Methanol pipeline": (meth_pipe, "#9467BD", "-", 2.5),
+        "Methanol truck": (meth_truck, "#9467BD", "--", 1.0),
         "Gasoline pipeline": (gsl_pipe, "#D55E00", "-", 2.5),
         "Gasoline truck": (gsl_truck, "#D55E00", "--", 1.0),
         "Electricity transmission": (elc_trans, "#0072B2", "-", 2.0),
