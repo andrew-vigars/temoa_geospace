@@ -1,0 +1,48 @@
+design_id,KV,CDT,BDL,CCT,ampacity_a_per_subconductor,rating_source,rating_conditions,approved_for_exploration
+design_001,138,*266,1,1.0,,,,False
+design_002,138,266,1,1.0,,,,False
+design_003,138,acsr1033,1,1.0,,,,False
+design_004,138,acsr1033,1,2.0,,,,False
+design_005,138,acsr1033,1,5.0,,,,False
+design_006,138,acsr1590,1,1.0,,,,False
+design_007,138,acsr1590 & acsr266,1,2.0,,,,False
+design_008,138,acsr266,1,1.0,,,,False
+design_009,138,acsr266,1,2.0,,,,False
+design_010,138,acsr266 & acsr266 & acsr266 & acsr266 & acsr266,1,1.0,,,,False
+design_011,138,acsr477,1,1.0,,,,False
+design_012,138,acsr477,1,2.0,,,,False
+design_013,138,acsr477 & acsr795,1,2.0,,,,False
+design_014,144,*266,1,1.0,,,,False
+design_015,144,266,1,1.0,,,,False
+design_016,144,266,1,2.0,,,,False
+design_017,144,477,2,2.0,,,,False
+design_018,144,acsr1590,1,1.0,,,,False
+design_019,144,acsr226,1,1.0,,,,False
+design_020,144,acsr266,1,1.0,,,,False
+design_021,144,acsr266,1,2.0,,,,False
+design_022,144,acsr397,1,1.0,,,,False
+design_023,144,acsr397,2,2.0,,,,False
+design_024,144,acsr477,1,1.0,,,,False
+design_025,144,acsr477,1,2.0,,,,False
+design_026,144,acsr795,1,1.0,,,,False
+design_027,240,* & * & acsr1034,2,2.0,,,,False
+design_028,240,*477,2,1.0,,,,False
+design_029,240,*795,2,1.0,,,,False
+design_030,240,1033,2,1.0,,,,False
+design_031,240,1590,2,2.0,,,,False
+design_032,240,477,2,1.0,,,,False
+design_033,240,acsr1033,1,1.0,,,,False
+design_034,240,acsr1033,1,5.0,,,,False
+design_035,240,acsr1033,2,1.0,,,,False
+design_036,240,acsr1033,2,2.0,,,,False
+design_037,240,acsr1033,3,1.0,,,,False
+design_038,240,acsr1034,2,2.0,,,,False
+design_039,240,acsr1590,1,1.0,,,,False
+design_040,240,acsr477,1,1.0,,,,False
+design_041,240,acsr477,2,1.0,,,,False
+design_042,240,acsr477,2,2.0,,,,False
+design_043,240,acsr795,1,1.0,,,,False
+design_044,240,acsr795,2,1.0,,,,False
+design_045,240,acsr795,2,2.0,,,,False
+design_046,240,,1,1.0,,,,False
+design_047,500,acsr1590,3,2.0,,,,False

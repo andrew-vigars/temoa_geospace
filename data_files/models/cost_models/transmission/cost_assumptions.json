@@ -1,0 +1,8 @@
+{
+  "unit": "CAD/km",
+  "constant_dollar_year": 2016,
+  "distance_denominator": null,
+  "cost_status": null,
+  "scope_confirmed_additive": false,
+  "evidence": "User-provided AESO dashboard screenshot reviewed 2026-10-27: Average ($/km); CNST$: constant $ in 2016. Route-km versus circuit-km, cost status and additive scope remain unresolved."
+}

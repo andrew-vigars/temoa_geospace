@@ -1,0 +1,42 @@
+{
+  "review_date": "2026-10-27",
+  "acquisition_mode": "manual_models_folder_fallback",
+  "bronze_registered": false,
+  "aeso": {
+    "publisher": "Alberta Electric System Operator",
+    "landing_url": "https://aeso.ca/grid/grid-planning/transmission-costs/",
+    "tableau_profile": "https://public.tableau.com/app/profile/transmissioncost",
+    "snapshot_file": "AESO_Transmission_2024.csv",
+    "original_filename": "1_Full Data_data.csv",
+    "sha256": "6196e9c4af59ab92a1df7067a39b95b84dad39fbc6666f20e0c4306eddf77acf",
+    "acquired_by": "user; exact original download date unknown",
+    "snapshot_label_year": 2024,
+    "snapshot_label_year_is_price_year": false,
+    "rows": 1241,
+    "distinct_line_ids": 158,
+    "latest_estimate_year": 2023,
+    "latest_source_date": "2023-10-30",
+    "price_basis_evidence": "User dashboard screenshot: CNST$: constant $ in 2016; Average ($/km).",
+    "acquisition_probe": "Public profile API returned HTTP 404; public profile requires JavaScript. No stable full-data endpoint verified."
+  },
+  "gsc_9302": {
+    "title": "Datasets to support infrastructure cost modelling",
+    "publisher": "Natural Resources Canada, Geological Survey of Canada",
+    "publication_year": 2026,
+    "report_url": "https://publications.gc.ca/collections/collection_2026/rncan-nrcan/m183-2/M183-2-9302-eng.pdf",
+    "dataset_doi": "https://doi.org/10.4095/prsanq99u5",
+    "method": "Manually transcribed two approximate transmission benchmarks from printed p. 3; dataset archive not acquired.",
+    "sample_note": "Report cites three transmission projects in Yukon and Alberta; the two benchmark examples are not two independent statistical samples.",
+    "acquisition_probe": "DOI resolves to JavaScript repository; no direct archive link found in returned HTML."
+  },
+  "ieso_eastern_ontario_2026": {
+    "title": "Eastern Ontario Bulk Plan",
+    "publisher": "IESO",
+    "publication_date": "2026-08-20",
+    "price_year": 2025,
+    "source_document": "User-supplied ON_E_BulkPlan.pdf",
+    "method": "Manually transcribed implementation-ready package estimates, printed pp. 45 and 49.",
+    "uncertainty": "Plan states -50% to +100% for recommendations; no probability interpretation assigned.",
+    "scope": "Package estimates, not isolated line-construction observations."
+  }
+}
