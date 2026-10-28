@@ -1,0 +1,1 @@
+--8<-- "scripts/model_workflow.md"

@@ -1,0 +1,22 @@
+.mermaid-panzoom {
+  position: relative;
+  height: min(75vh, 900px);
+  min-height: 32rem;
+  overflow: hidden;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.3rem;
+  background: var(--md-default-bg-color);
+}
+
+.mermaid-panzoom__svg {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+
+.mermaid-panzoom__svg.is-panning {
+  cursor: grabbing;
+}
