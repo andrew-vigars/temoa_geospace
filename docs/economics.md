@@ -8,9 +8,35 @@ then rebase using the Canadian GDP implicit price index:
 
 Monetary scales are converted separately; physical units must be normalized
 by the calling adapter. Model vintage and technology projection year do not
-select the exchange rate. CAD exchange entries are 1.## Bronze acquisition and explicit refresh`config/economics/sources.toml` declares source locations, pinned checksums,release directory and exact GDP series selectors. The economics Bronze stagepreserves the complete unmodified StatCan ZIP and curated CANOE exchange CSV,each with an acquisition manifest under `data_files/raw/economics/<release>/`.Verified caches are reused offline. Corruption or upstream revisions failchecksum validation; adopt revisions deliberately with a new pin and directory.The global `--overwrite` flag does not replace verified economics releases.From the repository root:```powershellgeocanoe-build-bronze --stages economicspython -m geocanoe.preprocessing.economics```The second command explicitly refreshes the configured reviewable registrytables and their provenance from verified Bronze, without network access.Acquisition alone never changes model conversion inputs. Review the resultingCSV/config diff before committing, then regenerate affected model costs.Current GDP selectors and years reproduce the existing committed observations.Future sources can use a pinned `url` instead of `local_path`; adding anotherpayload format requires its own validator/adapter. Do not substitute a web FXseries for the CANOE snapshot without explicitly choosing that policy change.
+select the exchange rate. CAD exchange entries are 1.
 
-The annual 2000â€“2024 series is Statistics Canada table 36-10-0223-01, Canada,
+## Bronze acquisition and explicit refresh
+
+`config/economics/sources.toml` declares source locations, pinned checksums,
+release directory and exact GDP-series selectors. The economics Bronze stage
+preserves the complete unmodified StatCan ZIP and curated CANOE exchange CSV,
+each with an acquisition manifest under `data_files/raw/economics/<release>/`.
+Verified caches are reused offline. Corruption or upstream revisions fail
+checksum validation; adopt revisions deliberately with a new pin and directory.
+The global `--overwrite` flag does not replace verified economics releases.
+
+From the repository root:
+
+```powershell
+geocanoe-build-bronze --stages economics
+python -m geocanoe.preprocessing.economics
+```
+
+The second command explicitly refreshes the configured reviewable registry
+tables and their provenance from verified Bronze, without network access.
+Acquisition alone never changes model conversion inputs. Review the resulting
+CSV/config diff before committing, then regenerate affected model costs.
+Current GDP selectors and years reproduce the existing committed observations.
+Future sources can use a pinned `url` instead of `local_path`; adding another
+payload format requires its own validator/adapter. Do not substitute a web FX
+series for the CANOE snapshot without explicitly choosing that policy change.
+
+The annual 2000–2024 series is Statistics Canada table 36-10-0223-01, Canada,
 Implicit price indexes, Gross domestic product at market prices, 2017=100.
 The index reference base cancels in the ratio. Source price year is independent
 of technology projection year and model vintage. Missing years, unsupported

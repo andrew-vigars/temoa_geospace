@@ -37,7 +37,7 @@ It then assigns native weather cells using the ATB 2025 design thresholds:
 T1 at >=7.10 m/s, T2 at >=6.53 and <7.10, T3 at >=5.90 and <6.53.
 Values exactly at a breakpoint use the higher-resource class. These are
 resource-speed thresholds, not IEC turbine safety classes. The mapping describes
-ATB future turbine designs (2035�2060); using their curves with the currently
+ATB future turbine designs (2035–2060); using their curves with the currently
 configured 2030 cost year remains a representative-technology assumption.
 
 Sources: https://atb.nlr.gov/electricity/2025/land-based_wind
@@ -50,7 +50,7 @@ must be regenerated, followed by a Gold rebuild and solve; existing solved
 outputs retain their original assumptions.
 
 For every model region, eligible area assigned to each design defines a fixed
-capacity fraction (the same MW/km� is assumed for each design). Hourly output
+capacity fraction (the same MW/km² is assumed for each design). Hourly output
 uses the design assigned at each weather cell before eligible-area aggregation.
 CAPEX and fixed O&M use those same fractions and ATB Moderate costs. Gold emits
 one `WIND_GEN` option per region with a resource-adjusted MW cap. Regions with
@@ -203,7 +203,7 @@ Build the selected basemaps before direct execution. For the existing local
 25 km basemap/profile used for validation:
 
 ```powershell
-python -m geocanoe.preprocessing.renewables --config config/build_profiles/provinces_orbits_quant.toml
+python -m geocanoe.preprocessing.renewables --config config/build_profiles/sample_renewables.toml
 ```
 
 For orchestrated use, enable renewables in your profile and run:
@@ -340,7 +340,7 @@ in the optimization in addition to CAPEX/OPEX.
 
 The default `[wind_mapping]` configuration follows CANOE's `new_wind_techs`:
 T1 uses Class 7, T2 uses Class 8, and T3 uses Class 9; national resource-assigned
-wind also uses Class 10 for T4. T1 is the turbine design for ATB Classes 1�7;
+wind also uses Class 10 for T4. T1 is the turbine design for ATB Classes 1–7;
 Class 7 is its representative cost row, not a restriction to Class 7 sites. These selections are
 validated against the native ATB resource/turbine columns. Cost selection uses
 the representative row matching the configured physical turbine reference.
@@ -370,7 +370,7 @@ The configured representation is `one_option_per_region`: each basemap region ha
 and immutable Bronze inputs, with a distinct run identity under the shared renewables output root. Reproduce it with:
 
 ```powershell
-python -m geocanoe.preprocessing.renewables --config config/build_profiles/provinces_orbits_quant.toml --settings config/renewables/ontario_validation.toml
+python -m geocanoe.preprocessing.renewables --config config/build_profiles/sample_renewables.toml --settings config/renewables/ontario_validation.toml
 python scripts/validate_renewables_run.py <completed-run-directory> --previous-output <previous-run-directory>
 ```
 
@@ -380,25 +380,26 @@ region and technology, checksums, and native ATB-to-CAD2020 cost conversion.
 It writes `validation_report.json`; this is internal consistency validation,
 not calibration against observed generation. Neither command merges Gold.
 
-### Deferred land constraints and national run
+### National land constraints and run
 
-Land-cover eligibility and maximum build capacity are deferred until national
-CF coverage has been checked. `[capacity_limits].enabled=false` is explicit;
-no whole-polygon MW potential is inferred. An optional later input has columns
-`region,tech,eligible_area_km2,density_mw_per_km2,basis,source` and requires both
-technologies for every region. It exports MW bounds as area times density with
-source provenance retained. Wind and solar independent area limits would not
-by themselves enforce joint land competition.
+The earlier deferred-land migration state has been superseded by the
+land-exclusion implementation above. The national settings now derive wind and
+solar eligible area from NALCMS land cover and CPCAD, apply configured deployment
+densities, and export MW bounds with source provenance. External
+`[capacity_limits]` remain disabled because generated land bounds are active;
+the two mechanisms cannot be enabled together. Wind and solar retain separate
+area limits and therefore do not enforce joint land competition.
 
 The dedicated national profile `config/build_profiles/canada_renewables.toml`
 covers all 13 provinces and territories, 25 km, and uses
-`config/renewables/canada.toml`. Gold replacement remains disabled there.
-These runs produce resource profiles, not validated buildable capacity.
+`config/renewables/canada.toml`. Renewable Gold replacement and generated
+land-capacity bounds are enabled; Gold requires complete coverage of every
+selected node and rejects an incomplete or unvalidated bundle.
 
 ### Monthly diagnostic gallery
 
 Silver automatically writes annual and twelve monthly paired wind/PV maps to
-`<output_dir>/preview/<build>_<grid>_<run>/` with consistent CF limits 0â€“1.
+`<output_dir>/preview/<build>_<grid>_<run>/` with consistent CF limits 0–1.
 Disable with `[previews].monthly=false`. To generate previews for an existing
 run without conversion, use `python -m geocanoe.preprocessing.renewables_preview <run-directory>`.
 The gallery includes per-region monthly means, hourly min/max and 5th/95th
@@ -426,9 +427,9 @@ geocanoe-build-silver --config config/build_profiles/canada_renewables.toml
 ```
 
 The complete orchestrator still runs `legacy_inputs` for compatibility; it is
-not a renewable CF source. Remove that stage only after validation of the
-replacement representation and its Gold integration. The national profile
-currently disables renewable Gold replacement and land-capacity limits.
+not a renewable CF source. When the national renewable bundle is selected,
+Gold replaces the legacy `ELC_GEN` representation with validated wind and solar
+technologies and generated land-capacity limits.
 
 The 2018 national 25 km reference run contains 15,273 regions and 8,760 UTC
 hours, with one wind and one solar option per region. Its preview gallery has
