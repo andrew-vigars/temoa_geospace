@@ -12,7 +12,7 @@ on:
       - "scripts/model_workflow.md"
   push:
     branches:
-      - main
+      - geo-dev
     paths:
       - ".github/workflows/docs.yml"
       - "docs/**"
@@ -50,18 +50,18 @@ jobs:
         run: mkdocs build --clean --site-dir site
 
       - name: Configure GitHub Pages
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        if: github.ref == 'refs/heads/geo-dev' && github.event_name != 'pull_request'
         uses: actions/configure-pages@v5
 
       - name: Upload GitHub Pages artifact
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        if: github.ref == 'refs/heads/geo-dev' && github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v4
         with:
           path: site
 
   deploy:
     name: Deploy documentation
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/geo-dev' && github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     permissions:
