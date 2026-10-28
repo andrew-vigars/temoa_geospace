@@ -1,19 +1,40 @@
 # Geospatial-CANOE
 
-Geospatial-CANOE extends the CANOE/TEMOA energy-system modelling framework with a modular geospatial data, schema, execution, and analysis pipeline. It converts Canadian boundary, road, emissions, demand, technology, and cost data into a spatial graph, encodes that graph as a CANOE/TEMOA-compatible SQLite database, executes model scenarios, and provides post-solve exports and interactive maps.
+Geospatial-CANOE extends the CANOE/TEMOA energy-system modelling framework with
+a modular Canadian geospatial data, schema, execution, and analysis pipeline.
+It assembles spatial networks, energy demand, renewable-resource profiles,
+technology costs, emissions, and geological-storage evidence; encodes them in a
+TEMOA-compatible SQLite database; executes scenarios; and produces auditable
+post-solve exports and maps.
 
-The repository is an active research codebase undergoing migration to the
-TEMOA v4 backend. New installations obtain a pinned TEMOA v4 revision through
-the root package metadata, and model execution uses the installed package's
-Python API rather than a vendored source tree.
+The current development branch runs on the TEMOA v4 backend. New installations
+obtain a pinned TEMOA v4 revision through the root package metadata, and model
+execution uses the installed package's Python API rather than a vendored source
+tree. The codebase remains active research software: workflow contracts are
+versioned and tested, but the public API is not yet stable.
+
+## Documentation
+
+- Start with the [quickstart](docs/quickstart.md) for the shortest path through
+  installation, data preparation, model construction, and execution.
+- Use [Get started](docs/get-started.md) to choose the workflow that matches a
+  new user, data developer, model developer, or sensitivity-analysis task.
+- Read [What is GeoCANOE?](docs/what-is-geocanoe/overview.md) for the project
+  boundary, [model architecture](docs/what-is-geocanoe/model-architecture.md)
+  for the Bronze/Silver/Gold design, and the [data guide](docs/data-guide/index.md)
+  for source-to-model transformations.
+- Consult the detailed [geospatial methodology](docs/geospatial/index.md) and
+  [model-run records](docs/model-runs/index.md) when reviewing assumptions or
+  reproducing structural sensitivity decisions.
 
 ## Release and handoff history
 
 The `v0.7.0` tag marks the completed orchestration and scenario-management
-release. The current `geo-dev` branch builds on that release with national NHN
-Bronze and Silver workflows, Aboriginal Lands acquisition, and the generalized
-geospatial source registry. Package metadata remains at `0.7.0` until the next
-release is prepared.
+release. The current `geo-dev` branch is the `v0.8.0` release candidate. It
+completes the operational transition to TEMOA v4 and substantially expands the
+national data, renewable-resource, economic, carbon-policy, geological-storage,
+provenance, and documentation workflows. Package metadata intentionally remains
+at `0.7.0` until the release checks pass and the `v0.8.0` tag is created.
 
 | Version | Milestone |
 | --- | --- |
@@ -26,19 +47,37 @@ release is prepared.
 | `v0.5.0` | Migration of the active implementation into the `src/geocanoe` package |
 | `v0.6.0` | Geological CO2 storage workflow, registry migration, diagnostics refactor, typing, and contract tests |
 | `v0.7.0` | Bronze orchestration, scenario-aware Gold identities and manifests, scenario-selected resolutions, sample configurations, legacy gasoline opt-in, and multi-resolution batch scenarios |
+| `v0.8.0` *(release candidate)* | Operational TEMOA v4 execution; national renewable resource and land-eligibility modelling; ATB technology and cost integration; shared CAD2020 economics; explicit carbon accounting and policy controls; quantitative geological-storage capacity mapping; expanded provenance, validation, and documentation |
 
 This history describes research-code milestones rather than a stable public API.
 The Git tags preserve the detailed commit boundaries, while this summary gives
 new maintainers the architectural progression needed to interpret the current
 workflow.
 
-### Post-`v0.7.0` development
+### `v0.8.0` release-candidate scope
 
-Current development adds national hydrography evidence, Aboriginal Lands
-acquisition, and schema-v2 geospatial source metadata without changing the
-published package version. Release preparation should continue to verify the
-locked environment, package metadata, lint checks, and the complete GeoCANOE
-test suite before creating the next tag.
+The candidate release includes:
+
+- execution against an installed, pinned TEMOA v4 package, with solver
+  configuration generated from the active TEMOA installation;
+- fifteen orchestrated Bronze acquisition stages, including national land
+  cover, protected areas, existing wind and solar facilities, ERA5 weather,
+  ATB technology data, economics, hydrography, roads, emissions, and storage;
+- an Atlite-based national wind and solar workflow with auditable land
+  exclusions, regional capacity bounds, hourly profiles, ATB 2025 technology
+  options, and resource-assigned T1-T4 wind designs;
+- shared currency conversion and inflation policy targeting CAD2020 costs;
+- explicit carbon-flow accounting, minimum-storage and emissions-price policy
+  modes, and P50 geological-storage capacity bounds;
+- stronger run identities, manifests, contracts, provenance, diagnostics, and
+  independent renewable-output validation; and
+- a CANOE-like documentation hierarchy with data guides, architecture notes,
+  model-run records, and structural sensitivity rationale.
+
+Before tagging, update `pyproject.toml` and `src/geocanoe/__init__.py` together,
+regenerate the dependency lock if required, verify the installed TEMOA revision,
+run linting and the agreed test suite, and confirm a representative end-to-end
+build and solve. This README does not itself declare the release published.
 
 ## Current capabilities
 
@@ -48,7 +87,8 @@ The workflow currently supports:
 - geographic grids in EPSG:4326 and projected grids in EPSG:3347;
 - centroid-based cell retention and rook adjacency;
 - orchestrated Bronze acquisition for boundaries, Aboriginal Lands, roads,
-  hydrography, emissions, and geological-storage evidence;
+  hydrography, emissions, geological-storage evidence, renewable siting,
+  weather, ATB technology data, and economics;
 - filtered National Road Network backbone, primary-freight, and freight-access layers;
 - registered NHN waterbody and watercourse filtering, clipping, provenance,
   summaries, and previews;
@@ -59,6 +99,15 @@ The workflow currently supports:
 - preprocessing of 2024 large-facility greenhouse-gas emissions;
 - acquisition of a selected CanCO₂ unified-storage release from a local sibling repository;
 - mapping of unified geological-storage evidence onto each configured onshore basemap;
+- quantitative P50 geological-storage eligibility and regional capacity bounds;
+- national ERA5 weather preparation and Atlite wind/solar conversion;
+- land-cover, protected-area, and existing-facility renewable exclusions;
+- region-level renewable profiles, eligible-area capacity bounds, and ATB 2025
+  wind and solar cost integration;
+- selectable or resource-assigned T1-T4 wind power-curve representations;
+- shared CAD2020 currency and inflation conversion with versioned source data;
+- explicit carbon accounting with optional minimum-storage targets or
+  atmospheric emissions prices;
 - topology-independent hydrogen-pipeline cost preprocessing and curve fitting;
 - graph-based pipeline, truck, and electricity-transmission links;
 - schema encoding into a CANOE/TEMOA SQLite database;
@@ -97,10 +146,11 @@ Geospatial-CANOE/
 ├── config/
 │   ├── build_profiles/
 │   │   └── *.toml                 Geospatial preprocessing profiles
-│   ├── batch_profiles/
-│   │   └── *.toml                 Ordered model-run batches
-│   └── temoav4/
-│       └── *.toml                 TEMOA v4 solver configurations
+│   ├── batch_profiles/            Ordered model-run batches
+│   ├── atb/                       ATB source and technology-family selections
+│   ├── economics/                 Currency and inflation source policy
+│   ├── era5/                      Weather acquisition extents and years
+│   └── renewables/                Atlite, land, resource, and technology settings
 │
 ├── data_files/
 │   ├── raw/                       External and downloaded source datasets
@@ -108,8 +158,12 @@ Geospatial-CANOE/
 │   │   ├── basemaps/
 │   │   ├── canco2_storage/          Acquired external CanCO₂ Silver release
 │   │   ├── emissions/
+│   │   ├── economics/
+│   │   ├── era5/
+│   │   ├── land_cover/
 │   │   ├── nhn/                      National NHN hydrographic features
 │   │   ├── nrn/
+│   │   ├── protected_areas/
 │   │   └── residential/              Census DA boundaries and population table
 │   ├── models/                    Controlled engineering and cost workbooks
 │   │   └── cost_models/
@@ -123,6 +177,7 @@ Geospatial-CANOE/
 │   │   ├── graph/
 │   │   ├── legacy_inputs/
 │   │   ├── nrn/
+│   │   ├── renewables/                Immutable national VRE run bundles
 │   │   ├── road_connectivity/
 │   │   └── schema/
 │   ├── CANOE_geospatial.sqlite    Legacy v3 database retained for migration reference
@@ -142,7 +197,7 @@ Geospatial-CANOE/
 │
 ├── src/
 │   └── geocanoe/
-│       ├── acquisition/           Eight Bronze source-acquisition modules
+│       ├── acquisition/           Fifteen orchestrated Bronze acquisition modules
 │       │   └── co2_storage.py     Local CanCO₂ release acquisition
 │       ├── analysis/              Folium maps and output-table exports
 │       ├── config/                Build-profile parsing and validation
@@ -153,7 +208,7 @@ Geospatial-CANOE/
 │       ├── execution/             Silver orchestration, single runs, and batches
 │       ├── geospatial/            Basemaps, impedance, adjacency, roads, connectivity
 │       │   └── co2_storage.py     Storage-to-basemap integration and previews
-│       ├── preprocessing/         Legacy input harmonization
+│       ├── preprocessing/         Demand, economics, ATB, and renewable workflows
 │       ├── registry/              Dataset/stage metadata
 │       ├── schema/                CANOE/TEMOA encoding and database utilities
 │       └── paths.py               Shared repository-root discovery
@@ -162,11 +217,14 @@ Geospatial-CANOE/
 │   ├── batch_run.py
 │   ├── build_bronze.py
 │   ├── build_schema.py
+│   ├── build_schema_set.py
 │   ├── build_silver.py
 │   ├── create_map_folium.py
 │   ├── export_output_tables.py
-│   └── main_run.py
+│   ├── main_run.py
+│   └── validate_renewables_run.py
 │
+├── docs/                         User guides, methods, sources, and run records
 ├── diagnostics/                  Input, balance, and run-audit utilities
 ├── notebooks/                    Exploratory and development notebooks
 ├── output_files/                 Timestamped optimization runs
@@ -207,8 +265,8 @@ python -m pip install -e .
 ```
 
 The default installation includes both Temoa's HiGHS backend and the Gurobi
-Python package because the committed solver configurations select Gurobi. A
-valid Gurobi licence remains an external prerequisite for those runs.
+Python package. A valid Gurobi licence remains an external prerequisite when a
+generated or local solver configuration selects Gurobi.
 
 A successful installation should make the package importable without modifying `PYTHONPATH`:
 
@@ -216,7 +274,9 @@ A successful installation should make the package importable without modifying `
 python -c "import geocanoe; print(geocanoe.__version__)"
 ```
 
-At the current development head, the command prints `0.7.0`.
+Until the release-version files are updated, the candidate branch prints
+`0.7.0`. A tagged `v0.8.0` release must print `0.8.0`; a mismatched tag,
+`pyproject.toml` version, and importable version is a release blocker.
 
 Installation also provides the canonical workflow commands:
 
@@ -787,7 +847,7 @@ data_files/processed/nhn/preview/*.png
 
 ### Raw acquisition
 
-The preferred entry point coordinates all eight registered Bronze stages:
+The preferred entry point coordinates all fifteen registered Bronze stages:
 
 ```bash
 geocanoe-build-bronze
@@ -806,6 +866,13 @@ python -m geocanoe.acquisition.nrn
 python -m geocanoe.acquisition.nhn
 python -m geocanoe.acquisition.emissions
 python -m geocanoe.acquisition.co2_storage
+python -m geocanoe.acquisition.land_cover
+python -m geocanoe.acquisition.protected_areas
+python -m geocanoe.acquisition.wind_turbines
+python -m geocanoe.acquisition.solar_facilities
+python -m geocanoe.acquisition.era5_renewables
+python -m geocanoe.acquisition.atb
+python -m geocanoe.acquisition.economics
 ```
 
 Primary outputs:
@@ -828,6 +895,13 @@ data_files/raw/nhn/nhn_wms_capabilities.xml
 data_files/raw/nhn/nhn_acquisition_manifest.json
 data_files/raw/emissions/co2_large_facilities_2024/
 data_files/raw/canco2_storage/
+data_files/raw/land_cover/
+data_files/raw/protected_areas/
+data_files/raw/wind_turbines/
+data_files/raw/solar_facilities/
+data_files/raw/era5/
+data_files/raw/atb/
+data_files/raw/economics/
 ```
 
 `registry/geospatial_sources.yaml` schema v2 inventories these sources by
@@ -923,7 +997,7 @@ technology-siting exclusion layer.
 
 ### Silver preprocessing stages
 
-The current Silver workflow includes seventeen stages in canonical dependency
+The current Silver workflow includes eighteen stages in canonical dependency
 order:
 
 1. legacy site province mapping for the existing LCOE/electricity workflow;
@@ -942,7 +1016,9 @@ order:
 14. regional adjacency construction;
 15. aggregation of polygon evidence onto graph-edge cost multipliers;
 16. processed road-network construction;
-17. road-connectivity mapping.
+17. road-connectivity mapping; and
+18. renewable weather, land eligibility, resource assignment, profiles,
+    capacity limits, costs, contracts, and previews.
 
 These stages are implemented under `src/geocanoe/` and orchestrated by `geocanoe.execution.silver`.
 
@@ -960,6 +1036,7 @@ data_files/processed/graph/
 data_files/processed/nrn/
 data_files/processed/road_connectivity/
 data_files/processed/gasoline_demand/<build-id>/
+data_files/processed/renewables/<profile>/<resolution>/<run-id>/
 ```
 
 The gasoline stages support all ten provinces and three territories. Configure
@@ -1313,7 +1390,10 @@ raw acquisition
     ├── NRN
     ├── NHN
     ├── emissions
-    └── CanCO₂ storage evidence
+    ├── CanCO₂ storage evidence
+    ├── land cover, protected areas, and existing renewable facilities
+    ├── ERA5 renewable weather and ATB technology data
+    └── economics source snapshots
         │
         ▼
 silver preprocessing
@@ -1328,7 +1408,8 @@ silver preprocessing
     ├── hydrography and CO₂ storage evidence
     ├── adjacency
     ├── roads
-    └── road connectivity
+    ├── road connectivity
+    └── renewable land eligibility, resource assignment, profiles, and bounds
         │
         ▼
 schema encoding
@@ -1375,6 +1456,7 @@ data_files/processed/gasoline_demand/
 data_files/processed/legacy_inputs/
 data_files/processed/emissions/
 data_files/processed/costs/
+data_files/processed/renewables/
 data_files/processed/schema/
 ```
 
@@ -1394,8 +1476,21 @@ The current transport infrastructure formulation uses piecewise capacity-cost se
   Aboriginal Lands, population-density, and hydrography cost impedance rather
   than least-cost pathfinding over a continuous routing surface;
 - the current generalized pipeline cost layer is based on hydrogen-pipeline data;
-- the schema workflow remains tied to the current CANOE/TEMOA database structure;
-- multi-period scenario logic and uncertainty analysis are still under development;
+- national renewable profiles currently represent one configured ERA5 weather
+  year rather than a long-term climatology or multi-weather-year ensemble;
+- renewable capacity estimates use scenario-level deployment-density and land-
+  eligibility assumptions rather than parcel-scale siting or transmission
+  interconnection studies;
+- resource-assigned wind fixes each region's T1-T4 design mixture before the
+  solve, while selectable designs share an aggregate regional wind bound;
+- current economic normalization covers adopted workflows, but inherited and
+  unlabeled legacy costs still require source-by-source reconciliation;
+- geological storage includes mapped P50 capacity bounds but not injection-rate,
+  pressure, plume-migration, or offshore-storage constraints;
+- the schema workflow targets the installed TEMOA v4 database contract and is
+  not intended to remain backward compatible with legacy TEMOA schemas;
+- multi-period scenario logic, uncertainty analysis, and multi-weather-year
+  sensitivity analysis are still under development;
 - batch resume/retry settings are present in configuration but full persistent resume semantics are not yet implemented.
 
 ## Planned development
@@ -1403,17 +1498,29 @@ The current transport infrastructure formulation uses piecewise capacity-cost se
 Priority extensions include:
 
 - commodity-specific CO₂, hydrogen, fuel, and natural-gas pipeline cost models;
-- geological CO₂ capacity and injectivity storage representation, DAC, BECCS, and additional carbon-management pathways;
+- geological CO₂ injectivity and rate constraints, offshore storage, DAC,
+  BECCS, and additional carbon-management pathways;
 - rail, marine, reused natural-gas corridors, and expanded electricity transmission;
 - e-diesel, e-SAF, and e-methanol pathways;
-- multi-period optimization and improved temporal representation;
+- multi-period optimization, representative time slices, and multi-year weather
+  sensitivity;
 - terrain- and infrastructure-aware routing;
 - multi-objective and modelling-to-generate-alternatives analysis;
 - network robustness, hub persistence, and near-optimal corridor analysis;
-- stronger automated input, balance, and schema-integrity tests.
+- stronger automated input, balance, schema-integrity, and end-to-end release
+  tests;
+- continued decision records for structural sensitivities and consequential
+  model-design choices.
 
 ## Status
 
-The preprocessing, schema-building, execution, export, diagnostics, and interactive mapping pipeline is partially operational for the current road, truck, pipeline, electricity-transmission, and geological-storage preprocessing representation. Truck cost representation is still required as well as CO2 and end-fuel pipeline representation. The major scripts-to-package refactor is complete, although the codebase remains active research software and should not yet be treated as a stable public API.
+The `v0.8.0` release candidate provides an operational end-to-end research
+workflow on TEMOA v4: Bronze acquisition, Silver preprocessing, Gold database
+construction, single and batch solves, diagnostics, exports, and interactive
+mapping. It covers the current road, truck, pipeline, electricity-transmission,
+renewable-generation, carbon-accounting, and geological-storage representations.
+The workflow is suitable for documented research runs and structural
+sensitivity analysis, but it remains active research software and should not be
+treated as a stable public API.
 
 For the workflow overview, see [`scripts/model_workflow.md`](scripts/model_workflow.md).
