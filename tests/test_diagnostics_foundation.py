@@ -109,10 +109,10 @@ def test_schema_artifact_paths_include_road_layer() -> None:
         build_id="onqc",
         scenario_id="baseline",
         fingerprint="a1b2c3d4",
-        artifact_barcode="deadbeef",
+        artifact_barcode="c02c0de5",
     )
     assert build_instance.schema.name == (
-        "gold_onqc_baseline_a1b2c3d4_deadbeef.sqlite"
+        "gold_onqc_baseline_a1b2c3d4_c02c0de5.sqlite"
     )
 
     gasoline = resolve_gasoline_demand_artifact_path(
@@ -133,7 +133,7 @@ def test_schema_artifact_paths_include_road_layer() -> None:
 
 def test_latest_schema_artifact_finds_build_barcode(tmp_path: Path) -> None:
     canonical = tmp_path / "gold_onqc_baseline_a1b2c3d4.sqlite"
-    build_instance = tmp_path / "gold_onqc_baseline_a1b2c3d4_deadbeef.sqlite"
+    build_instance = tmp_path / "gold_onqc_baseline_a1b2c3d4_c02c0de5.sqlite"
     build_instance.touch()
 
     assert resolve_latest_schema_artifact(canonical) == build_instance

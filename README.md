@@ -236,6 +236,225 @@ Active reusable code belongs under `src/geocanoe/`. Generated intermediate produ
 
 ## Installation
 
+### What you need before starting
+
+Use Python 3.12 for the documented and tested environment. Although the package
+metadata accepts later Python releases, the pinned scientific dependencies and
+TEMOA integration should not be assumed compatible with a newer interpreter
+until that interpreter has been tested here.
+
+You need:
+
+- a 64-bit Python 3.12 installation;
+- [Git](https://git-scm.com/downloads), because both the repository and the
+  pinned TEMOA dependency are obtained from Git;
+- enough disk space for the selected source data and generated products;
+- internet access during installation and any Bronze acquisition that downloads
+  external data; and
+- optionally, a valid Gurobi licence for solver configurations that select
+  Gurobi. Temoa's HiGHS backend does not require a Gurobi licence.
+
+Do not install GeoCANOE packages into the system-wide Python environment. The
+steps below create a project-local virtual environment named `.venv`. It keeps
+GeoCANOE's pinned packages isolated from other Python projects, is already
+ignored by Git, and can be deleted and recreated if an installation becomes
+damaged.
+
+### Windows: first-time installation
+
+These instructions use PowerShell and are the recommended path for new users.
+
+#### 1. Install Python 3.12 and Git
+
+Install the official [Python install manager](https://www.python.org/downloads/)
+from Python.org or the Microsoft Store. Open a **new** PowerShell window after
+installation and install the Python 3.12 runtime:
+
+```powershell
+py install 3.12
+py -V:3.12 --version
+```
+
+The second command must report `Python 3.12.x`. If `py install` is unavailable,
+follow the official [Using Python on Windows](https://docs.python.org/3/using/windows.html)
+instructions to install the manager, then reopen PowerShell.
+
+Install [Git for Windows](https://git-scm.com/download/win), accept its normal
+command-line integration, reopen PowerShell, and verify it:
+
+```powershell
+git --version
+```
+
+#### 2. Obtain the repository
+
+Choose a parent folder for research repositories, clone GeoCANOE, and enter its
+root directory:
+
+```powershell
+git clone https://github.com/andrew-vigars/temoa_geospace.git
+Set-Location temoa_geospace
+git switch geo-dev
+```
+
+If you received the repository by another method, open PowerShell in the folder
+that contains `pyproject.toml` and `README.md`. All remaining installation
+commands must be run from that folder. The `git switch geo-dev` command selects
+the v0.8.0 release-candidate branch; after v0.8.0 is published, release users
+should select the `v0.8.0` tag or the documented release branch instead.
+
+#### 3. Create the virtual environment
+
+Explicitly use Python 3.12 so another installed Python version is not selected:
+
+```powershell
+py -V:3.12 -m venv .venv
+```
+
+This creates `.venv` inside the repository. It does not install GeoCANOE yet.
+
+#### 4. Activate the virtual environment
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+The prompt should now begin with `(.venv)`. If PowerShell reports that script
+execution is disabled, allow activation for only the current PowerShell process
+and try again:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+```
+
+Verify that `python` now resolves inside this repository and is version 3.12:
+
+```powershell
+python --version
+(Get-Command python).Source
+```
+
+The path from the second command should end in `.venv\Scripts\python.exe`. Stop
+and correct the environment if it points to a global Python installation.
+
+#### 5. Install GeoCANOE
+
+First update the installer inside `.venv`:
+
+```powershell
+python -m pip install --upgrade pip
+```
+
+Choose one installation profile:
+
+```powershell
+# Core geospatial, schema, execution, diagnostics, export, and mapping workflow
+python -m pip install -e .
+
+# Full research workflow, including renewables, ERA5, and cloud-source support
+python -m pip install -e ".[renewables,era5,cloud]"
+
+# Full contributor environment, including tests, linting, typing, and notebooks
+python -m pip install -e ".[renewables,era5,cloud,dev]"
+```
+
+Run only one of these commands. Most users reproducing the current national
+model should choose the second. Developers should choose the third. The `-e`
+means *editable*: changes made to this checkout are immediately visible to the
+installed package.
+
+Installation retrieves the pinned TEMOA v4 revision declared in
+`pyproject.toml`; no separate TEMOA clone is needed for normal use.
+
+#### 6. Verify the installation
+
+```powershell
+python -m pip check
+python -c "import sys, geocanoe, temoa; print(sys.executable); print(sys.version); print('GeoCANOE', geocanoe.__version__); print('Temoa', temoa.__file__)"
+geocanoe-build-bronze --help
+```
+
+Successful verification shows the `.venv` Python path, Python 3.12, the
+GeoCANOE version, an installed TEMOA path, and the Bronze command help without
+an import error. Until the v0.8.0 release-version files are updated, the
+candidate branch reports GeoCANOE `0.7.0`.
+
+#### 7. Select `.venv` in Visual Studio Code
+
+Install Microsoft's
+[Python extension for VS Code](https://marketplace.visualstudio.com/items?itemName=ms-python.python)
+if it is not already installed. Open the repository folder in VS Code, open the
+Command Palette with `Ctrl+Shift+P`, run **Python: Select Interpreter**, and
+select `.venv\Scripts\python.exe`. If the interpreter is not listed, choose
+**Enter interpreter path** and browse to that file. Open a new terminal
+afterward; VS Code should activate the environment automatically. Interpreter
+selection controls running, debugging, notebooks, linting, and import discovery.
+
+Every time you open an ordinary PowerShell terminal for this repository, enter
+the repository root and reactivate the environment:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+Use `deactivate` to leave it. Do not commit `.venv`, copy it to another machine,
+or move it with the repository; recreate it instead.
+
+### macOS and Linux: equivalent environment setup
+
+Install Python 3.12 and Git using the platform's official installer or package
+manager, then confirm that both commands are available. Some Linux
+distributions package virtual-environment support separately, for example as
+`python3.12-venv`.
+
+From the repository root:
+
+```bash
+python3.12 --version
+git --version
+python3.12 -m venv .venv
+source .venv/bin/activate
+python --version
+python -m pip install --upgrade pip
+python -m pip install -e ".[renewables,era5,cloud]"
+python -m pip check
+python -c "import sys, geocanoe, temoa; print(sys.executable); print(sys.version); print('GeoCANOE', geocanoe.__version__); print('Temoa', temoa.__file__)"
+```
+
+The activated `python` path should be under `.venv/bin/`. Contributors should
+install `.[renewables,era5,cloud,dev]` instead. Shell and system-library details
+vary by distribution; the Python 3.12 virtual-environment boundary and the
+GeoCANOE installation commands remain the same.
+
+### Troubleshooting installation
+
+- **`python` opens the Microsoft Store or reports the wrong version:** use
+  `py -V:3.12` while creating `.venv`, and use only `python` after activation.
+- **`No module named venv`:** install the operating system's Python 3.12 venv
+  package, then recreate `.venv`.
+- **PowerShell refuses to run `Activate.ps1`:** use the process-scoped execution
+  policy command shown above. It expires when that PowerShell window closes.
+- **`git` is not recognized:** install Git, close all terminals, open a new one,
+  and rerun `git --version` before installing GeoCANOE.
+- **`pip` installs into a user or global directory:** the virtual environment is
+  not active. Activate it and confirm the path returned by
+  `(Get-Command python).Source` or `which python`.
+- **A partial installation fails on a later retry:** keep `.venv` active and
+  rerun the selected install command. If dependency state remains inconsistent,
+  delete only `.venv`, recreate it, and reinstall; source data and code are
+  outside that directory.
+- **VS Code cannot import `geocanoe`:** select the repository's `.venv`
+  interpreter rather than a global Python or another project's environment.
+- **Gurobi reports a licence error:** select a HiGHS solver configuration or
+  install/configure a valid Gurobi licence. Installing `gurobipy` alone does not
+  provide a licence.
+
+The official Python [virtual-environment documentation](https://docs.python.org/3.12/library/venv.html)
+explains activation and environment isolation in more detail.
+
+### Installation profiles and dependency policy
+
 The root `pyproject.toml` is the canonical package and dependency interface for
 Geospatial-CANOE. Runtime dependencies, Gurobi's Python package, the pinned
 TEMOA v4 Git revision, and optional development dependencies are declared
@@ -250,15 +469,13 @@ change from silently removing a package that GeoCANOE still uses. Direct and
 transitive versions for the reproducible development environment are captured
 in `requirements-lock.txt`.
 
-### Standard research installation
+### Core installation reference
 
-This is the normal installation for research use. It supports the complete
-Geospatial-CANOE workflow and installed CANOE/TEMOA model, including data
-acquisition, preprocessing, schema construction, optimization, diagnostics,
-exports, and maps. It intentionally excludes contributor-only tools.
+The core installation supports the geospatial, schema, execution, diagnostics,
+export, and mapping workflow. Renewable conversion, ERA5 acquisition, cloud
+sources, and contributor tools are deliberately separated into optional extras.
 
-From the repository root, install the complete research environment in editable
-mode:
+From the repository root, install the core environment in editable mode:
 
 ```bash
 python -m pip install -e .
@@ -296,22 +513,23 @@ The files under `scripts/` and `diagnostics/check.py` remain compatibility
 wrappers for existing notebooks and automation. Package-module invocation with
 `python -m` is also supported by the corresponding implementation modules.
 
-### Contributor, testing, and notebook installation
+### Contributor, testing, and notebook reference
 
 Use this deeper environment when modifying the codebase, running the test suite,
 checking or formatting code, using pre-commit hooks, or working interactively
 with the development notebooks and Jupyter.
 
-Install Geospatial-CANOE with its development extra:
+Install the development tools alone with:
 
 ```bash
 python -m pip install -e ".[dev]"
 ```
 
-The `dev` extra preserves the complete research environment and adds testing,
-coverage, linting, type-checking, pre-commit, interactive Jupyter tooling, and
-notebook-oriented geospatial exploration packages. It is not required to run
-the canonical research workflow.
+The `dev` extra adds testing, coverage, linting, type-checking, pre-commit,
+interactive Jupyter tooling, and notebook-oriented geospatial exploration
+packages. It does not implicitly install the `renewables`, `era5`, or `cloud`
+extras. Use `.[renewables,era5,cloud,dev]` for the complete contributor
+environment.
 
 #### Temporary local TEMOA v4 development override
 
@@ -341,14 +559,15 @@ From the Geospatial-CANOE repository root, install Geospatial-CANOE and its
 remaining dependencies first, then install local TEMOA last:
 
 ```bash
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[renewables,era5,cloud,dev]"
 python -m pip install --no-deps -e "../temoa-v4"
 ```
 
-Use `-e .` instead of `-e ".[dev]"` in the first command when contributor tools
-are not required. The order is significant because the second command replaces
-the pinned Git TEMOA installation in the active virtual environment with the
-editable sibling checkout. Confirm the active source with:
+Choose the same extras required by the intended workflow in the first command;
+`-e .` is sufficient for the core workflow. The order is significant because
+the second command replaces the pinned Git TEMOA installation in the active
+virtual environment with the editable sibling checkout. Confirm the active
+source with:
 
 ```bash
 python -c "import temoa; print(temoa.__file__)"
@@ -388,7 +607,7 @@ Use this option if you need to reproduce the exact package versions captured in 
 Use the lock file as a constraints file while installing from `pyproject.toml`:
 
 ```bash
-python -m pip install -c requirements-lock.txt -e ".[dev]"
+python -m pip install -c requirements-lock.txt -e ".[renewables,era5,cloud,dev]"
 ```
 
 Verify the installation with:
@@ -397,9 +616,11 @@ Verify the installation with:
 python -c "import geocanoe; print(geocanoe.__version__)"
 ```
 
-In general, use `-e .` for the complete research environment and
-`-e ".[dev]"` for contributor, testing, or notebook work. Add
-`-c requirements-lock.txt` when reproducing the currently pinned environment.
+In general, use `-e .` for the core environment,
+`-e ".[renewables,era5,cloud]"` for the full national research workflow, and
+`-e ".[renewables,era5,cloud,dev]"` for full contributor, testing, and notebook
+work. Add `-c requirements-lock.txt` when reproducing the currently pinned
+environment.
 
 When a direct dependency or TEMOA revision changes, update `pyproject.toml`,
 regenerate `requirements-lock.txt`, install with the lock file as a constraint,
@@ -1165,8 +1386,8 @@ data_files/processed/schema/
 For example:
 
 ```text
-gold_onqc_baseline_a1b2c3d4_deadbeef.sqlite
-gold_onqc_baseline_a1b2c3d4_deadbeef.manifest.json
+gold_onqc_baseline_a1b2c3d4_c02c0de5.sqlite
+gold_onqc_baseline_a1b2c3d4_c02c0de5.manifest.json
 ```
 
 The eight-character fingerprint is deterministic and incorporates the complete
