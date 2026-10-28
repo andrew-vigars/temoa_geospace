@@ -1,0 +1,69 @@
+# Example MkDocs Material configuration for previewing these docs locally.
+#
+# Copy this file OUTSIDE the repository (for example C:\Users\<you>\Research\docs-preview\mkdocs.yml),
+# set docs_dir to the absolute path of this docs folder, then run:
+#     pip install mkdocs-material
+#     mkdocs serve
+#
+# The CANOE hub is versioned (/latest/). The `mike` plugin would give the same layout later.
+site_name: GeoCANOE documentation
+docs_dir: C:/Users/aviga/Research/repos/temoa-upstream/temoa_geospace/docs
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - content.code.copy
+markdown_extensions:
+  - tables
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+exclude_docs: |
+  tools/
+  mkdocs.example.yml
+nav:
+  - Home: index.md
+  - Geospatial pre-processing:
+      - geospatial/index.md
+      - "Part A: Data processing":
+          - geospatial/data-processing/index.md
+          - geospatial/data-processing/01-overview-and-architecture.md
+          - geospatial/data-processing/02-configuration-and-setup.md
+          - geospatial/data-processing/03-bronze-acquisition.md
+          - geospatial/data-processing/04-basemap-and-graph.md
+          - geospatial/data-processing/05-road-network.md
+          - geospatial/data-processing/06-pipeline-impedance.md
+          - geospatial/data-processing/07-co2-storage.md
+          - geospatial/data-processing/08-gasoline-demand.md
+          - geospatial/data-processing/09-emissions-and-site-inputs.md
+          - geospatial/data-processing/10-pipeline-cost-models.md
+          - geospatial/data-processing/11-gold-spatial-mapping.md
+          - geospatial/data-processing/12-gold-technology-cost-scenario.md
+          - geospatial/data-processing/13-temoa-execution.md
+          - geospatial/data-processing/14-diagnostics-and-analysis.md
+          - geospatial/data-processing/15-unit-conventions.md
+          - geospatial/data-processing/16-known-assumptions-and-limitations.md
+      - "Part B: Data sources":
+          - geospatial/data-sources/index.md
+          - geospatial/data-sources/statcan-boundaries.md
+          - geospatial/data-sources/statcan-da-population.md
+          - geospatial/data-sources/statcan-fuel-sales-and-population-centres.md
+          - geospatial/data-sources/statcan-nrn.md
+          - geospatial/data-sources/nrcan-aboriginal-lands.md
+          - geospatial/data-sources/nrcan-nhn.md
+          - geospatial/data-sources/eccc-large-facility-ghg.md
+          - geospatial/data-sources/canco2-storage.md
+          - geospatial/data-sources/controlled-inputs.md
+          - geospatial/data-sources/update-procedures.md
+  - CCS and CCU costs:
+      - ccs-ccu-costs/index.md
+  - Reference:
+      - conventions.md
+      - open-items.md
+      - references.md
