@@ -1,5 +1,7 @@
 # Geospatial-CANOE
 
+[**GeoCANOE Documentation**](https://andrew-vigars.github.io/temoa_geospace/)
+
 Geospatial-CANOE extends the CANOE/TEMOA energy-system modelling framework with
 a modular Canadian geospatial data, schema, execution, and analysis pipeline.
 It assembles spatial networks, energy demand, renewable-resource profiles,
