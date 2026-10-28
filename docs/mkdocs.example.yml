@@ -29,41 +29,72 @@ exclude_docs: |
   mkdocs.example.yml
 nav:
   - Home: index.md
-  - Geospatial pre-processing:
-      - geospatial/index.md
-      - "Part A: Data processing":
-          - geospatial/data-processing/index.md
-          - geospatial/data-processing/01-overview-and-architecture.md
-          - geospatial/data-processing/02-configuration-and-setup.md
-          - geospatial/data-processing/03-bronze-acquisition.md
-          - geospatial/data-processing/04-basemap-and-graph.md
-          - geospatial/data-processing/05-road-network.md
-          - geospatial/data-processing/06-pipeline-impedance.md
-          - geospatial/data-processing/07-co2-storage.md
-          - geospatial/data-processing/08-gasoline-demand.md
-          - geospatial/data-processing/09-emissions-and-site-inputs.md
-          - geospatial/data-processing/10-pipeline-cost-models.md
-          - geospatial/data-processing/11-gold-spatial-mapping.md
-          - geospatial/data-processing/12-gold-technology-cost-scenario.md
-          - geospatial/data-processing/13-temoa-execution.md
-          - geospatial/data-processing/14-diagnostics-and-analysis.md
-          - geospatial/data-processing/15-unit-conventions.md
-          - geospatial/data-processing/16-known-assumptions-and-limitations.md
-      - "Part B: Data sources":
-          - geospatial/data-sources/index.md
-          - geospatial/data-sources/statcan-boundaries.md
-          - geospatial/data-sources/statcan-da-population.md
-          - geospatial/data-sources/statcan-fuel-sales-and-population-centres.md
-          - geospatial/data-sources/statcan-nrn.md
-          - geospatial/data-sources/nrcan-aboriginal-lands.md
-          - geospatial/data-sources/nrcan-nhn.md
-          - geospatial/data-sources/eccc-large-facility-ghg.md
-          - geospatial/data-sources/canco2-storage.md
-          - geospatial/data-sources/controlled-inputs.md
-          - geospatial/data-sources/update-procedures.md
-  - CCS and CCU costs:
-      - ccs-ccu-costs/index.md
+  - Quickstart: quickstart.md
+  - Get Started: get-started.md
+  - What is GeoCANOE?:
+      - Overview: what-is-geocanoe/overview.md
+      - GeoCANOE, CANOE and Temoa: what-is-geocanoe/canoe-and-temoa.md
+      - Model Architecture: what-is-geocanoe/model-architecture.md
+      - Glossary: what-is-geocanoe/glossary.md
+  - Data Guide:
+      - Overview: data-guide/index.md
+      - Geospatial:
+          - Overview: geospatial/index.md
+          - Data Sources:
+              - Overview: geospatial/data-sources/index.md
+              - 2020 Land Cover of Canada: geospatial/data-sources/nrcan-land-cover-2020.md
+              - CPCAD 2025: geospatial/data-sources/eccc-cpcad-2025.md
+              - Canadian Wind Turbine Database: geospatial/data-sources/nrcan-wind-turbines.md
+              - TransitionZero Solar Asset Mapper: geospatial/data-sources/transitionzero-solar-2024q1.md
+              - StatCan boundaries: geospatial/data-sources/statcan-boundaries.md
+              - StatCan DA population: geospatial/data-sources/statcan-da-population.md
+              - Fuel sales and population centres: geospatial/data-sources/statcan-fuel-sales-and-population-centres.md
+              - National Road Network: geospatial/data-sources/statcan-nrn.md
+              - Aboriginal Lands: geospatial/data-sources/nrcan-aboriginal-lands.md
+              - National Hydro Network: geospatial/data-sources/nrcan-nhn.md
+              - ECCC facility emissions: geospatial/data-sources/eccc-large-facility-ghg.md
+              - CanCO2 storage: geospatial/data-sources/canco2-storage.md
+              - ERA5 renewable weather: geospatial/data-sources/copernicus-era5-renewables.md
+              - Electricity ATB 2025: geospatial/data-sources/atb-electricity-2025.md
+              - Controlled inputs: geospatial/data-sources/controlled-inputs.md
+              - Update procedures: geospatial/data-sources/update-procedures.md
+          - Processing & Assumptions:
+              - Overview: geospatial/data-processing/index.md
+              - Architecture and Temoa boundary: geospatial/data-processing/01-overview-and-architecture.md
+              - Configuration and setup: geospatial/data-processing/02-configuration-and-setup.md
+              - Bronze acquisition: geospatial/data-processing/03-bronze-acquisition.md
+              - Basemap and graph: geospatial/data-processing/04-basemap-and-graph.md
+              - Road network: geospatial/data-processing/05-road-network.md
+              - Pipeline impedance: geospatial/data-processing/06-pipeline-impedance.md
+              - CO2 storage: geospatial/data-processing/07-co2-storage.md
+              - Gasoline demand: geospatial/data-processing/08-gasoline-demand.md
+              - Emissions and site inputs: geospatial/data-processing/09-emissions-and-site-inputs.md
+              - Pipeline costs: geospatial/data-processing/10-pipeline-cost-models.md
+              - Gold spatial mapping: geospatial/data-processing/11-gold-spatial-mapping.md
+              - Gold technologies and scenarios: geospatial/data-processing/12-gold-technology-cost-scenario.md
+              - Temoa execution: geospatial/data-processing/13-temoa-execution.md
+              - Diagnostics and analysis: geospatial/data-processing/14-diagnostics-and-analysis.md
+              - Unit conventions: geospatial/data-processing/15-unit-conventions.md
+              - Assumptions and limitations: geospatial/data-processing/16-known-assumptions-and-limitations.md
+          - Final Data: geospatial/final-data.md
+      - Renewable Electricity:
+          - Overview: data-guide/renewables/index.md
+          - Data Sources: data-guide/renewables/data-sources.md
+          - Processing & Assumptions: data-guide/renewables/processing-assumptions.md
+          - Final Data: data-guide/renewables/final-data.md
+      - CCS and CCU Costs:
+          - Overview: ccs-ccu-costs/index.md
+  - Model Development:
+      - Overview: model-runs/index.md
+      - Structural Sensitivity Runs:
+          - Overview: model-runs/structural-sensitivity/index.md
+          - T4 wind representation and GCC: model-runs/structural-sensitivity/t4-gcc-wind-representation.md
+      - Decision Records:
+          - Overview: model-runs/decision-records/index.md
+          - Template: model-runs/decision-records/template.md
   - Reference:
-      - conventions.md
-      - open-items.md
-      - references.md
+      - Conventions: conventions.md
+      - Open Items: open-items.md
+      - References: references.md
+      - Glossary: what-is-geocanoe/glossary.md
+  - Contributing: contributing.md
