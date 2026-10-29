@@ -1303,6 +1303,13 @@ Leaflet/Folium HTML map with layer controls, tooltips, and popups. Solved
 tooltips and popups include the same fractional EoS pipeline count when the
 solved net-capacity and EoS curve tables are present.
 
+New maps also include a region-selection panel with individual clicks, exact-ID
+search, and rectangle/polygon tools. Open the map with
+`python -m geocanoe.analysis.selections --db "output_files/RUN/model.sqlite"`
+to save named selections under that run's `region_selections/` folder. Reuse them
+for scoped Excel exports or read-only SQL queries; see
+[region-selection instructions](docs/region_selections.md).
+
 ## Canonical execution order
 
 ```text

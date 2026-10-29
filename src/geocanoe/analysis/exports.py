@@ -27,6 +27,7 @@ import pandas as pd
 from openpyxl.utils import get_column_letter
 
 from geocanoe.analysis.pipeline_capacity import build_pipeline_capacity_summary
+from geocanoe.analysis.selections import load_selection, region_matches
 from geocanoe.paths import find_project_root
 
 
@@ -482,6 +483,8 @@ def export_output_tables(
     output_dir: Path,
     tables: list[str] | None = None,
     skip_empty: bool = True,
+    selection_path: Path | None = None,
+    transport: str = "touching",
 ) -> list[Path]:
     """Export selected CANOE/TEMOA output tables to one Excel workbook.
 
@@ -511,6 +514,11 @@ def export_output_tables(
         in the database are selected.
     skip_empty : bool, default=True
         Whether to skip selected tables containing no rows.
+    selection_path : Path | None, default=None
+        Run-bound JSON selection. Tables without a region column are skipped.
+    transport : str, default="touching"
+        Include transport corridors touching, within, or crossing the selection
+        boundary. Selected node rows are included in every mode.
 
     Returns
     -------
@@ -531,6 +539,11 @@ def export_output_tables(
 
     if not db_path.exists():
         raise FileNotFoundError(f"SQLite database not found: {db_path}")
+
+    selection = load_selection(selection_path, db_path) if selection_path else None
+    selected_regions = set(selection["regions"]) if selection else set()
+    if transport not in {"touching", "within", "boundary"}:
+        raise ValueError("Unknown transport selection mode.")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / DEFAULT_WORKBOOK_NAME
@@ -557,12 +570,29 @@ def export_output_tables(
             )
         ]
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+            if selection:
+                metadata = pd.DataFrame({
+                    "region": selection["regions"],
+                    "selection": selection["name"],
+                    "database": selection["database"],
+                    "transport_mode": transport,
+                })
+                metadata.to_excel(writer, sheet_name="RegionSelection", index=False)
+                used_sheet_names.add("RegionSelection")
             for table in selected_tables:
                 if table not in existing_tables:
                     print(f"[Skip] Table not found: {table}")
                     continue
 
-                df = pd.read_sql_query(f'SELECT * FROM "{table}"', connection)
+                quoted_table = table.replace('"', '""')
+                df = pd.read_sql_query(f'SELECT * FROM "{quoted_table}"', connection)
+                if selection:
+                    if "region" not in df.columns:
+                        print(f"[Skip] No regional scope: {table}")
+                        continue
+                    df = df.loc[df["region"].map(
+                        lambda value: region_matches(value, selected_regions, transport)
+                    )].copy()
 
                 normalized_table = _normalized_table_name(table)
                 if normalized_table == "outputflowout":
@@ -583,7 +613,7 @@ def export_output_tables(
 
                 print(
                     f"[Exported] {table}: {len(df):,} row(s) "
-                    f"→ {output_path.name} [{sheet_name}]"
+                    f"-> {output_path.name} [{sheet_name}]"
                 )
 
             if flow_out_for_storage_summary is not None:
@@ -626,7 +656,7 @@ def export_output_tables(
                     print(
                         f"[Exported] {CO2_STORAGE_SUMMARY_SHEET}: "
                         f"{len(storage_summary):,} row(s) "
-                        f"→ {output_path.name} [{sheet_name}]"
+                        f"-> {output_path.name} [{sheet_name}]"
                     )
 
             eos_matches = [
@@ -669,7 +699,7 @@ def export_output_tables(
                     print(
                         f"[Exported] {PIPELINE_CAPACITY_SUMMARY_SHEET}: "
                         f"{len(pipeline_summary):,} row(s) "
-                        f"→ {output_path.name} [{sheet_name}]"
+                        f"-> {output_path.name} [{sheet_name}]"
                     )
 
     if written_tables == 0:
@@ -746,6 +776,9 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Write empty Output* tables instead of skipping them.",
     )
+    parser.add_argument("--selection", type=Path, help="Saved region-selection JSON for this run.")
+    parser.add_argument("--transport", choices=["touching", "within", "boundary"], default="touching",
+                        help="Which transport corridors to include with selected node regions.")
 
     return parser.parse_args()
 
@@ -776,6 +809,10 @@ def main() -> None:
         selected_run, db_path = select_run_database(args.output_root)
         output_dir = args.out or selected_run / "excel_outputs"
 
+    if args.selection and args.out is None:
+        selection = load_selection(args.selection, db_path)
+        output_dir = db_path.parent / "region_selections" / selection["name"] / "excel_outputs"
+
     print("\nExcel export configuration")
     print("--------------------------")
     print(f"Database: {db_path}")
@@ -786,6 +823,8 @@ def main() -> None:
         output_dir=output_dir,
         tables=args.tables,
         skip_empty=not args.include_empty,
+        selection_path=args.selection,
+        transport=args.transport,
     )
 
     print("\nExcel export complete.")

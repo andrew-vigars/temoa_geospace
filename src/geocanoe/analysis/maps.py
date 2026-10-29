@@ -26,7 +26,7 @@ from typing import TypeAlias, cast
 from urllib.error import URLError
 
 import folium
-from branca.element import Figure
+from branca.element import Figure, MacroElement, Template
 from folium.plugins import Fullscreen, MeasureControl
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -45,6 +45,7 @@ from geocanoe.analysis.pipeline_capacity import (
     PIPELINE_CAPACITY_SUMMARY_COLUMNS,
     build_pipeline_capacity_summary,
 )
+from geocanoe.analysis.selection_ui import add_region_selection
 from geocanoe.paths import find_project_root
 
 # =============================================================================
@@ -3028,13 +3029,21 @@ def create_folium_base_map(geodata: GeospatialData) -> folium.Map:
         location=[center_lat, center_lon],
         zoom_start=4,
         tiles=None,
-        control_scale=True,
+        control_scale=False,
         prefer_canvas=True,
     )
 
     folium.map.CustomPane('land', z_index=200, pointer_events=False).add_to(model_map)
     folium.map.CustomPane('reference', z_index=225, pointer_events=False).add_to(model_map)
     folium.map.CustomPane('context', z_index=250, pointer_events=False).add_to(model_map)
+
+    scale = MacroElement()
+    scale._template = Template("""
+        {% macro script(this, kwargs) %}
+        L.control.scale({position: 'bottomright'}).addTo({{ this._parent.get_name() }});
+        {% endmacro %}
+    """)
+    model_map.add_child(scale)
 
     model_map.fit_bounds(bounds, padding=(12, 12))
     Fullscreen(position="topright").add_to(model_map)
@@ -3409,7 +3418,8 @@ def add_map_title(model_map: folium.Map, title: str) -> None:
 
     safe_title = _html_escape(title)
     title_html = f"""
-    <div style="position: fixed; top: 10px; left: 50px; z-index: 9999;
+    <div style="position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
+                z-index: 9999; max-width: 40vw; text-align: center; pointer-events: none;
                 background: rgba(255,255,255,0.92); border: 1px solid #777;
                 border-radius: 4px; padding: 7px 11px; font-family: Arial,
                 sans-serif; font-size: 14px; font-weight: 600;">
@@ -3427,6 +3437,7 @@ def save_folium_map(
     layers: PlotLayers,
     spacing: PlotSpacing,
     paths: GeospatialPaths,
+    database: Path | None = None,
 ) -> Path:
     """Build and save the embedded-data interactive Folium HTML map."""
 
@@ -3437,6 +3448,9 @@ def save_folium_map(
     add_demand_layer_folium(model_map, layers)
     add_map_legend(model_map, layers, geodata)
     add_map_title(model_map, paths.fig_stem.replace("_", " "))
+    if database is not None:
+        (database.parent / "region_selections").mkdir(parents=True, exist_ok=True)
+        add_region_selection(model_map, geodata.sites, database, fingerprint=paths.fingerprint)
 
     folium.LayerControl(
         position="topright",
@@ -3450,6 +3464,9 @@ def save_folium_map(
 
     print(f"\nSaved interactive Folium map: {output_path}")
     print(f"File size: {output_path.stat().st_size / 1e6:,.1f} MB")
+    if database is not None:
+        print('Open with direct region-selection saving:')
+        print(f'python -m geocanoe.analysis.selections --db "{database.resolve()}" --map "{output_path.resolve()}"')
 
     if FOLIUM_OPEN_BROWSER:
         import webbrowser
@@ -3477,7 +3494,10 @@ def _generate_selected_map(project_paths: ProjectPaths, selected_run: SelectedRu
     layers = build_plot_layers(tables, geodata)
     print_layer_diagnostics(layers)
     summarize_parallel_corridors(layers.tech_links, spacing)
-    return save_folium_map(geodata=geodata, layers=layers, spacing=spacing, paths=geospatial_paths)
+    return save_folium_map(
+        geodata=geodata, layers=layers, spacing=spacing, paths=geospatial_paths,
+        database=selected_run.db_path,
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> None:
