@@ -27,6 +27,7 @@ import pandas as pd
 from openpyxl.utils import get_column_letter
 
 from geocanoe.analysis.pipeline_capacity import build_pipeline_capacity_summary
+from geocanoe.analysis.flow_units import commodity_units, label_flow_units
 from geocanoe.analysis.selections import load_selection, region_matches
 from geocanoe.paths import find_project_root
 
@@ -562,6 +563,8 @@ def export_output_tables(
     net_capacity_for_pipeline_summary: pd.DataFrame | None = None
 
     with sqlite3.connect(db_path) as connection:
+        archived_units, registry_units = commodity_units(connection)
+        unit_audits: list[pd.DataFrame] = []
         all_table_names = [
             row[0]
             for row in connection.execute(
@@ -595,6 +598,9 @@ def export_output_tables(
                     )].copy()
 
                 normalized_table = _normalized_table_name(table)
+                df, unit_audit = label_flow_units(df, table, archived_units, registry_units)
+                if not unit_audit.empty:
+                    unit_audits.append(unit_audit)
                 if normalized_table == "outputflowout":
                     flow_out_for_storage_summary = df.copy()
                 if normalized_table == "outputnetcapacity":
@@ -615,6 +621,12 @@ def export_output_tables(
                     f"[Exported] {table}: {len(df):,} row(s) "
                     f"-> {output_path.name} [{sheet_name}]"
                 )
+
+            if unit_audits:
+                audit = pd.concat(unit_audits, ignore_index=True)
+                sheet = make_excel_sheet_name("FlowUnitAudit", used_sheet_names)
+                audit.to_excel(writer, sheet_name=sheet, index=False)
+                format_excel_sheet(writer, sheet, audit)
 
             if flow_out_for_storage_summary is not None:
                 flow = flow_out_for_storage_summary

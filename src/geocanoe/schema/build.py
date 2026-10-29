@@ -5409,9 +5409,11 @@ def rebuild_static_supporting_tables(
     -------
     None
     """
-    required_columns = {"name", "flag"}
+    required_columns = {"name", "flag", "units"}
     if not required_columns.issubset(commodities_raw.columns):
-        raise ValueError("Commodity registry requires name and flag columns.")
+        raise ValueError("Commodity registry requires name, flag and units columns.")
+    if commodities_raw["units"].isna().any() or commodities_raw["units"].astype(str).str.strip().eq("").any():
+        raise ValueError("Commodity registry requires nonempty physical units for every commodity.")
     if (
         commodities_raw["name"].isna().any()
         or commodities_raw["name"].astype(str).str.strip().eq("").any()

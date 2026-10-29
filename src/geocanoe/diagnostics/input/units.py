@@ -36,6 +36,7 @@ class UnitExpectation:
 UNIT_EXPECTATIONS = {
     expectation.table: expectation
     for expectation in [
+        UnitExpectation("commodity", frozenset({"mass", "energy", "parsed_other"})),
         UnitExpectation(
             "demand",
             frozenset({"mass", "energy", "mass_per_time", "energy_per_time"}),

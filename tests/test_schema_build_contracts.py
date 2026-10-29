@@ -1033,7 +1033,7 @@ def test_static_tables_encode_one_25_year_period_and_finance() -> None:
         )
     }
     commodities = pd.DataFrame(
-        {"name": ["co2"], "flag": ["a"], "description": ["captured"]}
+        {"name": ["co2"], "flag": ["a"], "description": ["captured"], "units": ["t"]}
     )
 
     rebuild_static_supporting_tables(
