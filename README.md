@@ -1248,7 +1248,7 @@ These stages are implemented under `src/geocanoe/` and orchestrated by `geocanoe
 Important silver outputs include:
 
 ```text
-data_files/processed/legacy_inputs/
+data_files/old_files/legacy_inputs/
 data_files/processed/emissions/
 data_files/processed/costs/
 data_files/processed/basemaps/
@@ -1683,7 +1683,7 @@ data_files/processed/pipeline_impedance/
 data_files/processed/nrn/
 data_files/processed/road_connectivity/
 data_files/processed/gasoline_demand/
-data_files/processed/legacy_inputs/
+data_files/old_files/legacy_inputs/
 data_files/processed/emissions/
 data_files/processed/costs/
 data_files/processed/renewables/

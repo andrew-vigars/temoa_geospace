@@ -39,7 +39,7 @@ selected with `--stages`, for example `geocanoe-build-bronze --stages aboriginal
 
 Two inputs are **not** acquired by Bronze and are controlled files in the repository:
 the H2 pipeline cost workbook (`data_files/models/cost_models/…/h2_pipeline_costs_master_v2.xlsx`,
-chapter 10) and the legacy site table `data_files/sites_full.csv` (chapter 9).
+chapter 10) and the legacy site table `data_files/old_files/sites_full.csv` (chapter 9).
 
 ## 3.3 Acquisition mechanics
 

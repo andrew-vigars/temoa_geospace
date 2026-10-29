@@ -28,7 +28,7 @@ Schema contract:
     temoa.extensions.economies_of_scale/tables.sql (installed TEMOA package)
 
 Processed model inputs:
-    data_files/processed/legacy_inputs/sites_full_with_province.csv
+    data_files/old_files/legacy_inputs/sites_full_with_province.csv
     data_files/processed/emissions/co2_large_facilities_2024/
         co2_large_facilities_2024_clean.gpkg
 
@@ -106,8 +106,8 @@ TEMOA_SCHEMA_RESOURCE = "temoa_schema_v4.sql"
 EOS_SCHEMA_PACKAGE = "temoa.extensions.economies_of_scale"
 EOS_SCHEMA_RESOURCE = "tables.sql"
 
-PROCESSED_LEGACY_INPUTS = DATA_FILES / "processed" / "legacy_inputs"
-SITES_PATH = PROCESSED_LEGACY_INPUTS / "sites_full_with_province.csv"
+ARCHIVED_LEGACY_INPUTS = DATA_FILES / "old_files" / "legacy_inputs"
+SITES_PATH = ARCHIVED_LEGACY_INPUTS / "sites_full_with_province.csv"
 
 PROCESSED_EMISSIONS_DIR = (
     DATA_FILES
@@ -2679,7 +2679,7 @@ def snap_points_to_graph_nodes(
                 .replace("+", "and")
             )
             diagnostic_path = (
-                PROCESSED_LEGACY_INPUTS
+                ARCHIVED_LEGACY_INPUTS
                 / f"{safe_label}_graph_snap_distance_audit.csv"
             )
             try:
@@ -2687,7 +2687,7 @@ def snap_points_to_graph_nodes(
             except PermissionError:
                 timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
                 diagnostic_path = (
-                PROCESSED_LEGACY_INPUTS
+                ARCHIVED_LEGACY_INPUTS
                 / (
                     f"{safe_label}_graph_snap_distance_audit_"
                     f"{timestamp}.csv"

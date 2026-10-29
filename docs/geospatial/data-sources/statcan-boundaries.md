@@ -37,7 +37,7 @@ Province name (`PRENAME` or `PRNAME`), mapped to two-letter codes by `geocanoe.r
 
 Chapters: [4. Study area, basemap grid and region graph](../data-processing/04-basemap-and-graph.md), [8. Spatial gasoline demand](../data-processing/08-gasoline-demand.md), [9. Emissions facilities and legacy site inputs](../data-processing/09-emissions-and-site-inputs.md).
 
-Silver stages: Basemaps (B1), Legacy-input province assignment (L1), Gasoline basemap mapping (D3).
+Silver stages: Basemaps (B1), Gasoline basemap mapping (D3).
 
 ## Update schedule
 

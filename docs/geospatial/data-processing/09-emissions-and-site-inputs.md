@@ -1,7 +1,7 @@
 # 9. Emissions facilities and legacy site inputs
 
 *Layer: Bronze → Silver → Gold. Code: `geocanoe.acquisition.emissions`, `geocanoe.emissions.facilities`
-(Silver stage `E1`), `geocanoe.preprocessing.legacy_inputs` (Silver stage `L1`). Gold: `build_site_attributes`,
+(Silver stage `E1`). Legacy site preprocessing is retired. Gold: `build_site_attributes`,
 `rebuild_capacity_limits`, `rebuild_node_costs`.*
 
 > **Draft status.** Conventions are in [00-conventions.md](../../conventions.md).
@@ -21,7 +21,7 @@ Both are point data snapped to grid cells in Gold (chapter 11).
 | Dataset | Catalogue profile |
 |---|---|
 | Large-facility emissions, 2024 | [ECCC large-facility GHG](../data-sources/eccc-large-facility-ghg.md) |
-| `data_files/sites_full.csv` (LCOE, `max_elec`) | [Controlled inputs](../data-sources/controlled-inputs.md): not in the source registry, origin undocumented |
+| `data_files/old_files/sites_full.csv` (LCOE, `max_elec`) | [Controlled inputs](../data-sources/controlled-inputs.md): not in the source registry, origin undocumented |
 
 The site table spans lat 41.6 to 83.2 and lon −141.3 to −52.5, i.e. all of Canada including areas north of the provinces in the sample study area, and
 has about 26,500 rows with values (LCOE median 0.0385, `max_elec` median about 300,000). See [15](15-unit-conventions.md) for the unit question.
@@ -39,13 +39,13 @@ has about 26,500 rows with values (LCOE median 0.0385, `max_elec` median about 3
 4. **Spatial layer** (`build_spatial_emissions`): assignable facilities as WGS84 points.
 5. Export clean CSV, GeoPackage, metadata and a column audit to `data_files/processed/emissions/co2_large_facilities_2024/`.
 
-### Legacy sites (`geocanoe.preprocessing.legacy_inputs`)
+### Archived legacy sites
 
 1. Load province polygons (the same StatCan boundary file) and validate coordinates.
 2. **Province assignment** (`assign_provinces`): direct point-in-polygon (`within`), then for unmatched points the
    nearest province in EPSG:3347 within **50 km** (`MAX_NEAREST_PROVINCE_DISTANCE_KM`). Method and distance are
    recorded. Points still unresolved go to an audit table.
-3. Write `sites_full_with_province.csv` and an assignment audit to `data_files/processed/legacy_inputs/`.
+3. The retired workflow wrote `sites_full_with_province.csv` and an assignment audit to `data_files/old_files/legacy_inputs/`.
 
 This is run once so routine schema builds avoid repeatedly dissolving or buffering the coastline.
 

@@ -99,8 +99,8 @@ BUILD_PROFILES = PROJECT_ROOT / "config" / "build_profiles"
 MODEL_CONFIG_PATH = REGISTRY_DIR / "model.toml"
 BASELINE_SCENARIO_PATH = REGISTRY_DIR / "scenarios" / "baseline.toml"
 
-PROCESSED_LEGACY_INPUTS = DATA_FILES / "processed" / "legacy_inputs"
-SITES_PATH = PROCESSED_LEGACY_INPUTS / "sites_full_with_province.csv"
+ARCHIVED_LEGACY_INPUTS = DATA_FILES / "old_files" / "legacy_inputs"
+SITES_PATH = ARCHIVED_LEGACY_INPUTS / "sites_full_with_province.csv"
 TRANSPORT_TECHS_PATH = REGISTRY_DIR / "transport_techs.csv"
 TECHNOLOGIES_PATH = REGISTRY_DIR / "techs.csv"
 

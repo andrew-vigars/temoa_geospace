@@ -648,30 +648,6 @@ def gold_tables(annual, crosswalk, costs, settings, output):
     return tables
 
 
-def legacy_comparison(regions, annual, source, output):
-    """Audit new resource profiles against legacy site coordinates without inventing potential."""
-    if not Path(source).is_file():
-        print(
-            "Renewables: legacy sites_full.csv absent; optional comparison skipped.",
-            flush=True,
-        )
-        return
-    sites = pd.read_csv(source)
-    points = gpd.GeoDataFrame(
-        sites, geometry=gpd.points_from_xy(sites.lon, sites.lat), crs=4326
-    ).to_crs(regions.crs)
-    mapping = gpd.sjoin(
-        points,
-        regions[["region", "geometry"]].reset_index(drop=True),
-        how="left",
-        predicate="within",
-    )
-    mapping = mapping.join(annual, on="region")
-    pd.DataFrame(mapping.drop(columns="geometry")).to_csv(
-        output / "legacy_sites_resource_audit.csv", index=False
-    )
-
-
 def resource_summary(annual, crosswalk, tables, settings, output):
     """Successor to legacy site ranking; diagnostic LCOE is not an extra Gold cost."""
     rate = settings.get("lcoe_discount_rate", 0.03)
@@ -1209,7 +1185,6 @@ def run_renewables_build(
             tables, root.parent / "temoa/temoa/db_schema/temoa_schema_v4.sql"
         )
         manifest(output / "temoa_inputs/schema_validation.json", validation)
-        legacy_comparison(regions, annual, root / "data_files/sites_full.csv", output)
         manifest(
             output / "manifest.json",
             {

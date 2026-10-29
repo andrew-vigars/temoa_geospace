@@ -30,7 +30,7 @@ The installed Temoa v4 source was checked directly:
   a physical CO2 flow. This is an available backend mechanism, not evidence
   that a particular provincial CANOE dataset uses it.
 
-The local `data_files/CANOE_geospatial.sqlite` has empty `EmissionActivity`,
+The local `data_files/old_files/CANOE_geospatial.sqlite` has empty `EmissionActivity`,
 `CostEmission`, `LimitEmission` and `LinkedTech` tables. It is a template and
 cannot establish how an actual provincial scenario balances carbon, prices
 emissions, or represents capture. No populated provincial scenario database

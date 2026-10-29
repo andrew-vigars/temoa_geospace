@@ -64,7 +64,7 @@ statcan_2021_province_territory_boundaries:
   used_in: [4, 8, 9]
   fields: >-
     Province name (`PRENAME` or `PRNAME`), mapped to two-letter codes by `geocanoe.regions`; polygon geometry. Source CRS EPSG:3347.
-  silver_stages: ["Basemaps (B1)", "Legacy-input province assignment (L1)", "Gasoline basemap mapping (D3)"]
+  silver_stages: ["Basemaps (B1)", "Gasoline basemap mapping (D3)"]
   update: >-
     The release is fixed (2021 Census), so routine updates are not expected. A new census release would need a new
     registry entry, a check of the province-name column and code mapping, and a rebuild of every Silver product, since region IDs depend on the boundary.

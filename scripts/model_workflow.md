@@ -77,7 +77,6 @@ flowchart TD
     %% =====================================================================
 
     subgraph SILVER["Silver preprocessing — geocanoe.execution.silver"]
-        L1["geocanoe.preprocessing.legacy_inputs<br/>Assign province codes"]
         D1["geocanoe.preprocessing.gasoline_demand<br/>Select population-centre proxies and map DAs"]
         D2["geocanoe.preprocessing.gasoline_demand<br/>Allocate provincial gasoline sales"]
         D3["geocanoe.preprocessing.gasoline_demand<br/>Map proxy demand onto every basemap"]
@@ -96,7 +95,6 @@ flowchart TD
         M1["geocanoe.geospatial.road_connectivity<br/>Map roads onto graph edges"]
     end
 
-    CFG --> L1
     CFG --> D1
     CFG --> D2
     CFG --> D3
@@ -116,8 +114,6 @@ flowchart TD
     CFG --> N1
     CFG --> M1
 
-    R1 --> L1
-    R7 --> L1
     RG --> D1
     R2 --> D1
     D1 --> D2
@@ -160,7 +156,6 @@ flowchart TD
     NP --> M1
     M1 --> MP["Road connectivity products<br/>data_files/processed/road_connectivity/"]
 
-    L1 --> LP["Processed legacy inputs<br/>data_files/processed/legacy_inputs/"]
     D2 --> DP["Proxy geometry, DA crosswalk, and allocated demand<br/>data_files/processed/gasoline_demand/{build-id}/"]
     D3 --> DP
     E1 --> EP["Processed emissions<br/>data_files/processed/emissions/"]
@@ -454,7 +449,7 @@ data_files/processed/pipeline_impedance/
 data_files/processed/nrn/
 data_files/processed/road_connectivity/
 data_files/processed/gasoline_demand/
-data_files/processed/legacy_inputs/
+data_files/old_files/legacy_inputs/
 data_files/processed/emissions/
 data_files/processed/costs/
 data_files/processed/schema/

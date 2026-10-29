@@ -426,8 +426,8 @@ Run the national workflow from the repository root with the environment active:
 geocanoe-build-silver --config config/build_profiles/canada_renewables.toml
 ```
 
-The complete orchestrator still runs `legacy_inputs` for compatibility; it is
-not a renewable CF source. When the national renewable bundle is selected,
+The `legacy_inputs` stage is retired and archived under `data_files/old_files/`.
+Silver no longer validates, imports, or runs it, or compares renewables with legacy sites. When the national renewable bundle is selected,
 Gold replaces the legacy `ELC_GEN` representation with validated wind and solar
 technologies and generated land-capacity limits.
 

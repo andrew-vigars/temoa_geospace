@@ -4,7 +4,7 @@
 (`build_canonical_links`, `attach_pipeline_cost_distances`, `snap_points_to_graph_nodes`,
 `build_site_attributes`, `rebuild_demand`, `rebuild_capacity_limits`,
 `rebuild_transport_efficiency`, storage eligibility helpers), plus
-`geocanoe.preprocessing.legacy_inputs` (Silver, province assignment).*
+archived legacy province assignments (older configurations only).*
 
 > **Draft status.** Conventions are in [00-conventions.md](../../conventions.md).
 > This chapter covers only the *spatial* half of Gold. Technology, cost and
@@ -36,7 +36,7 @@ Silver products.
 | Pipeline edge impedance | `processed/pipeline_impedance/{build-id}/edges/*_pipeline_impedance_edges.csv` | `[pipeline_costs] impedance_scope` |
 | Regional gasoline demand | `processed/gasoline_demand/{build-id}/basemaps/*_gasoline_demand.gpkg` | basemap stem |
 | Regional CO₂ storage evidence | `processed/co2_storage/*_co2_storage.gpkg` | basemap stem |
-| Site table (LCOE, max electricity) | `processed/legacy_inputs/sites_full_with_province.csv` | province assignment (Silver) |
+| Site table (LCOE, max electricity) | `old_files/legacy_inputs/sites_full_with_province.csv` | province assignment (Silver) |
 | Facility emissions | `processed/emissions/co2_large_facilities_2024/*_clean.gpkg` | study-area provinces |
 
 The basemap is chosen by `interactive_basemap_selection` (prompt) or by
@@ -178,7 +178,7 @@ graph and basemap separately to draw results.
 
 `data_files/processed/schema/gold_<build-id>_<scenario-id>_<fingerprint>_<barcode>.sqlite`
 and the adjacent `.manifest.json` (resolved paths, implementation digest).
-Snap audits are written to `data_files/processed/legacy_inputs/`.
+Snap audits are written to `data_files/old_files/legacy_inputs/`.
 
 ## 11.8 Validation
 

@@ -6,8 +6,8 @@ used by the command-line entry point in ``scripts/build_silver.py``.
 
 The silver workflow coordinates the transformations that convert raw and
 controlled project inputs into standardized intermediate products under
-``data_files/processed/``. The workflow currently includes province assignment
-for legacy inputs, gasoline proxy selection, demand allocation and basemap
+``data_files/processed/``. The workflow currently includes renewable resource
+processing, gasoline proxy selection, demand allocation and basemap
 mapping, emissions preprocessing, hydrogen-pipeline cost processing, basemap
 construction, onshore CO2 storage integration, regional adjacency, processed
 road networks, and road-to-region connectivity.
@@ -247,7 +247,6 @@ class SilverWorkflowState:
 # =============================================================================
 
 STAGE_MODULE_NAMES = {
-    "legacy_inputs": "geocanoe.preprocessing.legacy_inputs",
     "gasoline_proxies": "geocanoe.preprocessing.gasoline_demand",
     "gasoline_demand": "geocanoe.preprocessing.gasoline_demand",
     "gasoline_basemap": "geocanoe.preprocessing.gasoline_demand",
@@ -268,7 +267,6 @@ STAGE_MODULE_NAMES = {
 }
 
 SILVER_STAGE_ORDER = (
-    "legacy_inputs",
     "gasoline_proxies",
     "gasoline_demand",
     "emissions",
@@ -289,7 +287,6 @@ SILVER_STAGE_ORDER = (
 )
 
 SILVER_STAGE_DEPENDENCIES: dict[str, tuple[str, ...]] = {
-    "legacy_inputs": (),
     "gasoline_proxies": (),
     "gasoline_demand": ("gasoline_proxies",),
     "gasoline_basemap": ("gasoline_demand", "basemaps"),
@@ -315,10 +312,6 @@ SILVER_STAGE_DEPENDENCIES: dict[str, tuple[str, ...]] = {
 }
 
 EXTERNAL_INPUT_DEPENDENCIES: dict[str, tuple[str, ...]] = {
-    "legacy_inputs": (
-        "raw provincial boundary shapefile",
-        "data_files/sites_full.csv",
-    ),
     "emissions": (
         "raw emissions CSV",
         "raw emissions GeoJSON",
@@ -529,13 +522,6 @@ def build_stage_executors(
     """
 
     return {
-        "legacy_inputs": FunctionExecutor(
-            require_stage_callable(
-                stage_modules["legacy_inputs"],
-                "run_legacy_input_mapping",
-                "legacy_inputs",
-            )
-        ),
         "emissions": FunctionExecutor(
             require_stage_callable(
                 stage_modules["emissions"],
@@ -910,8 +896,8 @@ def validate_external_inputs(
 ) -> list[ExternalInputCheck]:
     """Validate raw and controlled inputs consumed by silver stages.
 
-    The validation checks for exactly one raw province-boundary shapefile, the
-    legacy site table, both emissions source files, the controlled H2
+    The validation checks for exactly one raw province-boundary shapefile,
+    both emissions source files, the controlled H2
     pipeline workbook, and exactly one English NRN GeoPackage for every province
     or territory selected by the build profile.
 
@@ -954,7 +940,7 @@ def validate_external_inputs(
             f"{[path.name for path in raw_boundary_paths]}"
         )
 
-    for dependent_stage in ("legacy_inputs", "basemaps"):
+    for dependent_stage in ("basemaps",):
         add_external_input_check(
             checks,
             stage_name=dependent_stage,
@@ -964,12 +950,6 @@ def validate_external_inputs(
             details=boundary_details,
         )
 
-    check_required_file(
-        checks,
-        stage_name="legacy_inputs",
-        input_name="legacy site table",
-        path=DATA_FILES / "sites_full.csv",
-    )
     gasoline_module = stage_modules["gasoline_proxies"]
     for input_name, attribute in (
         ("Bronze population-centre boundary", "POPULATION_CENTRES_PATH"),
@@ -1634,7 +1614,6 @@ def verify_silver_build(
     processed_root = DATA_FILES / "processed"
     processed_directories = {
         "processed root": processed_root,
-        "legacy inputs": processed_root / "legacy_inputs",
         "emissions": processed_root / "emissions",
         "costs": processed_root / "costs",
         "basemaps": processed_root / "basemaps",

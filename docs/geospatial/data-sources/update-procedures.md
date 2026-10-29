@@ -77,7 +77,7 @@ Applies to NRN, NHN, Aboriginal Lands and the StatCan fuel-sales table.
 |---|---|---|
 | Gold stops with "does not exactly cover graph edges" | Impedance built for a different basemap | Rebuild Silver impedance for the selected basemap |
 | Gold stops on storage coverage | Storage evidence built for another basemap | Rebuild the storage mapping |
-| Snap step asks to exclude outliers | Points beyond `max_snap_distance_factor × resolution` | Review the audit CSV in `data_files/processed/legacy_inputs/` before answering |
+| Snap step asks to exclude outliers | Points beyond `max_snap_distance_factor × resolution` | Review the audit CSV in `data_files/old_files/legacy_inputs/` before answering |
 | Requested basemap not found | `[basemap]` in scenario does not match a built resolution | Build that resolution in Silver, or change the scenario |
 | Temoa cannot find the database | TOML names an older Gold file | Update `input_database` to the new Gold filename |
 | Silver stage reports a missing upstream product | Stage dependency not run | Run the full `geocanoe-build-silver` for the profile |

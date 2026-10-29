@@ -267,3 +267,12 @@ def test_resume_option_is_explicit():
     assert parse_args(
         ["--stages", "renewables_atlite", "--reuse-existing-basemaps"]
     ).reuse_existing_basemaps
+
+
+def test_retired_legacy_inputs_are_not_registered():
+    from geocanoe.execution import silver
+
+    assert "legacy_inputs" not in silver.STAGE_MODULE_NAMES
+    assert "legacy_inputs" not in silver.SILVER_STAGE_ORDER
+    assert "legacy_inputs" not in silver.SILVER_STAGE_DEPENDENCIES
+    assert "legacy_inputs" not in silver.EXTERNAL_INPUT_DEPENDENCIES

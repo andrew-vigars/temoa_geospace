@@ -8,7 +8,7 @@ each needs an owner and a citation. Processing logic is in [Part A](../data-proc
 
 | Input | Location | Used in | Provenance status |
 |---|---|---|---|
-| Legacy site table (LCOE, maximum electricity) | `data_files/sites_full.csv` | [Ch. 9](../data-processing/09-emissions-and-site-inputs.md) | Origin undocumented |
+| Legacy site table (LCOE, maximum electricity) | `data_files/old_files/sites_full.csv` | [Ch. 9](../data-processing/09-emissions-and-site-inputs.md) | Origin undocumented |
 | H2 pipeline cost workbook | `data_files/models/cost_models/transport/master_files/h2_pipeline_costs_master_v2.xlsx` | [Ch. 10](../data-processing/10-pipeline-cost-models.md) | Underlying studies not recorded |
 | Gasoline supply-anchor registry | `registry/gasoline_supply_anchors.csv` | [Ch. 8](../data-processing/08-gasoline-demand.md) | NRCan web pages; partly map-inferred |
 | Pipeline impedance penalty profiles | `registry/pipeline_impedance_penalties.yaml` | [Ch. 6](../data-processing/06-pipeline-impedance.md) | Inherited, unvalidated |
@@ -19,7 +19,7 @@ each needs an owner and a citation. Processing logic is in [Part A](../data-proc
 
 ## Legacy site table
 
-- **What:** about 26,750 rows with columns `lon`, `lat`, `LCOE`, `max_elec`. Province codes are added by Silver stage L1.
+- **What:** about 26,750 rows with columns `lon`, `lat`, `LCOE`, `max_elec`. Province codes were assigned by the retired legacy workflow.
 - **Role:** electricity generation cost (mean per cell) and maximum electricity potential (sum per cell).
 - **Provenance:** **[confirm]** the generating study, year, resource assumptions, units of `max_elec`, and spatial coverage (the first rows are in British Columbia).
   **[cite-data]**

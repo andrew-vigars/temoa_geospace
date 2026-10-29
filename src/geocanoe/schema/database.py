@@ -320,6 +320,6 @@ def insert_or_replace(
 
 
 if __name__ == "__main__":
-    sqlite_file = "data_files/CANOE_geospatial.sqlite"
-    excel_file = "data_files/CANOE_geospatial.xlsx"
+    sqlite_file = "data_files/old_files/CANOE_geospatial.sqlite"
+    excel_file = "data_files/old_files/CANOE_geospatial.xlsx"
     sqlite_to_excel(sqlite_file, excel_file)
