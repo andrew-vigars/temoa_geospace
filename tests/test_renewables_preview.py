@@ -85,3 +85,52 @@ def test_monthly_mean_preserves_energy_but_removes_hourly_variation():
     ds["wind_cf"][0, 0] = np.nan
     with pytest.raises(ValueError, match="finite"):
         month_statistics(ds)
+
+
+def test_preview_accepts_roundoff_without_mutating_source():
+    ds = xr.Dataset(
+        {
+            field: (("region", "time"), [[-1e-16, 1.0000000000000004]])
+            for field in (
+                "wind_cf",
+                "solar_cf",
+                "wind_cf_t1",
+                "wind_cf_t2",
+                "wind_cf_t3",
+            )
+        },
+        coords={
+            "region": ["R0"],
+            "time": pd.date_range("2018-01-01", periods=2, freq="h"),
+        },
+    )
+    original = ds.copy(deep=True)
+    means, stats = month_statistics(ds)
+    assert (means == 0.5).all().all()
+    assert stats.hourly_min_cf.eq(0).all()
+    assert stats.hourly_max_cf.eq(1).all()
+    xr.testing.assert_identical(ds, original)
+
+
+@pytest.mark.parametrize("field", ["wind_cf", "solar_cf", "wind_cf_t1"])
+@pytest.mark.parametrize("value", [-1e-4, 1.0001, np.nan, np.inf])
+def test_preview_rejects_invalid_cf_in_every_design(field, value):
+    ds = xr.Dataset(
+        {
+            name: (("region", "time"), [[0.2, 0.3]])
+            for name in (
+                "wind_cf",
+                "solar_cf",
+                "wind_cf_t1",
+                "wind_cf_t2",
+                "wind_cf_t3",
+            )
+        },
+        coords={
+            "region": ["R0"],
+            "time": pd.date_range("2018-01-01", periods=2, freq="h"),
+        },
+    )
+    ds[field][0, 0] = value
+    with pytest.raises(ValueError, match="finite CFs"):
+        month_statistics(ds)

@@ -189,9 +189,26 @@ def project_weather_means(means, regions):
 
 def month_statistics(ds):
     """Per-region RMS error incurred by replacing hours with their monthly mean."""
-    values = ds[["wind_cf", "solar_cf"]].to_array().values
-    if not np.isfinite(values).all() or values.min() < 0 or values.max() > 1:
-        raise ValueError("Preview requires finite CFs between zero and one.")
+    # Sparse spatial averaging can put clipped solar CFs a few ulps above one.
+    # Match convert()'s tolerance, but reject genuine out-of-range values.
+    tolerance = 1e-8
+    fields = [
+        field for field in ds if field.startswith("wind_cf") or field == "solar_cf"
+    ]
+    values = ds[fields].to_array().values
+    if (
+        not np.isfinite(values).all()
+        or values.min() < -tolerance
+        or values.max() > 1 + tolerance
+    ):
+        raise ValueError(
+            "Preview requires finite CFs between zero and one "
+            f"(tolerance {tolerance:g}; observed range {values.min()!r} to {values.max()!r})."
+        )
+    # Normalize diagnostics only; never rewrite the checksummed Silver profiles.
+    ds = ds.copy()
+    for field in fields:
+        ds[field] = ds[field].clip(min=0, max=1)
     time = pd.DatetimeIndex(ds.time.values)
     if len(time) < 2 or not time.is_unique or not time.is_monotonic_increasing:
         raise ValueError("Preview requires ordered unique hourly time coordinates.")
