@@ -8,9 +8,9 @@
 # "sample_*" name so it is never overwritten by edits to the real,
 # study-area-specific profiles.
 #
-# config/build_profiles/*.toml (other than this file) are local, study-area
-# and system-boundary specific and are gitignored: they are not committed.
-# To create your own build profile, copy this file, choose a distinct
+# This is the stable renewable sample; the repository now also commits selected
+# study-area and national renewable profiles. Local study-specific profiles may
+# still be gitignored. To create your own build profile, copy this file, choose a distinct
 # [profile].id, and adjust the study-area, basemap, road, and schema settings
 # to match your study.
 #

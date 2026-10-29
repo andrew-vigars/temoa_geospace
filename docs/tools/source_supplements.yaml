@@ -1,0 +1,209 @@
+# Hand-authored supplement to registry/geospatial_sources.yaml, used by gen_sources.py.
+# Keys are source IDs from the registry. Chapter numbers refer to docs/geospatial/data-processing.
+nrcan_land_cover_2020:
+  slug: nrcan-land-cover-2020
+  description: >-
+    National 2020 land-cover classification used to exclude water, wetlands, built-up land and, for solar, cropland from renewable deployment areas. Bronze preserves the original raster; renewable Silver performs the configured masking and area accounting.
+  used_in: [3, 12]
+  fields: >-
+    Categorical 30 m land-cover codes and raster georeferencing. Silver reprojects configured categories onto its explicit renewable exclusion grid; the source raster is not modified.
+  silver_stages: ["Renewable land exclusion (renewables_atlite)"]
+  update: >-
+    Treat the 2020 observations as pinned. Acquire a later release into a new snapshot directory and registry entry, review its classification codes, then rebuild renewable land weights, capacity limits, Gold and affected solves.
+  citation: >-
+    Natural Resources Canada, CCRS/CCMEO. 2020 Land Cover of Canada. Open Government Licence - Canada. Record the catalogue release and captured-file hash.
+  notes: >-
+    The current workflow has no elevation, slope or offshore-depth exclusion. Land-cover classes are modelling choices, not a complete siting assessment.
+eccc_cpcad_2025:
+  slug: eccc-cpcad-2025
+  description: >-
+    The December 2025 Canadian Protected and Conserved Areas Database capture. Renewable Silver excludes configured terrestrial/freshwater protected-area statuses; Bronze also preserves marine, interim, OECM, comments and delisted records for audit.
+  used_in: [3, 12]
+  fields: >-
+    Main protected/conserved-area polygons, status code (`PA_OECM_DF`), biome code (`BIOME`) and the included data dictionary. The baseline renewable settings exclude status 1 on terrestrial/freshwater features.
+  silver_stages: ["Renewable land exclusion (renewables_atlite)"]
+  update: >-
+    Capture a new dated release in a new directory, retain its archive and dictionary, review status-domain changes, and rebuild renewable land products, Gold and affected solves. Do not overwrite the pinned 2025 capture.
+  citation: >-
+    Environment and Climate Change Canada. Canadian Protected and Conserved Areas Database, December 2025. Open Government Licence - Canada. Record the distribution listing date and archive hash.
+  notes: >-
+    Exclusion is a modelling screen, not a legal siting determination. OECM and interim categories are retained but not excluded by the current baseline.
+nrcan_wind_turbines_snapshot_20261023:
+  slug: nrcan-wind-turbines
+  description: >-
+    A hash-pinned capture of the Canadian Wind Turbine Database. It inventories existing turbine points and attributes for future validation; current renewable Silver and Gold do not consume it.
+  used_in: [3]
+  fields: >-
+    Project and turbine identifiers, source province, project and turbine capacity, rotor diameter, hub height, manufacturer/model, commissioning fields and point geometry. Project capacity is repeated across turbine rows and must not be summed as turbine capacity.
+  silver_stages: []
+  update: >-
+    Because the distribution URL is mutable and updates are irregular, capture a refresh into a new dated directory, validate the observed layer and preserve the archive, catalogue response and acquisition manifest.
+  citation: >-
+    Natural Resources Canada, CanmetENERGY-Ottawa and University of Alberta CABREE. Canadian Wind Turbine Database, English capture 2026-10-23. Open Government Licence - Canada.
+  notes: >-
+    The capture date, catalogue modification date and downloaded layer name differ; use acquisition hashes as the exact identity.
+transitionzero_solar_2024q1:
+  slug: transitionzero-solar-2024q1
+  description: >-
+    TransitionZero Solar Asset Mapper Q1 2024 polygons, asset table, lineage table and methodology. The Canadian subset is retained for future validation; it does not currently constrain renewable Silver or Gold.
+  used_in: [3]
+  fields: >-
+    Global asset polygons keyed by `cluster_id`, estimated capacity and construction metadata, plus source-lineage records. Acquisition validates the published checksums and preserves original values.
+  silver_stages: []
+  update: >-
+    Adopt a newer Zenodo record as a separate pinned source, validate its published checksums and methodology, and reassess Canadian coverage before using it for model-year or capacity constraints.
+  citation: >-
+    TransitionZero. Solar Asset Mapper, Q1 2024, version 1.0. Zenodo record 11368204. CC BY-NC 4.0.
+  notes: >-
+    Estimated mapped capacity is not treated as observed plant capacity, and CSV time-like construction strings are not used for model-year filtering.
+statcan_2021_province_territory_boundaries:
+  slug: statcan-boundaries
+  description: >-
+    Generalized provincial and territorial boundary polygons from the 2021 Census. They define the study area
+    (dissolved selected jurisdictions), the province attribute of legacy site points, and the province of each basemap cell.
+  used_in: [4, 8, 9]
+  fields: >-
+    Province name (`PRENAME` or `PRNAME`), mapped to two-letter codes by `geocanoe.regions`; polygon geometry. Source CRS EPSG:3347.
+  silver_stages: ["Basemaps (B1)", "Legacy-input province assignment (L1)", "Gasoline basemap mapping (D3)"]
+  update: >-
+    The release is fixed (2021 Census), so routine updates are not expected. A new census release would need a new
+    registry entry, a check of the province-name column and code mapping, and a rebuild of every Silver product, since region IDs depend on the boundary.
+  citation: >-
+    Statistics Canada. 2021 Census - Boundary files, Provinces/territories (cartographic boundary file).
+    **[cite-data]** Add the catalogue number and retrieval date.
+statcan_2021_da_population_density_inputs:
+  slug: statcan-da-population
+  description: >-
+    2021 Census dissemination-area (DA) boundaries and the population and dwelling counts table (98-10-0015-01). Used both for
+    population-density impedance and as population weights in gasoline demand allocation.
+  used_in: [6, 8]
+  fields: >-
+    Boundaries: `DAUID`, `DGUID`, `PRUID`, geometry. Table: `DGUID`, population density per km², and the 2021 population count field.
+    DAs join to the table one-to-one on `DGUID`.
+  silver_stages: ["Population impedance (P0)", "Gasoline hub selection and catchments (D1, D2)"]
+  update: >-
+    Fixed 2021 release. This source is acquired once by the `residential` Bronze stage and reused by the `gasoline_demand` stage,
+    which does not copy it. A new census would require a new registry entry and a review of the density bands in the penalty registry, which were set for 2021 thresholds.
+  citation: >-
+    Statistics Canada. 2021 Census - Boundary files, Dissemination areas, and Table 98-10-0015-01.
+    **[cite-data]** Add catalogue numbers and retrieval date.
+statcan_gasoline_demand_inputs:
+  slug: statcan-fuel-sales-and-population-centres
+  description: >-
+    Annual provincial and territorial motor-fuel sales (table 23-10-0066-01) and 2021 population-centre boundaries. They supply the
+    provincial totals and the candidate market hubs for spatial gasoline demand.
+  used_in: [6, 8]
+  fields: >-
+    Sales table: `REF_DATE`, `GEO`, `Type of fuel sales` (= "Net sales of gasoline"), `UOM` (Litres), `SCALAR_FACTOR` (thousands), `VALUE`.
+    Population centres: `PCUID`, `PCPUID`, `PCNAME`, `PCCLASS`, `PRUID`, `LANDAREA`, geometry.
+  silver_stages: ["Gasoline hub selection (D1)", "Allocation (D2)", "Basemap mapping (D3)", "Population impedance mask (P0)"]
+  update: >-
+    The sales table is a rolling annual release. To move to a new year, re-run the `gasoline_demand` Bronze stage with `--overwrite`,
+    set `[gasoline_demand].sales_year` in the build profile (the build fails if that year or a jurisdiction is missing), and rebuild
+    Silver gasoline demand and Gold. Population-centre geography is fixed at 2021.
+  citation: >-
+    Statistics Canada. Table 23-10-0066-01, Fuel sales by type of fuel. Statistics Canada. 2021 Census - Population centres.
+    **[cite-data]** Record the table release date and the `sales_year` used.
+  notes: >-
+    Methodology support for using population centres as bulk-terminal proxies is Natural Resources Canada's description of
+    petroleum-product distribution (see the controlled-inputs page for the anchor registry). That page is not a geocoded terminal inventory.
+nrcan_aboriginal_lands_national_en:
+  slug: nrcan-aboriginal-lands
+  description: >-
+    National Aboriginal Lands legislative boundaries, used as a penalty polygon layer in pipeline-routing impedance.
+  used_in: [6]
+  fields: >-
+    `NID`, `ALCODE`, `NAME1`, `JUR1` to `JUR4` (legislative jurisdiction), `ALTYPE`, `WEBREF`, geometry. Features are kept when any jurisdiction field
+    matches the study area. The shapefile name inside the archive is versioned while the archive URL is stable.
+  silver_stages: ["Aboriginal Lands impedance evidence (A0)", "Edge impedance (I1)"]
+  update: >-
+    Rolling national distribution. Re-run the `aboriginal_lands` Bronze stage with `--overwrite`. Read the new acquisition manifest to record
+    the shapefile version, then rebuild the impedance evidence, edge impedance and Gold.
+  citation: >-
+    Natural Resources Canada. Aboriginal Lands of Canada Legislative Boundaries. **[cite-data]** Add the shapefile version from the acquisition manifest.
+  notes: >-
+    The layer represents legislated lands. It is used here as a routing-cost penalty, not as a legal or consultation constraint.
+statcan_nrn_national_bilingual:
+  slug: statcan-nrn
+  description: >-
+    National Road Network (NRN), distributed as one GeoPackage per province or territory. Provides road segments classified by function; used to decide which graph edges may carry trucks.
+  used_in: [5, 11]
+  fields: >-
+    The `*_ROADSEG` layer: `ROADCLASS` and line geometry. English GeoPackages only. `ROADCLASS` values used: Freeway, Expressway / Highway, Ramp,
+    Arterial, Collector, Local / Street, Local / Unknown.
+  silver_stages: ["Processed road networks (N1)", "Road-to-graph connectivity (M1)"]
+  update: >-
+    Rolling jurisdictional releases. The `nrn` Bronze stage downloads every province and territory, so adding a jurisdiction to the study
+    area needs no new acquisition. To refresh, re-run it with `--overwrite`, note the NRN edition from the file names, then rebuild roads, connectivity, and Gold.
+  citation: >-
+    Statistics Canada. National Road Network (NRN), English GeoPackage distributions. **[cite-data]** Record the NRN edition and download date.
+nrcan_nhn_hhyd_national_en:
+  slug: nrcan-nhn
+  description: >-
+    National Hydro Network hydrographic features. Selected waterbody polygons (sample: lakes of at least 50 km²) form a penalty layer in pipeline-routing impedance.
+  used_in: [6]
+  fields: >-
+    Feature class (lake, reservoir, pond, watercourse, tidal river), permanency class, polygon and line geometry. The profile selects classes, permanency and a minimum source area before clipping.
+  silver_stages: ["Hydrography selection (H1)", "NHN impedance evidence (H2)", "Edge impedance (I1)"]
+  update: >-
+    Rolling national distribution; the hydrographic-feature archive is about 15 GB. Existing validated GeoPackages are reused, so use `--overwrite` to force a new download. Review the
+    manifest and WMS capabilities snapshot, then rebuild hydrography, impedance and Gold.
+  citation: >-
+    Natural Resources Canada. National Hydro Network (NHN), hydrographic features. **[cite-data]** Add the retrieval date from the manifest.
+eccc_large_facility_ghg_2024:
+  slug: eccc-large-facility-ghg
+  description: >-
+    2024 greenhouse gas emissions reported by large facilities, with point locations. They define the CO₂ available for capture in each region.
+  used_in: [9, 11]
+  fields: >-
+    Facility ID and name, latitude, longitude, emissions (kt CO₂e/year), source unit, reporting year. Facilities outside a broad Canada box or at zero coordinates are excluded.
+  silver_stages: ["Emissions cleaning (E1)"]
+  update: >-
+    A fixed annual release. For a new year, add a new registry entry and update the dataset-year constants in `emissions/facilities.py` and the Gold path constants in `schema/build.py`,
+    which are hard-coded to 2024, then rebuild Silver emissions and Gold.
+  citation: >-
+    Environment and Climate Change Canada. Greenhouse gas emissions from large facilities, 2024. **[cite-data]** Add the retrieval date and reporting threshold.
+canco2_unified_storage_selected_release:
+  slug: canco2-storage
+  description: >-
+    A timestamped unified geological-storage GeoPackage produced by the separate CanCO2 Storage project, merging NATCARB, BC Storage Atlas and Atlantic assessments.
+  used_in: [7, 11]
+  fields: >-
+    Storage features and assessments: `storage_feature_id`, `storage_unit_id`, `source_dataset` (NATCARB, BC_STORAGE_ATLAS, ATLANTIC_COS), `assessment_scope`,
+    P10/P50/P90, theoretical and effective storage (tonnes), `injectivity_status`, geometry.
+  silver_stages: ["CO₂ storage mapping (S0)"]
+  update: >-
+    Produced by the `canco2-storage` repository. Build a new release there, then run `python -m geocanoe.acquisition.co2_storage` (or `geocanoe-build-bronze --stages co2_storage`),
+    using `CANCO2_STORAGE_REPO` or `CANCO2_STORAGE_GPKG` to select the source. The newest timestamped GeoPackage is chosen by default and recorded in `selected_release.txt`.
+    Rebuild the storage mapping and Gold.
+  citation: >-
+    CanCO2 Storage project, unified geological storage release (version and timestamp from `selected_release.txt`). **[cite-data]** Cite the underlying NATCARB, BC Storage Atlas and
+    Atlantic assessments and confirm licence terms.
+copernicus_era5_canada_2018_renewables:
+  slug: copernicus-era5-renewables
+  description: >-
+    Hourly ERA5 single-level weather for 2018 over a buffered Canadian Census-boundary extent. Renewable Silver converts the verified monthly requests with Atlite into regional wind and tracking-PV capacity-factor profiles.
+  used_in: [3, 12]
+  fields: >-
+    Hourly wind components and surface solar-radiation variables requested on the configured 0.25-degree grid, with one request manifest per immutable payload and a complete request plan.
+  silver_stages: ["Renewable profiles (renewables_atlite)"]
+  update: >-
+    Change the weather year only with the shared demand/weather-year contract. Generate a new request plan and immutable request cache, acquire all months, then rebuild renewable Silver, Gold and affected solves.
+  citation: >-
+    Copernicus Climate Change Service. ERA5 hourly data on single levels, 2018. **[cite-data]** Add the CDS retrieval date, dataset licence wording and request-manifest identifiers.
+  notes: >-
+    One weather year is a resource proxy, not a climatology. Raw ERA5 coverage is rectangular; geographic selection and land exclusions occur in Silver.
+atb_electricity_2025_v1:
+  slug: atb-electricity-2025
+  description: >-
+    The complete Electricity Annual Technology Baseline 2025 v1.0.0 summary table. Bronze retains every technology and scenario; downstream renewable selection records the exact ATB rows used for wind and PV costs.
+  used_in: [3, 12]
+  fields: >-
+    ATB technology, resource class, scenario, financial case, parameter, variable, projection year, units and value columns. The official source or a compatible CANOE_CLOUD cache is recorded in `selected_source.json`.
+  silver_stages: ["ATB renewable-family subset", "Renewable costs (renewables_atlite)"]
+  update: >-
+    Pin a new edition and revision in a separate acquisition configuration and raw directory. Review changed dimensions and selectors, rebuild the family subset and renewable bundle, then rebuild Gold and solves.
+  citation: >-
+    National Laboratory of the Rockies. Electricity Annual Technology Baseline 2025, v1.0.0. **[cite-data]** Add the official disclaimer, retrieval date and selected-row provenance.
+  notes: >-
+    ATB resource-class capacity factors are not used as Canadian weather profiles. ERA5 and Atlite supply physical profiles; ATB supplies explicitly selected cost assumptions.

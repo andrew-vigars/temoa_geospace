@@ -1,0 +1,123 @@
+site_name: GeoCANOE documentation
+site_url: https://andrew-vigars.github.io/temoa_geospace/
+repo_url: https://github.com/andrew-vigars/temoa_geospace
+repo_name: andrew-vigars/temoa_geospace
+docs_dir: docs
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.path
+    - navigation.top
+    - toc.follow
+    - content.code.copy
+
+markdown_extensions:
+  - tables
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.snippets:
+      base_path:
+        - .
+      check_paths: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+extra_javascript:
+  - assets/javascripts/mermaid.min.js
+  - assets/javascripts/mermaid-init.js
+  - assets/javascripts/mermaid-panzoom.js
+
+extra_css:
+  - assets/stylesheets/mermaid-panzoom.css
+
+exclude_docs: |
+  tools/
+  mkdocs.example.yml
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Quickstart: quickstart.md
+      - Installation and setup: get-started.md
+  - Concepts:
+      - What is GeoCANOE?: what-is-geocanoe/overview.md
+      - GeoCANOE, CANOE and Temoa: what-is-geocanoe/canoe-and-temoa.md
+      - Model architecture: what-is-geocanoe/model-architecture.md
+      - Glossary: what-is-geocanoe/glossary.md
+  - Data Guide:
+      - Overview: data-guide/index.md
+      - Geospatial:
+          - Overview: geospatial/index.md
+          - Data Sources:
+              - Catalogue: geospatial/data-sources/index.md
+              - 2020 Land Cover of Canada: geospatial/data-sources/nrcan-land-cover-2020.md
+              - CPCAD 2025: geospatial/data-sources/eccc-cpcad-2025.md
+              - Canadian Wind Turbine Database: geospatial/data-sources/nrcan-wind-turbines.md
+              - TransitionZero Solar Asset Mapper: geospatial/data-sources/transitionzero-solar-2024q1.md
+              - StatCan boundaries: geospatial/data-sources/statcan-boundaries.md
+              - StatCan DA population: geospatial/data-sources/statcan-da-population.md
+              - Fuel sales and population centres: geospatial/data-sources/statcan-fuel-sales-and-population-centres.md
+              - National Road Network: geospatial/data-sources/statcan-nrn.md
+              - Aboriginal Lands: geospatial/data-sources/nrcan-aboriginal-lands.md
+              - National Hydro Network: geospatial/data-sources/nrcan-nhn.md
+              - ECCC facility emissions: geospatial/data-sources/eccc-large-facility-ghg.md
+              - CanCO2 storage: geospatial/data-sources/canco2-storage.md
+              - ERA5 renewable weather: geospatial/data-sources/copernicus-era5-renewables.md
+              - Electricity ATB 2025: geospatial/data-sources/atb-electricity-2025.md
+              - Controlled inputs: geospatial/data-sources/controlled-inputs.md
+              - Update procedures: geospatial/data-sources/update-procedures.md
+          - Processing and Assumptions:
+              - Overview: geospatial/data-processing/index.md
+              - 1. Architecture and Temoa boundary: geospatial/data-processing/01-overview-and-architecture.md
+              - 2. Configuration and setup: geospatial/data-processing/02-configuration-and-setup.md
+              - 3. Bronze acquisition: geospatial/data-processing/03-bronze-acquisition.md
+              - 4. Basemap and graph: geospatial/data-processing/04-basemap-and-graph.md
+              - 5. Road network: geospatial/data-processing/05-road-network.md
+              - 6. Pipeline impedance: geospatial/data-processing/06-pipeline-impedance.md
+              - 7. CO2 storage: geospatial/data-processing/07-co2-storage.md
+              - 8. Gasoline demand: geospatial/data-processing/08-gasoline-demand.md
+              - 9. Emissions and site inputs: geospatial/data-processing/09-emissions-and-site-inputs.md
+              - 10. Pipeline cost models: geospatial/data-processing/10-pipeline-cost-models.md
+              - 11. Gold spatial mapping: geospatial/data-processing/11-gold-spatial-mapping.md
+              - 12. Gold technologies and scenarios: geospatial/data-processing/12-gold-technology-cost-scenario.md
+              - 13. Temoa execution: geospatial/data-processing/13-temoa-execution.md
+              - 14. Diagnostics and analysis: geospatial/data-processing/14-diagnostics-and-analysis.md
+              - 15. Unit conventions: geospatial/data-processing/15-unit-conventions.md
+              - 16. Assumptions and limitations: geospatial/data-processing/16-known-assumptions-and-limitations.md
+          - Final Data: geospatial/final-data.md
+      - Renewable Electricity:
+          - Overview: data-guide/renewables/index.md
+          - Data Sources: data-guide/renewables/data-sources.md
+          - Processing and Assumptions: data-guide/renewables/processing-assumptions.md
+          - Final Data: data-guide/renewables/final-data.md
+      - CCS and CCU Costs:
+          - Overview: ccs-ccu-costs/index.md
+  - Workflows and Technical Notes:
+      - Source workflow: model-workflow.md
+      - Shared geographic Bronze: geographic_bronze.md
+      - ATB Bronze acquisition: atb_bronze.md
+      - Renewable Silver and Gold: renewables_silver.md
+      - ERA5 previews: era5_previews.md
+      - Shared cost conversion policy: economics.md
+      - Emissions accounting: emissions-accounting.md
+      - CANOE_CLOUD external source: canoe_cloud_source.md
+  - Model Development:
+      - Overview: model-runs/index.md
+      - Structural Sensitivity Runs:
+          - Overview: model-runs/structural-sensitivity/index.md
+          - T4 wind representation and GCC: model-runs/structural-sensitivity/t4-gcc-wind-representation.md
+      - Decision Records:
+          - Overview: model-runs/decision-records/index.md
+          - Template: model-runs/decision-records/template.md
+  - Reference:
+      - Documentation conventions: conventions.md
+      - Open items: open-items.md
+      - References: references.md
+      - Glossary: what-is-geocanoe/glossary.md
+  - Contributing: contributing.md

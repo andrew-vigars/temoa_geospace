@@ -1,19 +1,42 @@
 # Geospatial-CANOE
 
-Geospatial-CANOE extends the CANOE/TEMOA energy-system modelling framework with a modular geospatial data, schema, execution, and analysis pipeline. It converts Canadian boundary, road, emissions, demand, technology, and cost data into a spatial graph, encodes that graph as a CANOE/TEMOA-compatible SQLite database, executes model scenarios, and provides post-solve exports and interactive maps.
+[**GeoCANOE Documentation**](https://andrew-vigars.github.io/temoa_geospace/)
 
-The repository is an active research codebase undergoing migration to the
-TEMOA v4 backend. New installations obtain a pinned TEMOA v4 revision through
-the root package metadata, and model execution uses the installed package's
-Python API rather than a vendored source tree.
+Geospatial-CANOE extends the CANOE/TEMOA energy-system modelling framework with
+a modular Canadian geospatial data, schema, execution, and analysis pipeline.
+It assembles spatial networks, energy demand, renewable-resource profiles,
+technology costs, emissions, and geological-storage evidence; encodes them in a
+TEMOA-compatible SQLite database; executes scenarios; and produces auditable
+post-solve exports and maps.
+
+The current development branch runs on the TEMOA v4 backend. New installations
+obtain a pinned TEMOA v4 revision through the root package metadata, and model
+execution uses the installed package's Python API rather than a vendored source
+tree. The codebase remains active research software: workflow contracts are
+versioned and tested, but the public API is not yet stable.
+
+## Documentation
+
+- Start with the [quickstart](docs/quickstart.md) for the shortest path through
+  installation, data preparation, model construction, and execution.
+- Use [Get started](docs/get-started.md) to choose the workflow that matches a
+  new user, data developer, model developer, or sensitivity-analysis task.
+- Read [What is GeoCANOE?](docs/what-is-geocanoe/overview.md) for the project
+  boundary, [model architecture](docs/what-is-geocanoe/model-architecture.md)
+  for the Bronze/Silver/Gold design, and the [data guide](docs/data-guide/index.md)
+  for source-to-model transformations.
+- Consult the detailed [geospatial methodology](docs/geospatial/index.md) and
+  [model-run records](docs/model-runs/index.md) when reviewing assumptions or
+  reproducing structural sensitivity decisions.
 
 ## Release and handoff history
 
 The `v0.7.0` tag marks the completed orchestration and scenario-management
-release. The current `geo-dev` branch builds on that release with national NHN
-Bronze and Silver workflows, Aboriginal Lands acquisition, and the generalized
-geospatial source registry. Package metadata remains at `0.7.0` until the next
-release is prepared.
+release. The current `geo-dev` branch is the `v0.8.0` release candidate. It
+completes the operational transition to TEMOA v4 and substantially expands the
+national data, renewable-resource, economic, carbon-policy, geological-storage,
+provenance, and documentation workflows. Package metadata intentionally remains
+at `0.7.0` until the release checks pass and the `v0.8.0` tag is created.
 
 | Version | Milestone |
 | --- | --- |
@@ -26,19 +49,37 @@ release is prepared.
 | `v0.5.0` | Migration of the active implementation into the `src/geocanoe` package |
 | `v0.6.0` | Geological CO2 storage workflow, registry migration, diagnostics refactor, typing, and contract tests |
 | `v0.7.0` | Bronze orchestration, scenario-aware Gold identities and manifests, scenario-selected resolutions, sample configurations, legacy gasoline opt-in, and multi-resolution batch scenarios |
+| `v0.8.0` *(release candidate)* | Operational TEMOA v4 execution; national renewable resource and land-eligibility modelling; ATB technology and cost integration; shared CAD2020 economics; explicit carbon accounting and policy controls; quantitative geological-storage capacity mapping; expanded provenance, validation, and documentation |
 
 This history describes research-code milestones rather than a stable public API.
 The Git tags preserve the detailed commit boundaries, while this summary gives
 new maintainers the architectural progression needed to interpret the current
 workflow.
 
-### Post-`v0.7.0` development
+### `v0.8.0` release-candidate scope
 
-Current development adds national hydrography evidence, Aboriginal Lands
-acquisition, and schema-v2 geospatial source metadata without changing the
-published package version. Release preparation should continue to verify the
-locked environment, package metadata, lint checks, and the complete GeoCANOE
-test suite before creating the next tag.
+The candidate release includes:
+
+- execution against an installed, pinned TEMOA v4 package, with solver
+  configuration generated from the active TEMOA installation;
+- fifteen orchestrated Bronze acquisition stages, including national land
+  cover, protected areas, existing wind and solar facilities, ERA5 weather,
+  ATB technology data, economics, hydrography, roads, emissions, and storage;
+- an Atlite-based national wind and solar workflow with auditable land
+  exclusions, regional capacity bounds, hourly profiles, ATB 2025 technology
+  options, and resource-assigned T1-T4 wind designs;
+- shared currency conversion and inflation policy targeting CAD2020 costs;
+- explicit carbon-flow accounting, minimum-storage and emissions-price policy
+  modes, and P50 geological-storage capacity bounds;
+- stronger run identities, manifests, contracts, provenance, diagnostics, and
+  independent renewable-output validation; and
+- a CANOE-like documentation hierarchy with data guides, architecture notes,
+  model-run records, and structural sensitivity rationale.
+
+Before tagging, update `pyproject.toml` and `src/geocanoe/__init__.py` together,
+regenerate the dependency lock if required, verify the installed TEMOA revision,
+run linting and the agreed test suite, and confirm a representative end-to-end
+build and solve. This README does not itself declare the release published.
 
 ## Current capabilities
 
@@ -48,7 +89,8 @@ The workflow currently supports:
 - geographic grids in EPSG:4326 and projected grids in EPSG:3347;
 - centroid-based cell retention and rook adjacency;
 - orchestrated Bronze acquisition for boundaries, Aboriginal Lands, roads,
-  hydrography, emissions, and geological-storage evidence;
+  hydrography, emissions, geological-storage evidence, renewable siting,
+  weather, ATB technology data, and economics;
 - filtered National Road Network backbone, primary-freight, and freight-access layers;
 - registered NHN waterbody and watercourse filtering, clipping, provenance,
   summaries, and previews;
@@ -59,6 +101,15 @@ The workflow currently supports:
 - preprocessing of 2024 large-facility greenhouse-gas emissions;
 - acquisition of a selected CanCO₂ unified-storage release from a local sibling repository;
 - mapping of unified geological-storage evidence onto each configured onshore basemap;
+- quantitative P50 geological-storage eligibility and regional capacity bounds;
+- national ERA5 weather preparation and Atlite wind/solar conversion;
+- land-cover, protected-area, and existing-facility renewable exclusions;
+- region-level renewable profiles, eligible-area capacity bounds, and ATB 2025
+  wind and solar cost integration;
+- selectable or resource-assigned T1-T4 wind power-curve representations;
+- shared CAD2020 currency and inflation conversion with versioned source data;
+- explicit carbon accounting with optional minimum-storage targets or
+  atmospheric emissions prices;
 - topology-independent hydrogen-pipeline cost preprocessing and curve fitting;
 - graph-based pipeline, truck, and electricity-transmission links;
 - schema encoding into a CANOE/TEMOA SQLite database;
@@ -97,10 +148,11 @@ Geospatial-CANOE/
 ├── config/
 │   ├── build_profiles/
 │   │   └── *.toml                 Geospatial preprocessing profiles
-│   ├── batch_profiles/
-│   │   └── *.toml                 Ordered model-run batches
-│   └── temoav4/
-│       └── *.toml                 TEMOA v4 solver configurations
+│   ├── batch_profiles/            Ordered model-run batches
+│   ├── atb/                       ATB source and technology-family selections
+│   ├── economics/                 Currency and inflation source policy
+│   ├── era5/                      Weather acquisition extents and years
+│   └── renewables/                Atlite, land, resource, and technology settings
 │
 ├── data_files/
 │   ├── raw/                       External and downloaded source datasets
@@ -108,8 +160,12 @@ Geospatial-CANOE/
 │   │   ├── basemaps/
 │   │   ├── canco2_storage/          Acquired external CanCO₂ Silver release
 │   │   ├── emissions/
+│   │   ├── economics/
+│   │   ├── era5/
+│   │   ├── land_cover/
 │   │   ├── nhn/                      National NHN hydrographic features
 │   │   ├── nrn/
+│   │   ├── protected_areas/
 │   │   └── residential/              Census DA boundaries and population table
 │   ├── models/                    Controlled engineering and cost workbooks
 │   │   └── cost_models/
@@ -123,6 +179,7 @@ Geospatial-CANOE/
 │   │   ├── graph/
 │   │   ├── legacy_inputs/
 │   │   ├── nrn/
+│   │   ├── renewables/                Immutable national VRE run bundles
 │   │   ├── road_connectivity/
 │   │   └── schema/
 │   ├── CANOE_geospatial.sqlite    Legacy v3 database retained for migration reference
@@ -142,7 +199,7 @@ Geospatial-CANOE/
 │
 ├── src/
 │   └── geocanoe/
-│       ├── acquisition/           Eight Bronze source-acquisition modules
+│       ├── acquisition/           Fifteen orchestrated Bronze acquisition modules
 │       │   └── co2_storage.py     Local CanCO₂ release acquisition
 │       ├── analysis/              Folium maps and output-table exports
 │       ├── config/                Build-profile parsing and validation
@@ -153,7 +210,7 @@ Geospatial-CANOE/
 │       ├── execution/             Silver orchestration, single runs, and batches
 │       ├── geospatial/            Basemaps, impedance, adjacency, roads, connectivity
 │       │   └── co2_storage.py     Storage-to-basemap integration and previews
-│       ├── preprocessing/         Legacy input harmonization
+│       ├── preprocessing/         Demand, economics, ATB, and renewable workflows
 │       ├── registry/              Dataset/stage metadata
 │       ├── schema/                CANOE/TEMOA encoding and database utilities
 │       └── paths.py               Shared repository-root discovery
@@ -162,11 +219,14 @@ Geospatial-CANOE/
 │   ├── batch_run.py
 │   ├── build_bronze.py
 │   ├── build_schema.py
+│   ├── build_schema_set.py
 │   ├── build_silver.py
 │   ├── create_map_folium.py
 │   ├── export_output_tables.py
-│   └── main_run.py
+│   ├── main_run.py
+│   └── validate_renewables_run.py
 │
+├── docs/                         User guides, methods, sources, and run records
 ├── diagnostics/                  Input, balance, and run-audit utilities
 ├── notebooks/                    Exploratory and development notebooks
 ├── output_files/                 Timestamped optimization runs
@@ -177,6 +237,225 @@ Geospatial-CANOE/
 Active reusable code belongs under `src/geocanoe/`. Generated intermediate products belong under `data_files/processed/`, while solved scenarios and run provenance belong under `output_files/`.
 
 ## Installation
+
+### What you need before starting
+
+Use Python 3.12 for the documented and tested environment. Although the package
+metadata accepts later Python releases, the pinned scientific dependencies and
+TEMOA integration should not be assumed compatible with a newer interpreter
+until that interpreter has been tested here.
+
+You need:
+
+- a 64-bit Python 3.12 installation;
+- [Git](https://git-scm.com/downloads), because both the repository and the
+  pinned TEMOA dependency are obtained from Git;
+- enough disk space for the selected source data and generated products;
+- internet access during installation and any Bronze acquisition that downloads
+  external data; and
+- optionally, a valid Gurobi licence for solver configurations that select
+  Gurobi. Temoa's HiGHS backend does not require a Gurobi licence.
+
+Do not install GeoCANOE packages into the system-wide Python environment. The
+steps below create a project-local virtual environment named `.venv`. It keeps
+GeoCANOE's pinned packages isolated from other Python projects, is already
+ignored by Git, and can be deleted and recreated if an installation becomes
+damaged.
+
+### Windows: first-time installation
+
+These instructions use PowerShell and are the recommended path for new users.
+
+#### 1. Install Python 3.12 and Git
+
+Install the official [Python install manager](https://www.python.org/downloads/)
+from Python.org or the Microsoft Store. Open a **new** PowerShell window after
+installation and install the Python 3.12 runtime:
+
+```powershell
+py install 3.12
+py -V:3.12 --version
+```
+
+The second command must report `Python 3.12.x`. If `py install` is unavailable,
+follow the official [Using Python on Windows](https://docs.python.org/3/using/windows.html)
+instructions to install the manager, then reopen PowerShell.
+
+Install [Git for Windows](https://git-scm.com/download/win), accept its normal
+command-line integration, reopen PowerShell, and verify it:
+
+```powershell
+git --version
+```
+
+#### 2. Obtain the repository
+
+Choose a parent folder for research repositories, clone GeoCANOE, and enter its
+root directory:
+
+```powershell
+git clone https://github.com/andrew-vigars/temoa_geospace.git
+Set-Location temoa_geospace
+git switch geo-dev
+```
+
+If you received the repository by another method, open PowerShell in the folder
+that contains `pyproject.toml` and `README.md`. All remaining installation
+commands must be run from that folder. The `git switch geo-dev` command selects
+the v0.8.0 release-candidate branch; after v0.8.0 is published, release users
+should select the `v0.8.0` tag or the documented release branch instead.
+
+#### 3. Create the virtual environment
+
+Explicitly use Python 3.12 so another installed Python version is not selected:
+
+```powershell
+py -V:3.12 -m venv .venv
+```
+
+This creates `.venv` inside the repository. It does not install GeoCANOE yet.
+
+#### 4. Activate the virtual environment
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+The prompt should now begin with `(.venv)`. If PowerShell reports that script
+execution is disabled, allow activation for only the current PowerShell process
+and try again:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+```
+
+Verify that `python` now resolves inside this repository and is version 3.12:
+
+```powershell
+python --version
+(Get-Command python).Source
+```
+
+The path from the second command should end in `.venv\Scripts\python.exe`. Stop
+and correct the environment if it points to a global Python installation.
+
+#### 5. Install GeoCANOE
+
+First update the installer inside `.venv`:
+
+```powershell
+python -m pip install --upgrade pip
+```
+
+Choose one installation profile:
+
+```powershell
+# Core geospatial, schema, execution, diagnostics, export, and mapping workflow
+python -m pip install -e .
+
+# Full research workflow, including renewables, ERA5, and cloud-source support
+python -m pip install -e ".[renewables,era5,cloud]"
+
+# Full contributor environment, including tests, linting, typing, and notebooks
+python -m pip install -e ".[renewables,era5,cloud,dev]"
+```
+
+Run only one of these commands. Most users reproducing the current national
+model should choose the second. Developers should choose the third. The `-e`
+means *editable*: changes made to this checkout are immediately visible to the
+installed package.
+
+Installation retrieves the pinned TEMOA v4 revision declared in
+`pyproject.toml`; no separate TEMOA clone is needed for normal use.
+
+#### 6. Verify the installation
+
+```powershell
+python -m pip check
+python -c "import sys, geocanoe, temoa; print(sys.executable); print(sys.version); print('GeoCANOE', geocanoe.__version__); print('Temoa', temoa.__file__)"
+geocanoe-build-bronze --help
+```
+
+Successful verification shows the `.venv` Python path, Python 3.12, the
+GeoCANOE version, an installed TEMOA path, and the Bronze command help without
+an import error. Until the v0.8.0 release-version files are updated, the
+candidate branch reports GeoCANOE `0.7.0`.
+
+#### 7. Select `.venv` in Visual Studio Code
+
+Install Microsoft's
+[Python extension for VS Code](https://marketplace.visualstudio.com/items?itemName=ms-python.python)
+if it is not already installed. Open the repository folder in VS Code, open the
+Command Palette with `Ctrl+Shift+P`, run **Python: Select Interpreter**, and
+select `.venv\Scripts\python.exe`. If the interpreter is not listed, choose
+**Enter interpreter path** and browse to that file. Open a new terminal
+afterward; VS Code should activate the environment automatically. Interpreter
+selection controls running, debugging, notebooks, linting, and import discovery.
+
+Every time you open an ordinary PowerShell terminal for this repository, enter
+the repository root and reactivate the environment:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+Use `deactivate` to leave it. Do not commit `.venv`, copy it to another machine,
+or move it with the repository; recreate it instead.
+
+### macOS and Linux: equivalent environment setup
+
+Install Python 3.12 and Git using the platform's official installer or package
+manager, then confirm that both commands are available. Some Linux
+distributions package virtual-environment support separately, for example as
+`python3.12-venv`.
+
+From the repository root:
+
+```bash
+python3.12 --version
+git --version
+python3.12 -m venv .venv
+source .venv/bin/activate
+python --version
+python -m pip install --upgrade pip
+python -m pip install -e ".[renewables,era5,cloud]"
+python -m pip check
+python -c "import sys, geocanoe, temoa; print(sys.executable); print(sys.version); print('GeoCANOE', geocanoe.__version__); print('Temoa', temoa.__file__)"
+```
+
+The activated `python` path should be under `.venv/bin/`. Contributors should
+install `.[renewables,era5,cloud,dev]` instead. Shell and system-library details
+vary by distribution; the Python 3.12 virtual-environment boundary and the
+GeoCANOE installation commands remain the same.
+
+### Troubleshooting installation
+
+- **`python` opens the Microsoft Store or reports the wrong version:** use
+  `py -V:3.12` while creating `.venv`, and use only `python` after activation.
+- **`No module named venv`:** install the operating system's Python 3.12 venv
+  package, then recreate `.venv`.
+- **PowerShell refuses to run `Activate.ps1`:** use the process-scoped execution
+  policy command shown above. It expires when that PowerShell window closes.
+- **`git` is not recognized:** install Git, close all terminals, open a new one,
+  and rerun `git --version` before installing GeoCANOE.
+- **`pip` installs into a user or global directory:** the virtual environment is
+  not active. Activate it and confirm the path returned by
+  `(Get-Command python).Source` or `which python`.
+- **A partial installation fails on a later retry:** keep `.venv` active and
+  rerun the selected install command. If dependency state remains inconsistent,
+  delete only `.venv`, recreate it, and reinstall; source data and code are
+  outside that directory.
+- **VS Code cannot import `geocanoe`:** select the repository's `.venv`
+  interpreter rather than a global Python or another project's environment.
+- **Gurobi reports a licence error:** select a HiGHS solver configuration or
+  install/configure a valid Gurobi licence. Installing `gurobipy` alone does not
+  provide a licence.
+
+The official Python [virtual-environment documentation](https://docs.python.org/3.12/library/venv.html)
+explains activation and environment isolation in more detail.
+
+### Installation profiles and dependency policy
 
 The root `pyproject.toml` is the canonical package and dependency interface for
 Geospatial-CANOE. Runtime dependencies, Gurobi's Python package, the pinned
@@ -192,23 +471,21 @@ change from silently removing a package that GeoCANOE still uses. Direct and
 transitive versions for the reproducible development environment are captured
 in `requirements-lock.txt`.
 
-### Standard research installation
+### Core installation reference
 
-This is the normal installation for research use. It supports the complete
-Geospatial-CANOE workflow and installed CANOE/TEMOA model, including data
-acquisition, preprocessing, schema construction, optimization, diagnostics,
-exports, and maps. It intentionally excludes contributor-only tools.
+The core installation supports the geospatial, schema, execution, diagnostics,
+export, and mapping workflow. Renewable conversion, ERA5 acquisition, cloud
+sources, and contributor tools are deliberately separated into optional extras.
 
-From the repository root, install the complete research environment in editable
-mode:
+From the repository root, install the core environment in editable mode:
 
 ```bash
 python -m pip install -e .
 ```
 
 The default installation includes both Temoa's HiGHS backend and the Gurobi
-Python package because the committed solver configurations select Gurobi. A
-valid Gurobi licence remains an external prerequisite for those runs.
+Python package. A valid Gurobi licence remains an external prerequisite when a
+generated or local solver configuration selects Gurobi.
 
 A successful installation should make the package importable without modifying `PYTHONPATH`:
 
@@ -216,7 +493,9 @@ A successful installation should make the package importable without modifying `
 python -c "import geocanoe; print(geocanoe.__version__)"
 ```
 
-At the current development head, the command prints `0.7.0`.
+Until the release-version files are updated, the candidate branch prints
+`0.7.0`. A tagged `v0.8.0` release must print `0.8.0`; a mismatched tag,
+`pyproject.toml` version, and importable version is a release blocker.
 
 Installation also provides the canonical workflow commands:
 
@@ -236,22 +515,23 @@ The files under `scripts/` and `diagnostics/check.py` remain compatibility
 wrappers for existing notebooks and automation. Package-module invocation with
 `python -m` is also supported by the corresponding implementation modules.
 
-### Contributor, testing, and notebook installation
+### Contributor, testing, and notebook reference
 
 Use this deeper environment when modifying the codebase, running the test suite,
 checking or formatting code, using pre-commit hooks, or working interactively
 with the development notebooks and Jupyter.
 
-Install Geospatial-CANOE with its development extra:
+Install the development tools alone with:
 
 ```bash
 python -m pip install -e ".[dev]"
 ```
 
-The `dev` extra preserves the complete research environment and adds testing,
-coverage, linting, type-checking, pre-commit, interactive Jupyter tooling, and
-notebook-oriented geospatial exploration packages. It is not required to run
-the canonical research workflow.
+The `dev` extra adds testing, coverage, linting, type-checking, pre-commit,
+interactive Jupyter tooling, and notebook-oriented geospatial exploration
+packages. It does not implicitly install the `renewables`, `era5`, or `cloud`
+extras. Use `.[renewables,era5,cloud,dev]` for the complete contributor
+environment.
 
 #### Temporary local TEMOA v4 development override
 
@@ -281,14 +561,15 @@ From the Geospatial-CANOE repository root, install Geospatial-CANOE and its
 remaining dependencies first, then install local TEMOA last:
 
 ```bash
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[renewables,era5,cloud,dev]"
 python -m pip install --no-deps -e "../temoa-v4"
 ```
 
-Use `-e .` instead of `-e ".[dev]"` in the first command when contributor tools
-are not required. The order is significant because the second command replaces
-the pinned Git TEMOA installation in the active virtual environment with the
-editable sibling checkout. Confirm the active source with:
+Choose the same extras required by the intended workflow in the first command;
+`-e .` is sufficient for the core workflow. The order is significant because
+the second command replaces the pinned Git TEMOA installation in the active
+virtual environment with the editable sibling checkout. Confirm the active
+source with:
 
 ```bash
 python -c "import temoa; print(temoa.__file__)"
@@ -328,7 +609,7 @@ Use this option if you need to reproduce the exact package versions captured in 
 Use the lock file as a constraints file while installing from `pyproject.toml`:
 
 ```bash
-python -m pip install -c requirements-lock.txt -e ".[dev]"
+python -m pip install -c requirements-lock.txt -e ".[renewables,era5,cloud,dev]"
 ```
 
 Verify the installation with:
@@ -337,9 +618,11 @@ Verify the installation with:
 python -c "import geocanoe; print(geocanoe.__version__)"
 ```
 
-In general, use `-e .` for the complete research environment and
-`-e ".[dev]"` for contributor, testing, or notebook work. Add
-`-c requirements-lock.txt` when reproducing the currently pinned environment.
+In general, use `-e .` for the core environment,
+`-e ".[renewables,era5,cloud]"` for the full national research workflow, and
+`-e ".[renewables,era5,cloud,dev]"` for full contributor, testing, and notebook
+work. Add `-c requirements-lock.txt` when reproducing the currently pinned
+environment.
 
 When a direct dependency or TEMOA revision changes, update `pyproject.toml`,
 regenerate `requirements-lock.txt`, install with the lock file as a constraint,
@@ -787,7 +1070,7 @@ data_files/processed/nhn/preview/*.png
 
 ### Raw acquisition
 
-The preferred entry point coordinates all eight registered Bronze stages:
+The preferred entry point coordinates all fifteen registered Bronze stages:
 
 ```bash
 geocanoe-build-bronze
@@ -806,6 +1089,13 @@ python -m geocanoe.acquisition.nrn
 python -m geocanoe.acquisition.nhn
 python -m geocanoe.acquisition.emissions
 python -m geocanoe.acquisition.co2_storage
+python -m geocanoe.acquisition.land_cover
+python -m geocanoe.acquisition.protected_areas
+python -m geocanoe.acquisition.wind_turbines
+python -m geocanoe.acquisition.solar_facilities
+python -m geocanoe.acquisition.era5_renewables
+python -m geocanoe.acquisition.atb
+python -m geocanoe.acquisition.economics
 ```
 
 Primary outputs:
@@ -828,6 +1118,13 @@ data_files/raw/nhn/nhn_wms_capabilities.xml
 data_files/raw/nhn/nhn_acquisition_manifest.json
 data_files/raw/emissions/co2_large_facilities_2024/
 data_files/raw/canco2_storage/
+data_files/raw/land_cover/
+data_files/raw/protected_areas/
+data_files/raw/wind_turbines/
+data_files/raw/solar_facilities/
+data_files/raw/era5/
+data_files/raw/atb/
+data_files/raw/economics/
 ```
 
 `registry/geospatial_sources.yaml` schema v2 inventories these sources by
@@ -923,7 +1220,7 @@ technology-siting exclusion layer.
 
 ### Silver preprocessing stages
 
-The current Silver workflow includes seventeen stages in canonical dependency
+The current Silver workflow includes eighteen stages in canonical dependency
 order:
 
 1. legacy site province mapping for the existing LCOE/electricity workflow;
@@ -942,7 +1239,9 @@ order:
 14. regional adjacency construction;
 15. aggregation of polygon evidence onto graph-edge cost multipliers;
 16. processed road-network construction;
-17. road-connectivity mapping.
+17. road-connectivity mapping; and
+18. renewable weather, land eligibility, resource assignment, profiles,
+    capacity limits, costs, contracts, and previews.
 
 These stages are implemented under `src/geocanoe/` and orchestrated by `geocanoe.execution.silver`.
 
@@ -960,6 +1259,7 @@ data_files/processed/graph/
 data_files/processed/nrn/
 data_files/processed/road_connectivity/
 data_files/processed/gasoline_demand/<build-id>/
+data_files/processed/renewables/<profile>/<resolution>/<run-id>/
 ```
 
 The gasoline stages support all ten provinces and three territories. Configure
@@ -1088,8 +1388,8 @@ data_files/processed/schema/
 For example:
 
 ```text
-gold_onqc_baseline_a1b2c3d4_deadbeef.sqlite
-gold_onqc_baseline_a1b2c3d4_deadbeef.manifest.json
+gold_onqc_baseline_a1b2c3d4_c02c0de5.sqlite
+gold_onqc_baseline_a1b2c3d4_c02c0de5.manifest.json
 ```
 
 The eight-character fingerprint is deterministic and incorporates the complete
@@ -1320,7 +1620,10 @@ raw acquisition
     ├── NRN
     ├── NHN
     ├── emissions
-    └── CanCO₂ storage evidence
+    ├── CanCO₂ storage evidence
+    ├── land cover, protected areas, and existing renewable facilities
+    ├── ERA5 renewable weather and ATB technology data
+    └── economics source snapshots
         │
         ▼
 silver preprocessing
@@ -1335,7 +1638,8 @@ silver preprocessing
     ├── hydrography and CO₂ storage evidence
     ├── adjacency
     ├── roads
-    └── road connectivity
+    ├── road connectivity
+    └── renewable land eligibility, resource assignment, profiles, and bounds
         │
         ▼
 schema encoding
@@ -1382,6 +1686,7 @@ data_files/processed/gasoline_demand/
 data_files/processed/legacy_inputs/
 data_files/processed/emissions/
 data_files/processed/costs/
+data_files/processed/renewables/
 data_files/processed/schema/
 ```
 
@@ -1401,8 +1706,21 @@ The current transport infrastructure formulation uses piecewise capacity-cost se
   Aboriginal Lands, population-density, and hydrography cost impedance rather
   than least-cost pathfinding over a continuous routing surface;
 - the current generalized pipeline cost layer is based on hydrogen-pipeline data;
-- the schema workflow remains tied to the current CANOE/TEMOA database structure;
-- multi-period scenario logic and uncertainty analysis are still under development;
+- national renewable profiles currently represent one configured ERA5 weather
+  year rather than a long-term climatology or multi-weather-year ensemble;
+- renewable capacity estimates use scenario-level deployment-density and land-
+  eligibility assumptions rather than parcel-scale siting or transmission
+  interconnection studies;
+- resource-assigned wind fixes each region's T1-T4 design mixture before the
+  solve, while selectable designs share an aggregate regional wind bound;
+- current economic normalization covers adopted workflows, but inherited and
+  unlabeled legacy costs still require source-by-source reconciliation;
+- geological storage includes mapped P50 capacity bounds but not injection-rate,
+  pressure, plume-migration, or offshore-storage constraints;
+- the schema workflow targets the installed TEMOA v4 database contract and is
+  not intended to remain backward compatible with legacy TEMOA schemas;
+- multi-period scenario logic, uncertainty analysis, and multi-weather-year
+  sensitivity analysis are still under development;
 - batch resume/retry settings are present in configuration but full persistent resume semantics are not yet implemented.
 
 ## Planned development
@@ -1410,17 +1728,29 @@ The current transport infrastructure formulation uses piecewise capacity-cost se
 Priority extensions include:
 
 - commodity-specific CO₂, hydrogen, fuel, and natural-gas pipeline cost models;
-- geological CO₂ capacity and injectivity storage representation, DAC, BECCS, and additional carbon-management pathways;
+- geological CO₂ injectivity and rate constraints, offshore storage, DAC,
+  BECCS, and additional carbon-management pathways;
 - rail, marine, reused natural-gas corridors, and expanded electricity transmission;
 - e-diesel, e-SAF, and e-methanol pathways;
-- multi-period optimization and improved temporal representation;
+- multi-period optimization, representative time slices, and multi-year weather
+  sensitivity;
 - terrain- and infrastructure-aware routing;
 - multi-objective and modelling-to-generate-alternatives analysis;
 - network robustness, hub persistence, and near-optimal corridor analysis;
-- stronger automated input, balance, and schema-integrity tests.
+- stronger automated input, balance, schema-integrity, and end-to-end release
+  tests;
+- continued decision records for structural sensitivities and consequential
+  model-design choices.
 
 ## Status
 
-The preprocessing, schema-building, execution, export, diagnostics, and interactive mapping pipeline is partially operational for the current road, truck, pipeline, electricity-transmission, and geological-storage preprocessing representation. Truck cost representation is still required as well as CO2 and end-fuel pipeline representation. The major scripts-to-package refactor is complete, although the codebase remains active research software and should not yet be treated as a stable public API.
+The `v0.8.0` release candidate provides an operational end-to-end research
+workflow on TEMOA v4: Bronze acquisition, Silver preprocessing, Gold database
+construction, single and batch solves, diagnostics, exports, and interactive
+mapping. It covers the current road, truck, pipeline, electricity-transmission,
+renewable-generation, carbon-accounting, and geological-storage representations.
+The workflow is suitable for documented research runs and structural
+sensitivity analysis, but it remains active research software and should not be
+treated as a stable public API.
 
 For the workflow overview, see [`scripts/model_workflow.md`](scripts/model_workflow.md).

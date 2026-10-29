@@ -5,6 +5,8 @@
 # -----------------------
 
 .venv/
+.venv-docs/
+site/
 **pycache**/
 *.pyc
 *.pyo
