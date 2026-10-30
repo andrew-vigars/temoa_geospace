@@ -1,0 +1,22 @@
+# GeoCANOE adapter settings, not the legacy canoe-fuel README template.
+repo_dir = "../canoe-fuel"
+expected_commit = "89a07cfd3925ed20f82a7d804a142af6ce82e183"
+expected_config_sha256 = "2fd2770df240544ec0f380526752316a021412ab0ef63067050fc78a83b55101"
+upstream_config = "input/params.toml"
+bronze_config = "config/canoe_fuel/bronze.toml"
+output_dir = "data_files/processed/gasoline_demand/fuel_supply/upstream_reference"
+
+# Explicit single representative period. Do not let upstream's one-period
+# default step of five years select 2030 for our 25-year period.
+period_start = 2025
+period_end = 2050
+price_year = 2050
+price_selection = "period_end"
+
+# Preserve upstream results for review; Gold consumption is intentionally separate.
+output_status = "review_required"
+
+[expected_module_sha256]
+"common.py" = "5bd402e2cd98740619cd6ce7ccb951fe59d0d4dd8c6f093141a9c3c82a4baaf3"
+"setup.py" = "a857fd8614e8a283b03e7c01046b9a2c8a21d844cecae3ea6accd70740c8b6be"
+"costvariable.py" = "737db472a4f075df896f2804517514d17ae47b01b93c046af4c8f6b7de7fe80b"

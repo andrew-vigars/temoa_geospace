@@ -1,0 +1,14 @@
+# Immutable import of the complete CANOE_CLOUD EIA acquisition, not a fuel cache.
+source_path = "../CANOE_CLOUD/data-lake/bronze/2026-10-29/eia/eia_aeo_table3.json"
+source_sha256 = "e7a5a81e6f896f73e9b7b1fc90c5df861a9404314753ff374f9421b80af9a0a2"
+raw_dir = "data_files/raw/fuel_supply/eia_aeo_2025_ref_2026-10-29"
+filename = "eia_aeo_table3.json"
+provider = "CANOE_CLOUD"
+aeo_year = 2025
+scenario = "ref2025"
+table_id = "3"
+region_id = "1-0"
+# Request began in 2023; this AEO release returned observations from 2024.
+start_year = 2024
+end_year = 2050
+source_url = "https://api.eia.gov/v2/aeo/2025/data/"

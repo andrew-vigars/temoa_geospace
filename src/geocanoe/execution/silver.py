@@ -247,6 +247,7 @@ class SilverWorkflowState:
 # =============================================================================
 
 STAGE_MODULE_NAMES = {
+    "fuel_supply": "geocanoe.preprocessing.fuel_supply",
     "gasoline_proxies": "geocanoe.preprocessing.gasoline_demand",
     "gasoline_demand": "geocanoe.preprocessing.gasoline_demand",
     "gasoline_basemap": "geocanoe.preprocessing.gasoline_demand",
@@ -267,6 +268,7 @@ STAGE_MODULE_NAMES = {
 }
 
 SILVER_STAGE_ORDER = (
+    "fuel_supply",
     "gasoline_proxies",
     "gasoline_demand",
     "emissions",
@@ -287,6 +289,7 @@ SILVER_STAGE_ORDER = (
 )
 
 SILVER_STAGE_DEPENDENCIES: dict[str, tuple[str, ...]] = {
+    "fuel_supply": (),
     "gasoline_proxies": (),
     "gasoline_demand": ("gasoline_proxies",),
     "gasoline_basemap": ("gasoline_demand", "basemaps"),
@@ -312,6 +315,7 @@ SILVER_STAGE_DEPENDENCIES: dict[str, tuple[str, ...]] = {
 }
 
 EXTERNAL_INPUT_DEPENDENCIES: dict[str, tuple[str, ...]] = {
+    "fuel_supply": ("verified EIA Bronze and controlled economic/physical inputs",),
     "emissions": (
         "raw emissions CSV",
         "raw emissions GeoJSON",
@@ -522,6 +526,10 @@ def build_stage_executors(
     """
 
     return {
+        "fuel_supply": FunctionExecutor(
+            require_stage_callable(stage_modules["fuel_supply"], "run_fuel_supply_build", "fuel_supply"),
+            pass_config=False,
+        ),
         "emissions": FunctionExecutor(
             require_stage_callable(
                 stage_modules["emissions"],
@@ -1198,6 +1206,20 @@ def validate_external_inputs(
             path=nrn_path,
             status=status,
             details=details,
+        )
+
+    if "fuel_supply" in stage_modules:
+        fuel = stage_modules["fuel_supply"]
+        path = PROJECT_ROOT / "config/canoe_fuel/silver.toml"
+        try:
+            fuel.prepare_inputs(path)
+            status, details = "found", None
+        except (OSError, ValueError, KeyError) as exc:
+            status, details = "invalid", str(exc)
+        add_external_input_check(
+            checks, stage_name="fuel_supply",
+            input_name="verified EIA Bronze and controlled economic/physical inputs",
+            path=path, status=status, details=details,
         )
 
     print_external_input_report(checks)

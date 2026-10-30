@@ -1,0 +1,11 @@
+# Controlled assumptions for conventional gasoline price normalization only.
+# This does not alter demand density, synthetic yields or emission factors.
+heating_value_basis = "HHV"
+heating_value_gj_per_tonne = 45.8
+heating_value_source = "https://publications.gc.ca/collections/collection_2024/eccc/en4/En4-418-1-2024-eng.pdf"
+heating_value_reference = "ECCC Fuel LCA Model Methodology, June 2024, Annex B, Table B.1, PDF page 100: gasoline HHV 45.8 MJ/kg"
+# Explicit model assumption: apply this common mass HHV to EIA motor gasoline.
+energy_basis_policy = "assume_eia_gross_energy_and_common_gasoline_hhv"
+gj_per_mmbtu = 1.05505585262
+energy_conversion_source = "https://www.eia.gov/consumption/commercial/terminology.php"
+energy_conversion_reference = "International Table Btu convention; EIA gives approximately 1055 joules/Btu"

@@ -1,0 +1,18 @@
+bronze_config = "config/canoe_fuel/bronze.toml"
+economic_config = "registry/economics.toml"
+properties_config = "registry/gasoline_properties.toml"
+output_dir = "data_files/processed/gasoline_demand/fuel_supply"
+period_start = 2025
+period_end = 2050
+price_year = 2050
+price_selection = "period_end"
+source_currency = "USD"
+source_price_year = 2024
+source_units = "2024 $/MMBtu"
+series_id = "prce_real_trn_NA_mgs_NA_NA_y13dlrpmmbtu"
+series_name = "Energy Prices : Transportation : Motor Gasoline"
+province_list = ["AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"]
+# Explicit common US proxy, including territories; no Canadian location premium.
+territorial_price_policy = "common_us_series"
+# Retain embedded US taxes and delivery; this is not a Canadian wholesale price.
+price_boundary = "us_sector_delivered_including_embedded_taxes"

@@ -72,6 +72,7 @@ STAGE_MODULE_NAMES: dict[str, str] = {
     "basemaps": "geocanoe.acquisition.basemaps",
     "residential": "geocanoe.acquisition.residential",
     "gasoline_demand": "geocanoe.acquisition.gasoline_demand",
+    "fuel_supply": "geocanoe.acquisition.fuel_supply",
     "aboriginal_lands": "geocanoe.acquisition.aboriginal_lands",
     "nrn": "geocanoe.acquisition.nrn",
     "nhn": "geocanoe.acquisition.nhn",
@@ -94,6 +95,7 @@ BRONZE_STAGE_ORDER = (
     "basemaps",
     "residential",
     "gasoline_demand",
+    "fuel_supply",
     "aboriginal_lands",
     "nrn",
     "nhn",
@@ -156,6 +158,7 @@ class BronzeStageOptions:
     co2_source_gpkg: Path | None = None
     co2_source_repo: Path | None = None
     economics_config: Path | None = None
+    fuel_supply_config: Path | None = None
     atb_config: Path | None = None
     era5_config: Path | None = None
     era5_download: bool = False
@@ -333,6 +336,9 @@ def execute_bronze_stage(
 
     if stage_name == "economics":
         return module.acquire_economics(options.economics_config)
+
+    if stage_name == "fuel_supply":
+        return module.acquire_fuel_supply(options.fuel_supply_config)
 
     if stage_name == "land_cover":
         return module.acquire_land_cover()
@@ -582,6 +588,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Optional cap on new ERA5 data requests; default acquires all missing.",
     )
     parser.add_argument("--economics-config", type=Path, help="Economic source acquisition TOML.")
+    parser.add_argument("--fuel-supply-config", type=Path, help="Pinned EIA fuel source TOML.")
     parser.add_argument(
         "--atb-config",
         type=Path,
@@ -615,6 +622,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         co2_source_gpkg=args.co2_source_gpkg,
         co2_source_repo=args.co2_source_repo,
         economics_config=args.economics_config,
+        fuel_supply_config=args.fuel_supply_config,
         atb_config=args.atb_config,
         era5_config=args.era5_config,
         era5_download=args.era5_download,
