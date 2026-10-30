@@ -160,6 +160,10 @@ registry/scenarios/**/*.toml
 registry/scenarios/archive/
 !registry/scenarios/sample_scenario.toml
 !registry/scenarios/sample_emissions_price.toml
+!registry/scenarios/synthetic_share_baseline.toml
+!registry/scenarios/synthetic_share_20.toml
+!registry/scenarios/synthetic_share_100.toml
+!registry/scenarios/national_gasoline_matrix/*.toml
 
 # Local TEMOA v3 run configurations retained temporarily for v4 migration.
 config/temoa_v3_configs/
@@ -172,6 +176,9 @@ config/temoav4/config_sample.toml
 # Local solver configurations and active batch selections.
 config/temoav4/**/*.toml
 config/batch_profiles/*.toml
+!config/batch_profiles/national_gasoline_matrix.toml
+# Local generated Gold artifact paths; the matrix recipe and preparer are tracked.
+config/scenario_matrices/*_inventory.json
 
 # Personal automation helpers (email delivery, credentials setup, local tests).
 local_tools/

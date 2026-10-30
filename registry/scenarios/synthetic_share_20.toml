@@ -1,0 +1,6 @@
+[scenario]
+id = "syn-share-20"
+description = "At least 20 percent of modeled national gasoline demand served by synthetic gasoline"
+
+[synthetic_gasoline]
+minimum_national_share = 0.20

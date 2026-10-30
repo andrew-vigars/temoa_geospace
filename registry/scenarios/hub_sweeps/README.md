@@ -15,7 +15,7 @@ Every scenario retains CO2 EOS stack count 5, stack count 1 for other pipeline
 technologies, pipelines enabled, 2025–2050, the projected 25 km grid, and
 `all_km_dependent` pipeline impedance. Disabled pipeline stack settings remain
 in the configuration but generate no technology rows. There is no storage
-minimum; legacy gasoline is disabled and backup gasoline remains unpriced.
+minimum; backup gasoline remains unpriced.
 Prices retain the draft model-currency-per-tonne interpretation of the source
 sweep. The 350 endpoint retains its source reference interpretation.
 

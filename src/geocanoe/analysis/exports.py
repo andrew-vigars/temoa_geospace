@@ -444,13 +444,10 @@ def build_co2_storage_summary(flow_out: pd.DataFrame) -> pd.DataFrame:
 def build_gasoline_supply_summary(flow_out: pd.DataFrame) -> pd.DataFrame:
     """Report delivered synthetic fuel and ethos fallback supply separately.
 
-    GSL_EXISTING is local gasoline supply rather than demand delivery. It is
-    reported independently, so these rows must not all be summed as deliveries.
     Values are representative annual tonnes of gasoline, not carbon emissions.
     """
     categories = {"GSL_DEMAND": "gasoline_delivery_via_gsl",
-                  "GSL_BACKUP": "ethos_backup_delivery",
-                  "GSL_EXISTING": "ethos_legacy_supply"}
+                  "GSL_BACKUP": "ethos_backup_delivery"}
     selected = flow_out.loc[flow_out.tech.isin(categories)].copy()
     selected["supply_route"] = selected.tech.map(categories)
     selected["annual_gasoline_tonnes"] = pd.to_numeric(selected.flow, errors="raise")

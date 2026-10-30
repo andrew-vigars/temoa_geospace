@@ -38,7 +38,7 @@ a new scenario set (e.g. "net-zero 2050"), copy
   `registry/scenarios/sample_scenario.toml`, give it a unique `[scenario].id`, and
 uncomment only the sections that should differ — see the comments in that
 file for the supported override sections (`[time]`, `[finance]`,
-  `[emissions]`, `[storage]`, `[legacy_gasoline]`, `[basemap]`,
+  `[emissions]`, `[storage]`, `[basemap]`, `[conventional_gasoline]`, `[synthetic_gasoline]`,
   `[transport_modes]`, and `[pipeline_costs]`).
 
 The committed scenario endpoints are `baseline.toml` (optional CO2 storage)

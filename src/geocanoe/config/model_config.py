@@ -35,7 +35,8 @@ MODEL_SECTIONS = {
     "finance",
     "emissions",
     "storage",
-    "legacy_gasoline",
+    "synthetic_gasoline",
+    "conventional_gasoline",
     "basemap",
     "transport_modes",
     "pipeline_costs",
@@ -84,20 +85,6 @@ class ModelStorageConfig:
     requirement: str
     minimum_cumulative_activity: float
     point_source_fraction: float = 0.0
-
-
-@dataclass(frozen=True)
-class ModelLegacyGasolineConfig:
-    """Optional node-level existing ("legacy") gasoline supply assumption.
-
-    Represents gasoline already available at a demand node (e.g. already in
-    the tank at the point of sale), fully decoupled from the CO2-capture /
-    e-fuel synthesis chain (``CO2_CAP -> METOH_PLANT -> GSL_PLANT``). Disabled
-    by default.
-    """
-
-    enabled: bool
-    years_of_demand: float
 
 
 @dataclass(frozen=True)
@@ -153,12 +140,13 @@ class ModelConfig:
     finance: ModelFinanceConfig
     emissions: ModelEmissionsConfig
     storage: ModelStorageConfig
-    legacy_gasoline: ModelLegacyGasolineConfig
     basemap: ModelBasemapConfig
     transport_modes: ModelTransportModesConfig
     pipeline_costs: ModelPipelineCostsConfig
     scenario: ModelScenarioConfig
     source_path: Path
+    synthetic_gasoline_minimum_national_share: float = 0.0
+    conventional_gasoline_silver_config: str = "config/canoe_fuel/silver.toml"
 
 
 def _require_rate(table: dict, key: str, section: str) -> float:
@@ -270,6 +258,8 @@ def load_model_config(
     # Make the optional setting available to overlays of older defaults files.
     require_table(raw, "transport_modes").setdefault("disabled_technologies", [])
     require_table(raw, "storage").setdefault("point_source_fraction", 0.0)
+    raw.setdefault("synthetic_gasoline", {"minimum_national_share": 0.0})
+    raw.setdefault("conventional_gasoline", {"silver_config": "config/canoe_fuel/silver.toml"})
 
     if scenario_path is None:
         scenario = ModelScenarioConfig(
@@ -285,6 +275,12 @@ def load_model_config(
         )
 
     time_raw = require_table(raw, "time")
+    gasoline_config = require_table(raw, "conventional_gasoline").get("silver_config")
+    if not isinstance(gasoline_config, str) or not gasoline_config.strip():
+        raise ValueError("[conventional_gasoline].silver_config must be a non-empty path.")
+    synthetic_share = require_number(require_table(raw, "synthetic_gasoline"), "minimum_national_share", "synthetic_gasoline")
+    if not math.isfinite(synthetic_share) or not 0 <= synthetic_share <= 1:
+        raise ValueError("[synthetic_gasoline].minimum_national_share must be finite and between 0 and 1.")
     finance_raw = require_table(raw, "finance")
     emissions_raw = require_table(raw, "emissions")
     storage_raw = require_table(raw, "storage")
@@ -357,28 +353,6 @@ def load_model_config(
     elif point_source_fraction != 0:
         raise ValueError("[storage].point_source_fraction must be 0 unless using minimum_point_source_fraction.")
 
-    legacy_gasoline_raw = require_table(raw, "legacy_gasoline")
-    legacy_gasoline_enabled = require_bool(
-        legacy_gasoline_raw,
-        "enabled",
-        "legacy_gasoline",
-    )
-    legacy_gasoline_years_of_demand = _require_nonnegative_number(
-        legacy_gasoline_raw,
-        "years_of_demand",
-        "legacy_gasoline",
-    )
-    if not legacy_gasoline_enabled and legacy_gasoline_years_of_demand != 0:
-        raise ValueError(
-            "[legacy_gasoline].years_of_demand must be 0 when enabled is "
-            "false."
-        )
-    if legacy_gasoline_enabled and legacy_gasoline_years_of_demand <= 0:
-        raise ValueError(
-            "[legacy_gasoline].years_of_demand must be greater than 0 when "
-            "enabled is true."
-        )
-
     basemap_grid_type = basemap_raw.get("grid_type")
     if basemap_grid_type not in SUPPORTED_BASEMAP_GRID_TYPES:
         raise ValueError(
@@ -428,6 +402,8 @@ def load_model_config(
     }
 
     return ModelConfig(
+        conventional_gasoline_silver_config=gasoline_config.strip(),
+        synthetic_gasoline_minimum_national_share=synthetic_share,
         time=ModelTimeConfig(start_year=start_year, end_year=end_year),
         finance=ModelFinanceConfig(
             global_discount_rate=_require_rate(
@@ -450,10 +426,6 @@ def load_model_config(
             requirement=requirement,
             minimum_cumulative_activity=minimum_cumulative_activity,
             point_source_fraction=point_source_fraction,
-        ),
-        legacy_gasoline=ModelLegacyGasolineConfig(
-            enabled=legacy_gasoline_enabled,
-            years_of_demand=legacy_gasoline_years_of_demand,
         ),
         basemap=ModelBasemapConfig(
             grid_type=basemap_grid_type,

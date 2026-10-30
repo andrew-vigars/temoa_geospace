@@ -79,6 +79,12 @@ from geocanoe.regions import (
 )
 from geocanoe.schema import database
 from geocanoe.schema.carbon import rebuild_carbon_accounting
+from geocanoe.schema.gasoline import (
+    conventional_cost_rows,
+    load_price_bundle,
+    map_conventional_prices,
+    validate_encoded_gasoline,
+)
 from geocanoe.schema.artifacts import (
     resolve_gasoline_demand_artifact_path,
     resolve_schema_artifact_paths,
@@ -164,20 +170,7 @@ NODE_COSTINVEST_TECHS = ["ELC_GEN", "CO2_CAP"]
 
 # Technologies whose node-level Efficiency rows are restricted to regions with
 # positive gasoline demand rather than every selected graph node.
-GASOLINE_DEMAND_RESTRICTED_TECHS = {"GSL_BACKUP", "GSL_EXISTING"}
-
-# Efficiency row appended ahead of rebuild_node_efficiency() when
-# [legacy_gasoline].enabled is true. GSL_EXISTING draws from the same "ethos"
-# free-source commodity as CO2_CAP/ELC_GEN and outputs directly to "gsl" -
-# the same commodity GSL_PLANT produces and GSL_DEMAND consumes - so it is
-# fully decoupled from the CO2-capture / e-fuel synthesis chain.
-LEGACY_GASOLINE_TECH = "GSL_EXISTING"
-LEGACY_GASOLINE_EFFICIENCY_ROW = {
-    "tech": LEGACY_GASOLINE_TECH,
-    "input_comm": "ethos",
-    "output_comm": "gsl",
-    "efficiency": 1.0,
-}
+GASOLINE_DEMAND_RESTRICTED_TECHS = {"GSL_BACKUP"}
 
 GENERALIZED_PIPELINE_COST_NOTE = (
     "Temporary generalized pipeline cost-and-capacity assumption: the "
@@ -274,13 +267,6 @@ class ResolvedSchemaConfig:
     storage_minimum_cumulative_activity : float
         System-wide lower bound on cumulative ``CO2_INJECT`` activity when the
         storage requirement is ``"minimum_cumulative_activity"``.
-    legacy_gasoline_enabled : bool
-        Whether the optional node-level existing ("legacy") gasoline supply
-        technology (``GSL_EXISTING``) is available. Disabled by default.
-    legacy_gasoline_years_of_demand : float
-        Equivalent years of a node's annual gasoline demand assumed already
-        available as existing legacy supply when ``legacy_gasoline_enabled``
-        is true.
     pipeline_eos_stack_counts : dict[str, int]
         Number of complete EOS capacity-cost curves tiled end-to-end for each
         pipeline technology on every canonical corridor.
@@ -314,8 +300,6 @@ class ResolvedSchemaConfig:
     default_loan_rate: float
     storage_requirement: str
     storage_minimum_cumulative_activity: float
-    legacy_gasoline_enabled: bool
-    legacy_gasoline_years_of_demand: float
     pipeline_eos_stack_counts: dict[str, int]
     output_sqlite_path: Path
     implementation_digest: str = ""
@@ -333,6 +317,9 @@ class ResolvedSchemaConfig:
     storage_point_source_fraction: float = 0.0
     storage_point_source_annual_emissions: float = 0.0
     renewables_bundle_dir: Path | None = None
+    synthetic_gasoline_minimum_national_share: float = 0.0
+    conventional_gasoline_silver_config: Path | None = None
+    conventional_gasoline_evidence: dict | None = None
 
 
 @dataclass
@@ -399,6 +386,7 @@ class LoadedInputs:
     h2_opex_coefficients: pd.DataFrame
     pipeline_edge_impedance: pd.DataFrame | None = None
     storage_capacity_budgets: pd.DataFrame | None = None
+    conventional_gasoline_prices: pd.DataFrame | None = None
 
 
 @dataclass
@@ -794,11 +782,16 @@ def resolve_schema_configuration(
     from geocanoe.schema.renewables import configured_bundle_dir
     renewables_bundle_dir = configured_bundle_dir(build_config, basemap_stem)
     implementation_digest = build_schema_implementation_digest()
+    gasoline_config = PROJECT_ROOT / model_config.conventional_gasoline_silver_config
+    _, gasoline_evidence = load_price_bundle(
+        gasoline_config, model_config.time.start_year, model_config.time.end_year,
+    )
     fingerprint = build_schema_fingerprint(
         build_config=build_config,
         model_config=model_config,
         basemap_stem=basemap_stem,
         implementation_digest=implementation_digest,
+        conventional_gasoline_identity=gasoline_evidence,
     )
     if renewables_bundle_dir is not None:
         contract_digest = hashlib.sha256((renewables_bundle_dir / "contract.json").read_bytes()).hexdigest()
@@ -840,6 +833,8 @@ def resolve_schema_configuration(
         road_region_overlay_path=artifacts.road_region_overlay,
         co2_storage_path=artifacts.co2_storage,
         gasoline_demand_path=gasoline_demand_path,
+        conventional_gasoline_silver_config=gasoline_config,
+        conventional_gasoline_evidence=gasoline_evidence,
         storage_eligibility=build_config.storage.eligibility,
         storage_use_capacity_bound=build_config.storage.use_capacity_bound,
         storage_capacity_mapping=build_config.storage.capacity_mapping,
@@ -852,6 +847,7 @@ def resolve_schema_configuration(
             model_config.emissions.projection_method
         ),
         emissions_policy=model_config.emissions.policy,
+        synthetic_gasoline_minimum_national_share=model_config.synthetic_gasoline_minimum_national_share,
         emissions_price_per_tonne=model_config.emissions.price_per_tonne,
         fallback_gasoline_emission_factor=model_config.emissions.fallback_gasoline_emission_factor,
         global_discount_rate=model_config.finance.global_discount_rate,
@@ -860,10 +856,6 @@ def resolve_schema_configuration(
         storage_requirement=model_config.storage.requirement,
         storage_minimum_cumulative_activity=(
             model_config.storage.minimum_cumulative_activity
-        ),
-        legacy_gasoline_enabled=model_config.legacy_gasoline.enabled,
-        legacy_gasoline_years_of_demand=(
-            model_config.legacy_gasoline.years_of_demand
         ),
         pipeline_eos_stack_counts=dict(
             model_config.pipeline_costs.eos_stack_counts
@@ -922,12 +914,14 @@ def build_schema_fingerprint(
     model_config: ModelConfig,
     basemap_stem: str,
     implementation_digest: str | None = None,
+    conventional_gasoline_identity: dict | None = None,
 ) -> str:
     """Hash effective configuration and implementation for artifact identity."""
 
     silver = asdict(build_config)
     silver.pop("source_path", None)
     payload = {
+        "conventional_gasoline_inputs": conventional_gasoline_identity,
         "commodities": {
             "path": str(COMMODITIES_PATH.relative_to(PROJECT_ROOT)),
             "sha256": hashlib.sha256(COMMODITIES_PATH.read_bytes()).hexdigest(),
@@ -942,7 +936,8 @@ def build_schema_fingerprint(
             "finance": asdict(model_config.finance),
             "emissions": asdict(model_config.emissions),
             "storage": asdict(model_config.storage),
-            "legacy_gasoline": asdict(model_config.legacy_gasoline),
+            "synthetic_gasoline_minimum_national_share": model_config.synthetic_gasoline_minimum_national_share,
+            "conventional_gasoline_silver_config": model_config.conventional_gasoline_silver_config,
             "transport_modes": asdict(model_config.transport_modes),
             "pipeline_costs": asdict(model_config.pipeline_costs),
         },
@@ -1041,6 +1036,8 @@ def validate_required_paths(config: ResolvedSchemaConfig) -> None:
         "graph_edges": config.graph_edge_path,
         "co2_storage": config.co2_storage_path,
     }
+    if config.conventional_gasoline_silver_config is not None:
+        required_paths["conventional_gasoline_silver_config"] = config.conventional_gasoline_silver_config
     if config.renewables_bundle_dir is not None:
         required_paths.pop("sites")
         required_paths["renewable_contract"] = config.renewables_bundle_dir / "contract.json"
@@ -1666,7 +1663,15 @@ def load_inputs(config: ResolvedSchemaConfig) -> LoadedInputs:
     """
     print("\nLoading selected geospatial and CANOE inputs...")
 
+    gasoline_prices, gasoline_evidence = load_price_bundle(
+        config.conventional_gasoline_silver_config, config.model_start_year,
+        config.model_end_year,
+    )
+    if gasoline_evidence != config.conventional_gasoline_evidence:
+        raise ValueError("Conventional gasoline inputs changed after Gold identity resolution")
+
     inputs = LoadedInputs(
+        conventional_gasoline_prices=gasoline_prices,
         basemap=gpd.read_file(config.basemap_path),
         graph_nodes=gpd.read_file(config.graph_node_path),
         graph_edges=pd.read_csv(config.graph_edge_path),
@@ -1775,7 +1780,7 @@ def attach_pipeline_cost_distances(
     graph_edges: pd.DataFrame,
     pipeline_edge_impedance: pd.DataFrame | None,
     impedance_scope: str,
-) -> pd.DataFrame:
+    ) -> pd.DataFrame:
     """Join Silver edge weights and derive pipeline-specific cost distances.
 
     The graph's physical ``distance_km`` is never modified. Depending on the
@@ -2911,7 +2916,7 @@ def build_site_attributes(
     )
 
     regional_gasoline_demand = inputs.gasoline_regions[
-        ["region", "demand"]
+        ["region", "province", "demand"]
     ].copy()
     regional_gasoline_demand["region"] = (
         regional_gasoline_demand["region"].astype(str)
@@ -3358,184 +3363,13 @@ def rebuild_storage_activity_limit(
     )
 
 
-def gen_efficiencies_with_legacy_gasoline(
-    gen_efficiencies_raw: pd.DataFrame,
-    enabled: bool,
-) -> pd.DataFrame:
-    """Return ``gen_efficiencies_raw``, optionally including ``GSL_EXISTING``.
-
-    ``GSL_EXISTING`` is never declared in the committed
-    ``generation_efficiency.csv`` because it must only be reachable when
-    ``[legacy_gasoline].enabled`` is true in ``registry/model.toml``; adding it
-    unconditionally would make free, uncapped gasoline available in every
-    build. When enabled, its row is appended in memory so it flows through
-    :func:`rebuild_node_efficiency` exactly like every other node technology,
-    restricted to positive-demand regions via
-    ``GASOLINE_DEMAND_RESTRICTED_TECHS``.
-
-    Parameters
-    ----------
-    gen_efficiencies_raw : pd.DataFrame
-        Raw node technology efficiency table loaded from
-        ``generation_efficiency.csv``.
-    enabled : bool
-        Whether the legacy gasoline supply technology is enabled for this
-        build.
-
-    Returns
-    -------
-    pd.DataFrame
-        ``gen_efficiencies_raw`` unchanged when disabled, otherwise with the
-        ``GSL_EXISTING`` efficiency row appended.
-    """
-
-    if not enabled:
-        return gen_efficiencies_raw
-
-    legacy_row = pd.DataFrame([LEGACY_GASOLINE_EFFICIENCY_ROW])
-    return pd.concat(
-        [gen_efficiencies_raw, legacy_row],
-        ignore_index=True,
-    )
-
-
-def rebuild_legacy_gasoline_activity_limit(
-    db_encoded: dict[str, pd.DataFrame],
-    site_attributes: pd.DataFrame,
-    enabled: bool,
-    years_of_demand: float,
-    model_period: int,
-    period_years: int,
-) -> None:
-    """Rebuild the optional per-node existing ("legacy") gasoline supply cap.
-
-    ``GSL_EXISTING`` represents gasoline already available at a demand node
-    (e.g. already in the tank at the point of sale), fully decoupled from the
-    CO2-capture / e-fuel synthesis chain. Its Efficiency rows are added
-    conditionally by :func:`gen_efficiencies_with_legacy_gasoline` ahead of
-    :func:`rebuild_node_efficiency`; this function rebuilds only its per-node
-    ``LimitActivity`` upper bound, which is what actually keeps the
-    technology's free ``ethos`` input from supplying unlimited gasoline.
-
-    ``years_of_demand`` is a whole-period assumption (equivalent years of a
-    node's annual gasoline demand already available as existing supply). It is
-    converted to Temoa's annual ``LimitActivity`` value the same way the
-    geological-storage floor is: divided by the model-period duration.
-
-    The input database dictionary is modified in place.
-
-    Parameters
-    ----------
-    db_encoded : dict[str, pd.DataFrame]
-        Mutable encoded database table dictionary being rebuilt for the
-        selected geospatial schema.
-    site_attributes : pd.DataFrame
-        Node-level snapped site attributes containing ``region`` and
-        ``demand`` columns.
-    enabled : bool
-        Whether the legacy gasoline supply technology is enabled for this
-        build.
-    years_of_demand : float
-        Equivalent years of a node's annual gasoline demand assumed already
-        available as existing legacy supply. Must be positive when ``enabled``
-        is true and exactly 0 when ``enabled`` is false.
-    model_period : int
-        Sole optimization-period label.
-    period_years : int
-        Duration, in years, of the modeled period.
-
-    Returns
-    -------
-    None
-
-    Raises
-    ------
-    ValueError
-        If ``years_of_demand`` is inconsistent with ``enabled``, or if
-        ``period_years`` is not positive.
-    """
-
-    db_encoded["limit_activity"] = db_encoded["limit_activity"].loc[
-        db_encoded["limit_activity"]["tech_or_group"] != LEGACY_GASOLINE_TECH
-    ].copy()
-
-    if not enabled:
-        if years_of_demand != 0:
-            raise ValueError(
-                "Legacy gasoline years_of_demand must be zero when disabled."
-            )
-        print("Legacy gasoline supply (GSL_EXISTING): disabled")
-        return
-
-    if years_of_demand <= 0:
-        raise ValueError(
-            "Legacy gasoline years_of_demand must be positive when enabled."
-        )
-    if period_years <= 0:
-        raise ValueError(
-            "Legacy gasoline projection period_years must be positive."
-        )
-
-    demand_nodes = site_attributes.loc[
-        site_attributes["demand"] > 0,
-        ["region", "demand"],
-    ].reset_index(drop=True)
-
-    if demand_nodes.empty:
-        raise ValueError(
-            "Legacy gasoline supply was enabled, but no selected graph node "
-            "has positive gasoline demand."
-        )
-
-    annual_equivalent = years_of_demand * demand_nodes["demand"] / period_years
-
-    legacy_limit = pd.DataFrame(
-        {
-            "region": demand_nodes["region"],
-            "period": model_period,
-            "tech_or_group": LEGACY_GASOLINE_TECH,
-            "operator": "le",
-            "activity": annual_equivalent,
-            "units": "t/year",
-            "notes": (
-                f"Annual equivalent of {years_of_demand:g} years of node "
-                "gasoline demand assumed as existing legacy supply, spread "
-                f"over the {period_years}-year model period"
-            ),
-            "data_source": None,
-            "dq_cred": None,
-            "dq_geog": None,
-            "dq_struc": None,
-            "dq_tech": None,
-            "dq_time": None,
-            "data_id": DATA_ID,
-        }
-    )
-
-    db_encoded["limit_activity"] = pd.concat(
-        [db_encoded["limit_activity"], legacy_limit],
-        ignore_index=True,
-    )
-
-    encoded = db_encoded["limit_activity"].loc[
-        db_encoded["limit_activity"]["tech_or_group"] == LEGACY_GASOLINE_TECH
-    ]
-    assert len(encoded) == len(demand_nodes)
-    assert (encoded["operator"] == "le").all()
-    assert set(encoded["region"]) == set(demand_nodes["region"])
-
-    print(
-        "Legacy gasoline supply (GSL_EXISTING): enabled "
-        f"({years_of_demand:g} years of node demand; "
-        f"{len(legacy_limit):,} node caps)"
-    )
-
-
 def rebuild_node_costs(
     db_encoded: dict[str, pd.DataFrame],
     site_attributes: pd.DataFrame,
     model_period: int,
-) -> None:
+    gasoline_prices: pd.DataFrame,
+    model_end_year: int,
+) -> pd.DataFrame:
     """Rebuild node-level cost tables from snapped site attributes.
 
     This function replaces existing node-level ``CostVariable`` rows for
@@ -3555,16 +3389,21 @@ def rebuild_node_costs(
         Mutable encoded database table dictionary being rebuilt for the selected
         geospatial schema.
     site_attributes : pd.DataFrame
-        Node-level snapped site attributes containing ``region``, ``LCOE``, and
-        ``co2_cost`` columns.
+        Node-level attributes containing region, province, demand, LCOE and
+        CO2 capture cost. Province comes from the Silver demand mapping.
+    gasoline_prices : pd.DataFrame
+        Validated Silver province-period gasoline prices in CAD2020/t gasoline.
+    model_end_year : int
+        Exclusive period boundary, also the selected EIA endpoint-price year.
 
     Returns
     -------
-    None
+    pd.DataFrame
+        Demand-region gasoline price audit, including source and proxy metadata.
     """
-    gasoline_demand_sites = site_attributes.loc[
-        site_attributes["demand"] > 0
-    ].reset_index(drop=True)
+    gasoline_audit = map_conventional_prices(
+        site_attributes, gasoline_prices, model_period, model_end_year,
+    )
 
     node_costvariable = pd.concat(
         [
@@ -3604,24 +3443,7 @@ def rebuild_node_costs(
                     "data_id": DATA_ID,
                 }
             ),
-            pd.DataFrame(
-                {
-                    "region": gasoline_demand_sites["region"],
-                    "period": model_period,
-                    "tech": "GSL_BACKUP",
-                    "vintage": model_period,
-                    "cost": 500000,
-                    "units": "M$/MWh",
-                    "notes": "Backup gasoline supply cost",
-                    "data_source": None,
-                    "dq_cred": None,
-                    "dq_geog": None,
-                    "dq_struc": None,
-                    "dq_tech": None,
-                    "dq_time": None,
-                    "data_id": DATA_ID,
-                }
-            ),
+            conventional_cost_rows(gasoline_audit, model_period, DATA_ID),
         ],
         ignore_index=True,
     )
@@ -3684,6 +3506,8 @@ def rebuild_node_costs(
 
     print(f"Node CostVariable rows added: {len(node_costvariable):,}")
     print(f"Node CostInvest rows added: {len(node_costinvest):,}")
+
+    return gasoline_audit
 
 
 def build_input_split(
@@ -3829,8 +3653,8 @@ def rebuild_node_efficiency(
     the selected geospatial graph-node regions. Technology efficiencies are
     taken from ``gen_efficiencies_raw`` and expanded across the applicable node
     regions. Most technologies are assigned to all selected nodes, while
-    technologies in ``GASOLINE_DEMAND_RESTRICTED_TECHS`` (``GSL_BACKUP`` and
-    ``GSL_EXISTING``) are assigned only to regions with positive gasoline
+    technologies in ``GASOLINE_DEMAND_RESTRICTED_TECHS`` (``GSL_BACKUP``)
+    are assigned only to regions with positive gasoline
     demand.
 
     The function also adds ``GSL_DEMAND`` efficiency rows for regions with
@@ -5891,6 +5715,7 @@ def export_sqlite(
 def write_schema_manifest(
     config: ResolvedSchemaConfig,
     build_config: GeospatialBuildConfig,
+    gasoline_audit: pd.DataFrame | None = None,
 ) -> Path:
     """Write the complete resolved artifact identity beside the Gold database."""
 
@@ -5909,6 +5734,24 @@ def write_schema_manifest(
         "silver_build_profile": build_values,
         "resolved_gold_configuration": resolved_values,
     }
+    if gasoline_audit is not None:
+        audit_path = config.output_sqlite_path.with_suffix(".gasoline_prices.csv")
+        gasoline_audit.to_csv(audit_path, index=False)
+        annual_demand = float(gasoline_audit.demand.sum())
+        share = config.synthetic_gasoline_minimum_national_share
+        payload["gasoline_supply"] = {
+            "silver": config.conventional_gasoline_evidence,
+            "price_audit": audit_path.name,
+            "price_audit_sha256": hashlib.sha256(audit_path.read_bytes()).hexdigest(),
+            "demand_nodes": len(gasoline_audit),
+            "demand_provinces": sorted(gasoline_audit.province.unique()),
+            "annual_demand_tonnes": annual_demand,
+            "minimum_national_synthetic_share": share,
+            "minimum_synthetic_delivery_tonnes_per_year": share * annual_demand,
+            "maximum_conventional_delivery_tonnes_per_year": (1-share) * annual_demand,
+            "policy_scope": "aggregate modeled demand; no per-city blend minimum",
+            "share_basis": "common gasoline mass",
+        }
     from geocanoe.execution.provenance import configuration_snapshot
 
     payload["configuration_sources"] = {
@@ -6211,11 +6054,6 @@ def run_schema_build(
         f"{config.storage_minimum_cumulative_activity:,.2f} "
         "t CO2e/model period"
     )
-    print(f"Legacy gasoline supply enabled: {config.legacy_gasoline_enabled}")
-    print(
-        "Legacy gasoline years of demand: "
-        f"{config.legacy_gasoline_years_of_demand:g}"
-    )
     print(f"Road transport enabled: {config.roads_enabled}")
     print(f"Pipeline transport enabled: {config.pipelines_enabled}")
     print(f"Disabled transport technologies: {list(config.disabled_transport_technologies)}")
@@ -6241,8 +6079,6 @@ def run_schema_build(
     )
     disabled_transport_techs = all_specs.transport_techs - specs.transport_techs
     disabled_techs = set(disabled_transport_techs)
-    if not config.legacy_gasoline_enabled:
-        disabled_techs.add(LEGACY_GASOLINE_TECH)
 
     if specs.pipe_techs:
         print("\nTemporary generalized pipeline cost assumption:")
@@ -6298,10 +6134,7 @@ def run_schema_build(
     rebuild_node_efficiency(
         db_encoded,
         snapped.site_attributes,
-        gen_efficiencies_with_legacy_gasoline(
-            inputs.gen_efficiencies_raw,
-            config.legacy_gasoline_enabled,
-        ),
+        inputs.gen_efficiencies_raw,
         config.model_start_year,
     )
     rebuild_storage_efficiency(
@@ -6319,10 +6152,12 @@ def run_schema_build(
         model_period=config.model_start_year,
     )
     print("\nRebuilding process costs...")
-    rebuild_node_costs(
+    gasoline_audit = rebuild_node_costs(
         db_encoded,
         snapped.site_attributes,
         config.model_start_year,
+        inputs.conventional_gasoline_prices,
+        config.model_end_year,
     )
     rebuild_cost_invest_eos(
         db_encoded=db_encoded,
@@ -6382,18 +6217,16 @@ def run_schema_build(
         config.model_start_year,
         config.model_end_year - config.model_start_year,
     )
-    rebuild_legacy_gasoline_activity_limit(
-        db_encoded,
-        snapped.site_attributes,
-        config.legacy_gasoline_enabled,
-        config.legacy_gasoline_years_of_demand,
-        config.model_start_year,
-        config.model_end_year - config.model_start_year,
-    )
     rebuild_input_splits(
         db_encoded,
         snapped.site_attributes,
         config.model_start_year,
+    )
+
+    from geocanoe.schema.fuel_policy import rebuild_national_synthetic_share
+    rebuild_national_synthetic_share(
+        db_encoded, config.model_start_year,
+        config.synthetic_gasoline_minimum_national_share,
     )
 
     rebuild_carbon_accounting(
@@ -6410,6 +6243,10 @@ def run_schema_build(
     apply_configured_renewables(db_encoded, build_config, config, canonical.valid_node_regions)
 
     print("\nValidating encoded database...")
+    validate_encoded_gasoline(
+        db_encoded, gasoline_audit, config.model_start_year,
+        config.synthetic_gasoline_minimum_national_share,
+    )
     validate_encoded_region_coverage(
         db_encoded,
         canonical,
@@ -6439,7 +6276,7 @@ def run_schema_build(
         snapped,
         config,
     )
-    write_schema_manifest(config, build_config)
+    write_schema_manifest(config, build_config, gasoline_audit)
 
     print("\nStage 6 complete.")
     print(f"Output database: {config.output_sqlite_path}")

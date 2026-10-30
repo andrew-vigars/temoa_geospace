@@ -241,7 +241,7 @@ def rebuild_carbon_accounting(
                 1 / efficiency,
                 "All facility carbon used in fuel is eventually released; includes conversion losses",
             )
-        elif row.tech in {"GSL_BACKUP", "GSL_EXISTING"}:
+        elif row.tech == "GSL_BACKUP":
             coefficient = fallback_gasoline_emission_factor
             emis_comm, note = (
                 FALLBACK_EMISSION,

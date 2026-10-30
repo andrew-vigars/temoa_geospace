@@ -22,7 +22,7 @@
 #   4. Silver evidence layers are never modified or rebuilt by a scenario.
 #
 # Supported override sections are [time], [finance], [emissions], [storage],
-# [legacy_gasoline], [basemap], and [pipeline_costs]. Unknown sections,
+# [basemap], and [pipeline_costs]. Unknown sections,
 # unknown keys, invalid values, and
 # inconsistent combinations fail validation before schema construction.
 

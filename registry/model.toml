@@ -13,6 +13,17 @@
 start_year = 2025
 end_year = 2050
 
+[synthetic_gasoline]
+# National minimum share of modeled gasoline demand, in the current common
+# gasoline mass units (equivalent energy share for identical gasoline).
+# Zero imposes no minimum; cities are not individually constrained.
+minimum_national_share = 0.0
+
+[conventional_gasoline]
+# Validated Silver CAD2020/t gasoline prices; delivered US-series proxy.
+# Consumed offline by Gold, with no additional conventional delivery charge.
+silver_config = "config/canoe_fuel/silver.toml"
+
 [finance]
 
 # Social discount rate used to calculate the present value of annual costs.
@@ -40,7 +51,7 @@ policy = "none"
 # Currency units must match the other Gold costs (e.g. CAD/t CO2e).
 # Temoa applies period length and discounting; do not multiply this price by years.
 price_per_tonne = 0
-# Optional combustion charge for ethos backup and legacy gasoline, t CO2/t gasoline.
+# Optional combustion charge for conventional backup gasoline, t CO2/t gasoline.
 # Zero excludes fallback gasoline from the price; it is still reported as supply.
 fallback_gasoline_emission_factor = 0
 
@@ -62,23 +73,6 @@ minimum_cumulative_activity = 0
 # Share of the post-filtering, post-snapping point-source annual emissions (0..1).
 # Used only with requirement = "minimum_point_source_fraction".
 point_source_fraction = 0
-
-[legacy_gasoline]
-
-# Whether a hypothetical existing ("legacy") gasoline supply is available at
-# each demand node. This represents gasoline already available locally (e.g.
-# already in the tank at the point of sale) and is fully decoupled from the
-# CO2-capture / e-fuel synthesis chain (CO2_CAP -> METOH_PLANT -> GSL_PLANT).
-# Disabled by default pending review; do not enable as the default until
-# confirmed.
-enabled = false
-
-# Equivalent years of a node's annual gasoline demand (from demand.csv) assumed
-# already available as existing legacy supply. Gold encodes this as an
-# annual-equivalent LimitActivity upper bound per demand node, dividing by
-# (end_year - start_year) the same way the geological-storage floor is
-# encoded. Must be positive when enabled and exactly 0 when disabled.
-years_of_demand = 0
 
 [basemap]
 

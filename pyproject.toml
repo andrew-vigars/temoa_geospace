@@ -2,6 +2,10 @@
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
+[tool.pytest.ini_options]
+# Generated test configs, databases and reports stay out of the source tree.
+addopts = "--basetemp=.tmp/pytest"
+
 [project]
 name = "geocanoe"
 version = "0.7.0"

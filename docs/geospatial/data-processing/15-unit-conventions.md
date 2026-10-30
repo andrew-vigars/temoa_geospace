@@ -43,7 +43,7 @@ which tests that units are present, parseable and in a plausible category.
 |---|---|---|---|---|
 | `ELC_GEN` variable cost (LCOE) | `M$/MWh` | median 0.0385, range 0.019 to 0.34 | `CostVariable` | These values look like **$/kWh** (about 3.9 ¢/kWh median). If they were M$/MWh, the median would be $38,500/MWh. **[confirm]** |
 | `CO2_CAP` variable cost | `M$/t` | 50 | `CostVariable` | If M$/t, this is 50 million dollars per tonne. Likely a different unit, such as $/t. **[confirm]** |
-| `GSL_BACKUP` variable cost | `M$/MWh` | 500,000 | `CostVariable` | A penalty value. Unit as above is inconsistent with a per-tonne demand. **[confirm]** |
+| `GSL_BACKUP` variable cost | `CAD2020/t gasoline` | 957.54035 | `CostVariable` | Validated Silver province-period delivered-price proxy; replaces the former 500,000 penalty and incorrect M$/MWh label. |
 | `ELC_GEN`, `CO2_CAP` investment | not labelled | 1,000 | `CostInvest` | Fixed constant |
 | Truck variable cost | `M$/unit` | 0.01 per km (+ intercept) | `CostVariable` | Currency and basis unstated |
 | Electricity transmission | not labelled | 0.0052 per km + 2.7896 | `CostVariable`, `cost_invest_eos` | Currency and basis unstated |

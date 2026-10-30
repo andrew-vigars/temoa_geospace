@@ -2,7 +2,7 @@
 
 *Layer: Gold. Code: [schema/build.py](../../../src/geocanoe/schema/build.py) (`rebuild_technology_table`,
 `rebuild_node_efficiency`, `rebuild_input_splits`, `rebuild_node_costs`, `rebuild_cost_invest_eos`,
-`rebuild_storage_*`, `rebuild_legacy_gasoline_activity_limit`, `rebuild_static_supporting_tables`),
+`rebuild_storage_*`, `rebuild_static_supporting_tables`),
 `geocanoe.schema.carbon`, `geocanoe.schema.renewables`,
 `geocanoe.config.model_config`. Inputs: [registry/](../../../registry): `techs.csv`, `commodities.csv`,
 `generation_efficiency.csv`, `transport_techs.csv`, `model.toml`, `scenarios/*.toml`.*
@@ -29,7 +29,8 @@ registry/model.toml (global defaults)
    → validated effective configuration → Gold SQLite + manifest
 ```
 
-Allowed scenario sections: `[time]`, `[finance]`, `[emissions]`, `[storage]`, `[legacy_gasoline]`, `[basemap]`,
+Allowed scenario sections: `[time]`, `[finance]`, `[emissions]`, `[storage]`, `[basemap]`,
+`[conventional_gasoline]`, `[synthetic_gasoline]`,
 `[transport_modes]`, `[pipeline_costs]`. Unknown sections or keys fail validation. Silver is never rebuilt by a scenario.
 
 | Setting | Default (`model.toml`) | Notes |
@@ -40,7 +41,6 @@ Allowed scenario sections: `[time]`, `[finance]`, `[emissions]`, `[storage]`, `[
 | `emissions.projection_method` | `constant` | Only supported value |
 | `emissions.policy`, `price_per_tonne` | `none`, 0 | Optional facility-origin atmospheric emissions price |
 | `storage.requirement` | `none` | Or an absolute cumulative target or included point-source fraction |
-| `legacy_gasoline.enabled` | `false` | Optional existing-supply technology; "disabled by default pending review" |
 | `basemap` | projected, 25 km | Must match a Silver basemap that was built |
 | `transport_modes` | roads and pipelines enabled; no individual exclusions | Master switches plus `disabled_technologies` |
 | `pipeline_costs.impedance_scope` | `none` | See chapter 6 |
@@ -75,8 +75,7 @@ facility-carbon and atmospheric-emission commodities from `commodities.csv`.
 | `METOH_PLANT` | `co2` 0.714, `h2` 5.208, `elc` 5.714 `→ ch3oh` | Input split (below) |
 | `GSL_PLANT` | `ch3oh` 0.444, `h2` 200 `→ gsl` | Input split (below) |
 | `GSL_DEMAND` | `gsl → d_gsl` | Regions with demand |
-| `GSL_BACKUP` | `ethos → d_gsl` (1.0) | Cost 500,000; regions with demand; unlimited-capacity flag |
-| `GSL_EXISTING` | `ethos → gsl` (1.0) | Only if `legacy_gasoline.enabled` |
+| `GSL_BACKUP` | `ethos → d_gsl` (1.0) | Silver conventional price; regions with demand; unlimited-capacity flag |
 
 **Transport technologies** (on edges): `H2_PIPE`, `CO2_PIPE`, `METOH_PIPE`, `GSL_PIPE`, `ELC_TRANS` (all
 edges); `H2_TRUCK`, `CO2_TRUCK`, `METOH_TRUCK`, `GSL_TRUCK` (road-enabled edges). Efficiency is 1.0 on every edge.
@@ -90,7 +89,7 @@ edges); `H2_TRUCK`, `CO2_TRUCK`, `METOH_TRUCK`, `GSL_TRUCK` (road-enabled edges)
 |---|---|---|
 | `ELC_GEN` variable cost | `CostVariable`, per node | Node mean LCOE (units written "M$/MWh") |
 | `CO2_CAP` variable cost | `CostVariable`, per node | 50 ("M$/t") |
-| `GSL_BACKUP` variable cost | `CostVariable`, demand nodes | 500,000 ("M$/MWh") |
+| `GSL_BACKUP` variable cost | `CostVariable`, demand nodes | Validated Silver province-period price, CAD2020/t gasoline (current common proxy 957.54) |
 | `ELC_GEN`, `CO2_CAP` investment | `CostInvest`, per node | Fixed 1,000 each |
 | `GSL_PLANT`, `METOH_PLANT`, `ELC_TRANS` investment | `cost_invest_eos`, analytic curves | Marginal cost per unit capacity `a · q^b` (b < 0, a learning/scale curve), so cumulative cost is `a/(b+1) · q^(b+1)` at each breakpoint |
 | Pipeline investment | `cost_invest_eos` | H2-derived curve, per-km, distance-scaled (chapter 10) |
@@ -122,7 +121,6 @@ distance.
 | Point-source-fraction target | `LimitActivity` (`CO2_INJECT`, `≥`) | Fraction × included post-snap annual facility emissions; manifest records the resolved cumulative target |
 | Geological storage capacity | `LimitActivity` (`CO2_INJECT`, `≤`) | Optional P50 `equal_weighted` regional budgets or one `shared` system pool, annualized over the period |
 | Atmospheric emissions price | standard Temoa emission-accounting tables | Charges released facility-origin carbon; optional fallback-gasoline factor is separate |
-| Legacy gasoline | `LimitActivity` (`GSL_EXISTING`, `≤`) | `years_of_demand × annual demand / period years`, per demand node |
 
 Temoa optimises **one representative year** and repeats it across the period. Annual quantities are therefore not multiplied
 by the period length. Cumulative targets are divided by it.

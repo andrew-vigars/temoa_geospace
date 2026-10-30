@@ -57,8 +57,8 @@ CANOE's direct/upstream separation should be retained when integrating sectoral
 data, with an explicit allocation of each emission to avoid counting the same
 carbon at both supply and combustion.
 
-Fallback and legacy gasoline are reported separately but remain unpriced by
-default, as requested. Electricity and upstream fuel emissions are outside the
+Conventional backup gasoline is reported separately and has no combustion
+emissions charge by default. Electricity and upstream fuel emissions are outside the
 initial facility-carbon boundary. The inherited facility CO2e-to-physical-CO2
 proxy is also retained. These choices prevent a claim of full provincial or
 whole-system emissions equivalence.

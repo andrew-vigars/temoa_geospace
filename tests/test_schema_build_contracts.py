@@ -53,12 +53,22 @@ def test_backup_gasoline_costs_are_limited_to_demand_regions() -> None:
             "demand": [0.0, 10.0, 0.0],
             "LCOE": [1.0, 2.0, 3.0],
             "co2_cost": [4.0, 5.0, 6.0],
+            "province": ["ON", "ON", "ON"],
         }
     )
 
-    rebuild_node_costs(tables, site_attributes, model_period=2025)
+    prices = pd.DataFrame([dict(
+        province="ON", period=2025, period_end=2050, price_year=2050,
+        cost=957.54, units="CAD2020/t gasoline", source_series_id="test",
+        price_boundary="us_sector_delivered_including_embedded_taxes",
+        status="normalized_with_explicit_assumptions", is_territorial_proxy=False,
+    )])
+    rebuild_node_costs(tables, site_attributes, model_period=2025,
+                       gasoline_prices=prices, model_end_year=2050)
 
     node_costs = tables["cost_variable"]
+    assert node_costs.loc[node_costs.tech.eq("GSL_BACKUP"), "cost"].tolist() == [957.54]
+    assert node_costs.loc[node_costs.tech.eq("GSL_BACKUP"), "units"].tolist() == ["CAD2020/t gasoline"]
     assert set(node_costs.loc[node_costs["tech"] == "GSL_BACKUP", "region"]) == {
         "R1"
     }
@@ -724,8 +734,6 @@ def test_canonical_links_separate_all_edges_from_road_edges() -> None:
         default_loan_rate=0.03,
         storage_requirement="none",
         storage_minimum_cumulative_activity=0.0,
-        legacy_gasoline_enabled=False,
-        legacy_gasoline_years_of_demand=0.0,
         pipeline_eos_stack_counts={
             "CO2_PIPE": 1,
             "GSL_PIPE": 1,

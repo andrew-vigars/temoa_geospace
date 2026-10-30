@@ -15,7 +15,7 @@ The model separates **where and how space is processed**, **what the energy syst
 |---|---|---|---|
 | **Build profile** | `config/build_profiles/*.toml` | Study area, grid resolutions, road classes, connectivity method, hydrography and impedance selection, gasoline proxy strategy, snapping and storage eligibility | Silver stages and Gold |
 | **Renewables settings** | `config/renewables/*.toml` | ERA5/Atlite conversion, physical technologies, ATB selection, land exclusions, costs, capacity limits and Gold replacement | Renewable Silver and Gold |
-| **Global model settings** | `registry/model.toml` | Time horizon, discount rates, emissions projection, storage requirement, legacy gasoline, basemap choice, transport-mode switches, pipeline-cost scope | Gold |
+| **Global model settings** | `registry/model.toml` | Time horizon, discount rates, emissions projection, storage requirement, basemap choice, transport-mode switches, pipeline-cost scope | Gold |
 | **Scenario** | `registry/scenarios/*.toml` | Overrides of the model settings only | Gold |
 | **Temoa configuration** | generated or local TOML | Solver, scenario mode, extensions, input database, outputs | Temoa (via `geocanoe.execution.run`) |
 | **Batch profile** | `config/batch_profiles/*.toml` | Ordered list of Temoa configurations to run | `geocanoe.execution.batch` |
@@ -33,7 +33,7 @@ Gold SQLite + solver configuration TOML ──→ Temoa solve
 ```
 
 Rules enforced by `model_config.py`:
-- A scenario may only override `[time]`, `[finance]`, `[emissions]`, `[storage]`, `[legacy_gasoline]`, `[basemap]`, `[transport_modes]`, and `[pipeline_costs]`. Unknown keys and inconsistent policy combinations fail before schema construction. `[emissions]` can select an atmospheric emissions price; `[storage]` can select no floor, an absolute cumulative target, or a fraction of included point-source emissions.
+- A scenario may override `[time]`, `[finance]`, `[emissions]`, `[storage]`, `[basemap]`, `[transport_modes]`, `[pipeline_costs]`, `[conventional_gasoline]`, and `[synthetic_gasoline]`. Unknown keys and inconsistent policy combinations fail before schema construction. `[emissions]` can select an atmospheric emissions price; `[storage]` can select no floor, an absolute cumulative target, or a fraction of included point-source emissions. Conventional gasoline selects a validated Silver price configuration; synthetic gasoline sets the aggregate minimum share.
 - A scenario never changes Silver. Silver evidence layers are built once per profile and reused.
 - If no scenario is passed, `registry/scenarios/baseline.toml` is used.
 

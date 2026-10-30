@@ -23,7 +23,7 @@
 #   4. Silver evidence layers are never modified or rebuilt by a scenario.
 #
 # Supported override sections are [time], [finance], [emissions], [storage],
-# [legacy_gasoline], [basemap], [transport_modes], and [pipeline_costs]. Unknown sections,
+# [basemap], [transport_modes], and [pipeline_costs]. Unknown sections,
 # unknown keys, invalid values, and
 # inconsistent combinations fail validation before schema construction.
 
@@ -98,7 +98,7 @@ policy = "emissions_price"
 # Currency per tonne of emissions; use the same cost basis as the other inputs.
 # A storage-target run keeps this zero. A price run varies it and disables the floor.
 price_per_tonne = 0
-# Ethos backup/legacy gasoline is reported but not priced in this first boundary.
+# Conventional backup gasoline is reported but not priced in this first boundary.
 fallback_gasoline_emission_factor = 0
 
 

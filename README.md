@@ -2,6 +2,12 @@
 
 [**GeoCANOE Documentation**](https://andrew-vigars.github.io/temoa_geospace/)
 
+Conventional gasoline price acquisition and normalization: see the maintained
+[Bronze/Silver fuel-price workflow](docs/canoe_fuel_silver.md).
+Gold now maps those prices to conventional supply; national 0%, 20%, and 100%
+synthetic requirements are described in the [gasoline scenario guide](docs/synthetic-gasoline-share.md).
+Pytest scratch artifacts are written under the ignored `.tmp/pytest/` directory.
+
 Geospatial-CANOE extends the CANOE/TEMOA energy-system modelling framework with
 a modular Canadian geospatial data, schema, execution, and analysis pipeline.
 It assembles spatial networks, energy demand, renewable-resource profiles,
@@ -941,19 +947,17 @@ physical-CO2 proxy; gas-specific capture fractions are not introduced here.
 Upstream fuel and electricity emissions are outside this initial boundary.
 
 `GSL_BACKUP` supplies gasoline demand directly from `ethos` when synthetic fuel
-is not selected; optional `GSL_EXISTING` supplies local gasoline. Both remain
+is not selected. Its combustion emissions remain
 unpriced with `fallback_gasoline_emission_factor = 0`, as deliberately chosen
 for the first scenario. A later scenario may specify a combustion factor in
-tonnes CO2 per tonne gasoline to charge these routes separately. An unpriced
+tonnes CO2 per tonne gasoline to charge this route separately. An unpriced
 fallback can be preferred when facility carbon is more valuable for storage.
 This is a facility-abatement scenario, not a full-system net-zero claim.
 
 Exports include `CO2AccountingSummary` with annual facility baseline, capture,
 storage and atmospheric emissions, plus `GasolineSupplySummary` separating
-delivery through `gsl`, direct backup delivery, and legacy supply. Delivery
-through `gsl` may include legacy gasoline; legacy supply is an intermediate
-quantity and must not be added to deliveries. Capture is also an intermediate
-carbon metric. Across the system, annual baseline equals stored carbon plus
+synthetic delivery through `gsl` and direct conventional backup delivery.
+Capture is an intermediate carbon metric. Across the system, annual baseline equals stored carbon plus
 facility atmospheric emissions; regional balances additionally involve imports
 and exports. Multiply annual physical totals by period years only for cumulative
 reporting. Native `output_emission` and `output_cost` retain the solver's emissions
