@@ -10,7 +10,7 @@ from geocanoe.config import load_model_config
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 MODEL_CONFIG_PATH = PROJECT_ROOT / "registry" / "model.toml"
 BASELINE_SCENARIO_PATH = (
-    PROJECT_ROOT / "registry" / "scenarios" / "sample_scenario.toml"
+    PROJECT_ROOT / "registry" / "scenarios" / "baseline.toml"
 )
 
 
@@ -45,7 +45,7 @@ def test_committed_model_registry_is_single_period_2025_to_2050() -> None:
     assert config.time.end_year == 2050
     assert config.time.period_years == 25
     assert config.emissions.projection_method == "constant"
-    assert config.emissions.policy == "emissions_price"
+    assert config.emissions.policy == "none"
     assert config.emissions.price_per_tonne == 0
     assert config.emissions.fallback_gasoline_emission_factor == 0
     assert config.finance.global_discount_rate == 0.03
@@ -53,17 +53,17 @@ def test_committed_model_registry_is_single_period_2025_to_2050() -> None:
     assert config.storage.requirement == "none"
     assert config.storage.minimum_cumulative_activity == 0.0
     assert config.basemap.grid_type == "projected"
-    assert config.basemap.resolution == 50.0
+    assert config.basemap.resolution == 25.0
     assert config.transport_modes.roads_enabled is True
     assert config.transport_modes.pipelines_enabled is True
     assert config.pipeline_costs.impedance_scope == "all_km_dependent"
     assert config.pipeline_costs.eos_stack_counts == {
-        "CO2_PIPE": 5,
+        "CO2_PIPE": 1,
         "GSL_PIPE": 1,
         "H2_PIPE": 1,
         "METOH_PIPE": 1,
     }
-    assert config.scenario.scenario_id == "validate-50km"
+    assert config.scenario.scenario_id == "baseline-25km"
 
 
 @pytest.mark.parametrize(
@@ -81,16 +81,23 @@ def test_committed_model_registry_is_single_period_2025_to_2050() -> None:
         ("net_zero_co2_5x_no_trucks.toml", "nz-co2-5x-no-truck", 5, False),
     ],
 )
-def test_committed_net_zero_pipeline_scenarios(
+def test_net_zero_pipeline_scenarios(
+    tmp_path: Path,
     filename: str,
     scenario_id: str,
     co2_stacks: int,
     roads_enabled: bool,
 ) -> None:
-    config = load_model_config(
-        MODEL_CONFIG_PATH,
-        PROJECT_ROOT / "registry" / "scenarios" / filename,
-    )
+    scenario = PROJECT_ROOT / "registry/scenarios" / filename
+    if filename not in {"baseline.toml", "net_zero.toml"}:
+        scenario = tmp_path / filename
+        storage = ('[storage]\nrequirement="minimum_cumulative_activity"\n'
+                   'minimum_cumulative_activity=6800000000\n') if filename.startswith('net_zero') else ''
+        scenario.write_text(
+            f'[scenario]\nid="{scenario_id}"\n' + storage +
+            f'[transport_modes]\nroads_enabled={str(roads_enabled).lower()}\n'
+            f'[pipeline_costs.eos_stack_counts]\nCO2_PIPE={co2_stacks}\n', encoding='utf-8')
+    config = load_model_config(MODEL_CONFIG_PATH, scenario)
 
     assert config.scenario.scenario_id == scenario_id
     if filename == "net_zero.toml":
@@ -125,16 +132,23 @@ def test_committed_net_zero_pipeline_scenarios(
         ("baseline_co2_5x_no_trucks.toml", "base-co2-5x-no-truck", 5, False),
     ],
 )
-def test_committed_baseline_pipeline_scenarios(
+def test_baseline_pipeline_scenarios(
+    tmp_path: Path,
     filename: str,
     scenario_id: str,
     co2_stacks: int,
     roads_enabled: bool,
 ) -> None:
-    config = load_model_config(
-        MODEL_CONFIG_PATH,
-        PROJECT_ROOT / "registry" / "scenarios" / filename,
-    )
+    scenario = PROJECT_ROOT / "registry/scenarios" / filename
+    if filename not in {"baseline.toml", "net_zero.toml"}:
+        scenario = tmp_path / filename
+        storage = ('[storage]\nrequirement="minimum_cumulative_activity"\n'
+                   'minimum_cumulative_activity=6800000000\n') if filename.startswith('net_zero') else ''
+        scenario.write_text(
+            f'[scenario]\nid="{scenario_id}"\n' + storage +
+            f'[transport_modes]\nroads_enabled={str(roads_enabled).lower()}\n'
+            f'[pipeline_costs.eos_stack_counts]\nCO2_PIPE={co2_stacks}\n', encoding='utf-8')
+    config = load_model_config(MODEL_CONFIG_PATH, scenario)
 
     assert config.scenario.scenario_id == scenario_id
     assert config.storage.requirement == "none"

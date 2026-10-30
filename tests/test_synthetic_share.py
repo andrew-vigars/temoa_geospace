@@ -22,10 +22,12 @@ def test_invalid_scenario_share(tmp_path, share):
         load_model_config(ROOT / 'registry/model.toml', scenario)
 
 
-def test_committed_scenarios():
-    for name, expected in [('synthetic_share_baseline', 0), ('synthetic_share_20', .2), ('synthetic_share_100', 1)]:
-        cfg = load_model_config(ROOT / 'registry/model.toml', ROOT / f'registry/scenarios/{name}.toml')
-        assert cfg.synthetic_gasoline_minimum_national_share == expected
+@pytest.mark.parametrize('share', [0, .2, 1])
+def test_synthetic_share_overlays(tmp_path, share):
+    scenario = tmp_path / 'share.toml'
+    scenario.write_text(f'[scenario]\nid="share-test"\n[synthetic_gasoline]\nminimum_national_share={share}\n')
+    cfg = load_model_config(ROOT / 'registry/model.toml', scenario)
+    assert cfg.synthetic_gasoline_minimum_national_share == share
 
 
 def test_global_annual_cap_counts_backup_and_resets():

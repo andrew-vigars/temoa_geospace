@@ -35,9 +35,8 @@ optional orchestration layer. Neither axis knows about the other:
 A single Gold artifact is the product of exactly one build profile and one
 scenario overlay: `gold_<build-id>_<scenario-id>_<fingerprint>.sqlite`. To add
 a new scenario set (e.g. "net-zero 2050"), copy
-  `registry/scenarios/sample_scenario.toml`, give it a unique `[scenario].id`, and
-uncomment only the sections that should differ — see the comments in that
-file for the supported override sections (`[time]`, `[finance]`,
+  `registry/scenarios/baseline.toml`, give the local copy a unique `[scenario].id`,
+and override only the sections that should differ. Supported override sections are (`[time]`, `[finance]`,
   `[emissions]`, `[storage]`, `[basemap]`, `[conventional_gasoline]`, `[synthetic_gasoline]`,
   `[transport_modes]`, and `[pipeline_costs]`).
 
@@ -52,15 +51,16 @@ solve times, and full point-source storage can conflict with other carbon uses.
 Both endpoint files
 explicitly enable roads and pipelines and provide starting points for sweeps.
 Copy either endpoint to a new scenario file and adjust the desired settings.
-Other scenario overlays, including capacity and no-truck variants, are local
-and ignored by Git. The sample scenario and build profile remain tracked;
-individual TEMOA run configs and active batch selections are also ignored.
+All other scenario overlays, including samples, capacity and no-truck variants,
+are local and ignored by Git. Individual TEMOA configs, matrix recipes and all
+batch selections (including archived runs) are also local. Tests construct their
+own temporary scenario inputs rather than depending on these mutable run files.
 
-The tracked [carbon sweep set](scenarios/carbon_sweeps/README.md) supplies 24
-draft overlays: six storage targets and six emissions prices, each with and
+The tracked [carbon sweep guide](scenarios/carbon_sweeps/README.md) describes 24
+local overlays: six storage targets and six emissions prices, each with and
 without trucks. Every overlay enables facility carbon accounting and five CO2
 EOS curves. The samples also demonstrate carbon accounting and five CO2 curves;
-`sample_scenario.toml` retains its 50 km validation basemap. Historical canonical
+A local `sample_scenario.toml` may select a 50 km validation basemap. Historical canonical
 endpoints are separate from the new sweep set.
 
 - **Orchestration (optional)** — `config/batch_profiles/*.toml` names an

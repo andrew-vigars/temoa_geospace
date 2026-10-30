@@ -108,7 +108,7 @@ def test_schema_fingerprint_tracks_effective_model_settings(
     )
     baseline = load_model_config(
         PROJECT_ROOT / "registry" / "model.toml",
-        PROJECT_ROOT / "registry" / "scenarios" / "sample_scenario.toml",
+        PROJECT_ROOT / "registry" / "scenarios" / "baseline.toml",
     )
     alternate_path = tmp_path / "required-storage.toml"
     alternate_path.write_text(
@@ -217,9 +217,11 @@ def test_basemap_selection_matches_configured_resolution(
     )
     model_config = load_model_config(
         PROJECT_ROOT / "registry" / "model.toml",
-        PROJECT_ROOT / "registry" / "scenarios" / "sample_scenario.toml",
+        PROJECT_ROOT / "registry" / "scenarios" / "baseline.toml",
     )
 
+    from dataclasses import replace
+    model_config = replace(model_config, basemap=replace(model_config.basemap, resolution=50.0))
     basemap_stem = select_basemap_stem_for_resolution(build_config, model_config)
 
     assert build_config.basemaps.projected_resolutions_km == (50.0,)

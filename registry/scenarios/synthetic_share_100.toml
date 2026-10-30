@@ -1,6 +1,0 @@
-[scenario]
-id = "syn-share-100"
-description = "All modeled national gasoline demand served by synthetic gasoline"
-
-[synthetic_gasoline]
-minimum_national_share = 1.0

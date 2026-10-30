@@ -94,7 +94,7 @@ def test_encoded_costs_and_blend_cap_match_same_annual_demand(sites, prices, sha
 
 def test_fingerprint_tracks_price_evidence_and_share():
     build = load_geospatial_build_config(ROOT / 'config/build_profiles/canada_renewables_t4_gcc.toml')
-    model = load_model_config(ROOT / 'registry/model.toml', ROOT / 'registry/scenarios/synthetic_share_20.toml')
+    model = replace(load_model_config(ROOT / 'registry/model.toml'), synthetic_gasoline_minimum_national_share=.2)
     def fingerprint(model=model, digest='price-a'):
         return build_schema_fingerprint(build, model, 'national', implementation_digest='fixed',
                                         conventional_gasoline_identity={'silver_manifest_sha256': digest})

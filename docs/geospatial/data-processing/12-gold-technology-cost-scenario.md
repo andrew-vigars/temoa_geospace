@@ -46,8 +46,8 @@ Allowed scenario sections: `[time]`, `[finance]`, `[emissions]`, `[storage]`, `[
 | `pipeline_costs.impedance_scope` | `none` | See chapter 6 |
 | `pipeline_costs.eos_stack_counts` | 1 per pipeline tech | See chapter 10 |
 
-Committed scenarios are `baseline`, `net_zero`, `sample_emissions_price` and
-`sample_scenario`. The current `net_zero` comparison resolves a 75% target from
+Committed scenario TOMLs are `baseline` and `net_zero`; run variants, samples,
+matrix recipes and batch selections are local and ignored. The current `net_zero` comparison resolves a 75% target from
 the positive point-source emissions actually retained after filtering and
 snapping; 75% is a run choice, not a default or a claim of whole-system net
 zero. Historical CO₂-stack variants were removed. The sweep directories now

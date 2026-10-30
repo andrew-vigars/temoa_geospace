@@ -53,6 +53,10 @@ artifacts retain their original technologies and costs.
 
 ## National configurations
 
+The overlay paths below describe local, ignored run configurations. Only the
+model defaults and canonical baseline/net-zero scenarios are tracked. Create
+or modify local overlays as needed; tests generate their own scenario inputs.
+
 Use the all-13-jurisdiction build profile
 `config/build_profiles/canada_renewables_t4_gcc.toml` with one of:
 

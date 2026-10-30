@@ -905,8 +905,8 @@ configured target must be positive. With `requirement = "none"`, it must remain
 zero and geological storage is available but optional.
 
 The alternative `emissions_price` policy chooses storage in response to an
-atmospheric emissions price using only the installed Temoa v4 schema. Use
-`registry/scenarios/sample_emissions_price.toml` as an overlay, or configure:
+atmospheric emissions price using only the installed Temoa v4 schema. Create
+a local, ignored scenario overlay with:
 
 ```toml
 [emissions]

@@ -1,6 +1,0 @@
-[scenario]
-id = "syn-share-base"
-description = "National synthetic gasoline share baseline: no minimum requirement"
-
-[synthetic_gasoline]
-minimum_national_share = 0.0

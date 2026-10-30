@@ -144,7 +144,8 @@ Thumbs.db
 
 # Study-area build profiles and scenario overlays are generally local,
 # system-boundary and policy-specific configuration. Keep the committed sample
-# templates and canonical baseline/net-zero scenarios in a clean checkout.
+# canonical baseline/net-zero scenarios in a clean checkout. Run overlays,
+# matrix recipes and batch selections remain local and may vary between studies.
 
 # -----------------------
 
@@ -158,12 +159,6 @@ registry/scenarios/**/*.toml
 !registry/scenarios/baseline.toml
 !registry/scenarios/net_zero.toml
 registry/scenarios/archive/
-!registry/scenarios/sample_scenario.toml
-!registry/scenarios/sample_emissions_price.toml
-!registry/scenarios/synthetic_share_baseline.toml
-!registry/scenarios/synthetic_share_20.toml
-!registry/scenarios/synthetic_share_100.toml
-!registry/scenarios/national_gasoline_matrix/*.toml
 
 # Local TEMOA v3 run configurations retained temporarily for v4 migration.
 config/temoa_v3_configs/
@@ -175,9 +170,9 @@ config/temoav4/config_sample.toml
 
 # Local solver configurations and active batch selections.
 config/temoav4/**/*.toml
-config/batch_profiles/*.toml
-!config/batch_profiles/national_gasoline_matrix.toml
-# Local generated Gold artifact paths; the matrix recipe and preparer are tracked.
+config/batch_profiles/**/*.toml
+# Local matrix recipes and generated Gold artifact paths; reusable tools are tracked.
+config/scenario_matrices/*.toml
 config/scenario_matrices/*_inventory.json
 
 # Personal automation helpers (email delivery, credentials setup, local tests).

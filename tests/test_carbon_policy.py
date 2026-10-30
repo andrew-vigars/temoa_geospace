@@ -145,11 +145,11 @@ def test_price_config_overlay(tmp_path):
     assert config.storage.requirement == "none"
 
 
-def test_committed_emissions_price_scenario():
-    config = load_model_config(
-        ROOT / "registry/model.toml",
-        ROOT / "registry/scenarios/sample_emissions_price.toml",
-    )
+def test_emissions_price_scenario(tmp_path):
+    scenario = tmp_path / "price.toml"
+    scenario.write_text('[scenario]\nid="price-test"\n[emissions]\n'
+                        'policy="emissions_price"\nprice_per_tonne=100\n', encoding="utf-8")
+    config = load_model_config(ROOT / "registry/model.toml", scenario)
     assert config.emissions.policy == "emissions_price"
     assert config.emissions.fallback_gasoline_emission_factor == 0
     assert config.storage.requirement == "none"
