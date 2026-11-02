@@ -20,10 +20,15 @@ import tomlkit
 
 from geocanoe.config import load_geospatial_build_config, load_model_config
 from geocanoe.paths import find_project_root
+from geocanoe.execution.gold_cases import model_cases
+from geocanoe.execution.gold_prompts import request_input, run_build
 
 
 def scenario_cases(settings):
     """Expand the matrix with explicit, comparable policy boundaries."""
+    if 'model' in settings:
+        yield from model_cases(settings)
+        return
     matrix, common = settings['matrix'], settings['common']
     shares, prices = matrix['synthetic_shares'], matrix['carbon_prices']
     if (not shares or len(set(shares)) != len(shares)
@@ -35,10 +40,12 @@ def scenario_cases(settings):
     fraction = matrix['net_zero_point_source_fraction']
     if not 0 < fraction <= 1:
         raise ValueError('Explicit net-zero storage fraction must be in (0, 1]')
-    policies = [('baseline', 'base', 0, 0)]
+    policies = [('baseline', 'base', 0, 0)] if matrix.get('include_baseline', True) else []
     if matrix['include_net_zero']:
         policies.append(('net_zero', 'nz', 0, fraction))
     policies.extend((f'price_{p:g}', f'p{p:g}', p, 0) for p in prices)
+    if not policies:
+        raise ValueError('Choose at least one carbon-policy case')
     seen = set()
     for share in shares:
         pct = share * 100
@@ -65,11 +72,17 @@ def scenario_cases(settings):
                             'minimum_cumulative_activity': 0, 'point_source_fraction': storage_fraction},
                 'basemap': {'grid_type': common['grid_type'], 'resolution': common['resolution']},
                 'transport_modes': {'roads_enabled': common['roads_enabled'],
-                                    'pipelines_enabled': common['pipelines_enabled'], 'disabled_technologies': []},
+                                    'pipelines_enabled': common['pipelines_enabled'],
+                                    'disabled_technologies': common.get('disabled_technologies', [])},
                 'pipeline_costs': {'impedance_scope': common['pipeline_impedance_scope'],
                                    'eos_stack_counts': {'CO2_PIPE': common['co2_pipeline_eos_stack_count'],
-                                                        'GSL_PIPE': 1, 'H2_PIPE': 1, 'METOH_PIPE': 1}},
+                                                        'GSL_PIPE': common.get('gsl_pipeline_eos_stack_count', 1),
+                                                        'H2_PIPE': common.get('h2_pipeline_eos_stack_count', 1),
+                                                        'METOH_PIPE': common.get('metoh_pipeline_eos_stack_count', 1)}},
             }
+            if 'global_discount_rate' in common or 'default_loan_rate' in common:
+                doc['finance'] = {key: common[key] for key in ('global_discount_rate', 'default_loan_rate')
+                                  if key in common}
             yield {'stem': stem, 'share': share, 'policy': policy, 'price': price,
                    'storage_fraction': storage_fraction, 'document': doc}
 
@@ -82,6 +95,11 @@ def build_one(root, settings, scenario):
         ARCHIVED_LEGACY_INPUTS, CO2_SOURCE_PATH, run_schema_build,
     )
     profile = load_geospatial_build_config(root / settings['matrix']['build_profile'])
+    if settings['matrix'].get('interaction') == 'prompt':
+        with patch('builtins.input', request_input):
+            database = run_schema_build(profile, scenario)
+        gc.collect()
+        return database
     configured = set(settings['matrix']['confirmed_co2_outlier_facility_ids'])
     facilities = gpd.read_file(CO2_SOURCE_PATH)
     selected = facilities.loc[facilities.facility_id.isin(configured)]
@@ -105,19 +123,21 @@ def build_one(root, settings, scenario):
     return database
 
 
-def prepare(profile_path, build=False):
+def prepare(profile_path, build=False, dialog_prompts=False):
     root = find_project_root()
     profile_path = (root / profile_path).resolve()
     if not profile_path.is_file():
         raise FileNotFoundError(f'Local matrix recipe not found: {profile_path}. Create it from docs/national-gasoline-matrix.md; run recipes are intentionally untracked.')
     settings = tomllib.loads(profile_path.read_text(encoding='utf-8'))
     matrix = settings['matrix']
+    if dialog_prompts:
+        matrix['prompt_transport'] = 'dialog'
     cases = list(scenario_cases(settings))
     scenario_dir = root / matrix['scenario_dir']
     scenario_dir.mkdir(parents=True, exist_ok=True)
     for case in cases:
         scenario = scenario_dir / f"{case['stem']}.toml"
-        text = '# Generated from config/scenario_matrices/national_gasoline.toml.\n'
+        text = f'# Generated from {profile_path.relative_to(root).as_posix()}.\n'
         text += '# Prices are CAD2020/t released facility-origin CO2e; net_zero retains the explicit storage fraction.\n'
         scenario.write_text(text + tomlkit.dumps(case['document']), encoding='utf-8')
         load_model_config(root / 'registry/model.toml', scenario)
@@ -129,17 +149,21 @@ def prepare(profile_path, build=False):
     from geocanoe.execution.batch import load_batch_config, validate_batch_runs
     solver_dir = root / matrix['solver_dir']
     solver_dir.mkdir(parents=True, exist_ok=True)
-    logs = root / '.tmp/national_gasoline_matrix'
+    logs = root / matrix.get('log_dir', '.tmp/national_gasoline_matrix')
     logs.mkdir(parents=True, exist_ok=True)
     runs, inventory = [], []
     for index, case in enumerate(cases, 1):
         print(f"Preparing {index}/{len(cases)}: {case['stem']}", flush=True)
         log_path = logs / f"{case['stem']}.log"
-        with log_path.open('w', encoding='utf-8') as stream:
-            result = subprocess.run([sys.executable, '-X', 'utf8', str(Path(__file__).resolve()), '--config', str(profile_path),
-                                     '--build-one', str(case['scenario'])], cwd=root,
-                                    stdout=stream, stderr=subprocess.STDOUT, text=True)
-        if result.returncode:
+        command = [sys.executable, '-X', 'utf8', str(Path(__file__).resolve()), '--config', str(profile_path),
+                   '--build-one', str(case['scenario'])]
+        if matrix.get('interaction') == 'prompt':
+            returncode = run_build(command, root, log_path, dialog=dialog_prompts,
+                                   auto_exclude=matrix.get('auto_exclude_outliers', False))
+        else:
+            with log_path.open('w', encoding='utf-8') as stream:
+                returncode = subprocess.run(command, cwd=root, stdout=stream, stderr=subprocess.STDOUT, text=True).returncode
+        if returncode:
             raise RuntimeError(f"Gold preparation failed for {case['stem']}; see {log_path}")
         lines = log_path.read_text(encoding='utf-8').splitlines()
         database = Path(next(line.removeprefix('MATRIX_DATABASE=') for line in reversed(lines)
@@ -147,39 +171,46 @@ def prepare(profile_path, build=False):
         manifest = json.loads(database.with_suffix('.manifest.json').read_text(encoding='utf-8'))
         if manifest['artifact']['scenario_id'] != case['document']['scenario']['id']:
             raise ValueError('Prepared database identity does not match matrix scenario')
-        solver = solver_dir / f"{case['stem']}.toml"
-        generate_temoa_config(solver, force=True)
-        doc = tomlkit.parse(solver.read_text(encoding='utf-8'))
-        doc['scenario'] = case['document']['scenario']['id']
         relative_database = database.relative_to(root).as_posix()
-        doc['input_database'] = relative_database
-        doc['output_database'] = relative_database
-        solver.write_text(tomlkit.dumps(doc), encoding='utf-8')
-        runs.append({'config': solver.relative_to(root).as_posix(), 'enabled': True})
+        solver = None
+        if not matrix.get('defer_temoa_configs', False):
+            solver = solver_dir / f"{case['stem']}.toml"
+            generate_temoa_config(solver, force=True)
+            doc = tomlkit.parse(solver.read_text(encoding='utf-8'))
+            doc['scenario'] = case['document']['scenario']['id'].replace('-', '_')
+            doc['input_database'] = relative_database
+            doc['output_database'] = relative_database
+            solver.write_text(tomlkit.dumps(doc), encoding='utf-8')
+            runs.append({'config': solver.relative_to(root).as_posix(), 'enabled': True})
         inventory.append({
             'scenario_id': case['document']['scenario']['id'], 'synthetic_share': case['share'],
             'carbon_policy': case['policy'], 'carbon_price_cad2020_per_tonne': case['price'],
             'storage_fraction': case['storage_fraction'], 'gold_database': relative_database,
+            'storage_requirement': case['document']['storage']['requirement'],
+            'storage_cumulative_tonnes': case['document']['storage']['minimum_cumulative_activity'],
             'gold_manifest': database.with_suffix('.manifest.json').relative_to(root).as_posix(),
-            'solver_config': solver.relative_to(root).as_posix(),
+            'solver_config': solver.relative_to(root).as_posix() if solver else None,
             'schema_fingerprint': manifest['artifact']['fingerprint'],
         })
-    batch = root / matrix['batch_path']
-    batch.parent.mkdir(parents=True, exist_ok=True)
-    batch.write_text('# Prepared national gasoline/carbon matrix. No solves launched during preparation.\n'
-                     + tomlkit.dumps({'batch': {'name': matrix['name'], **settings['batch']}, 'runs': runs}),
-                     encoding='utf-8')
-    _, batch_runs = load_batch_config(batch)
-    validate_batch_runs(batch_runs)
+    if not matrix.get('defer_temoa_configs', False):
+        batch = root / matrix['batch_path']
+        batch.parent.mkdir(parents=True, exist_ok=True)
+        batch.write_text('# Prepared Gold matrix. No solves launched during preparation.\n'
+                         + tomlkit.dumps({'batch': {'name': matrix['name'], **settings['batch']}, 'runs': runs}),
+                         encoding='utf-8')
+        _, batch_runs = load_batch_config(batch)
+        validate_batch_runs(batch_runs)
     inventory_path = root / matrix['inventory_path']
     inventory_path.write_text(json.dumps({
         'profile': str(profile_path.relative_to(root)),
         'profile_sha256': hashlib.sha256(profile_path.read_bytes()).hexdigest(),
         'build_profile': matrix['build_profile'], 'batch_path': matrix['batch_path'],
-        'confirmed_co2_outlier_facility_ids': matrix['confirmed_co2_outlier_facility_ids'],
+        'interaction': matrix.get('interaction', 'confirmed_ids'),
+        'auto_exclude_outliers': matrix.get('auto_exclude_outliers', False),
+        'confirmed_co2_outlier_facility_ids': matrix.get('confirmed_co2_outlier_facility_ids', []),
         'cases': inventory,
     }, indent=2) + '\n', encoding='utf-8')
-    print(f'Validated {len(batch_runs)} runnable cases: {batch}', flush=True)
+    print(f'Prepared {len(inventory)} Gold cases. ' + ('Generate TEMOA configs on tab 3.' if matrix.get('defer_temoa_configs') else f'Batch: {batch}'), flush=True)
     return inventory
 
 

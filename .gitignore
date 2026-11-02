@@ -16,6 +16,10 @@ site/
 .ruff_cache/
 .tmp/
 
+# Local experiment bundles; retain the folder's usage notes.
+experiments/*
+!experiments/README.md
+
 # -----------------------
 
 # VS Code

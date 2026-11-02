@@ -71,6 +71,14 @@ def generate_temoa_config(
             "Use --force to regenerate it from the installed TEMOA package."
         )
 
+    document = temoa_default_document()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(tomlkit.dumps(document), encoding="utf-8")
+    return destination
+
+
+def temoa_default_document():
+    """Return the installed template with GeoCANOE defaults, without writing files."""
     document = tomlkit.parse(temoa_tutorial_config_text())
     document["extensions"] = ["eos"]
     document["input_database"] = DEFAULT_DATABASE_PATH
@@ -85,9 +93,7 @@ def generate_temoa_config(
     document["save_duals"] = False
     document["check_units"] = False
 
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(tomlkit.dumps(document), encoding="utf-8")
-    return destination
+    return document
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
