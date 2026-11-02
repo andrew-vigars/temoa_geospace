@@ -16,6 +16,9 @@ site/
 .ruff_cache/
 .tmp/
 
+# Local research presentation assets and working notes.
+/SPM Research Update/
+
 # Local experiment bundles; retain the folder's usage notes.
 experiments/*
 !experiments/README.md

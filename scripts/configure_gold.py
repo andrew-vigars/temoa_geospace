@@ -1,4 +1,4 @@
-"""Launch the local Gold scenario and sensitivity-matrix configurator."""
+"""Launch the GeoCANOE Silver, Gold and TEMOA workflow configurator."""
 from __future__ import annotations
 
 import argparse
@@ -23,6 +23,8 @@ from geocanoe.execution.gold_form import recipe_from_form, validate_model_struct
 from geocanoe.paths import find_project_root
 from geocanoe.execution.gold_prompts import PROMPT_PREFIX
 from geocanoe.execution.temoa_panel import TemoaPanel
+from geocanoe.execution.silver_panel import DEFAULT_UI_BUILD_PROFILE, SilverPanel
+from geocanoe.execution.desktop_branding import set_taskbar_identity, set_window_icon
 from prepare_national_gasoline_matrix import scenario_cases
 
 
@@ -35,21 +37,29 @@ class GoldConfigurator:
         self.messages = queue.Queue()
         self.bundle = None
         self.busy = False
-        window.title('GeoCANOE · Scenario and run configurator')
+        window.title('GeoCANOE Interface')
+        set_window_icon(window, root)
         window.geometry('1120x820')
         window.minsize(960, 720)
         frame = ttk.Frame(window, padding=16)
         frame.pack(fill='both', expand=True)
-        ttk.Label(frame, text='Gold scenarios & TEMOA runs', font=('Segoe UI', 18, 'bold')).pack(anchor='w')
-        ttk.Label(frame, text='Configure scenarios → Prepare Gold → Configure TEMOA runs → Run batch').pack(anchor='w', pady=(4, 12))
+        ttk.Label(frame, text='GeoCANOE Interface', font=('Segoe UI', 18, 'bold')).pack(anchor='w')
+        ttk.Label(frame, text='Independent modules: build Silver, prepare Gold scenarios, or configure TEMOA runs.').pack(anchor='w', pady=(4, 12))
         self.buttons = {}
         self.tabs = ttk.Notebook(frame)
         self.tabs.pack(fill='both', expand=True)
+        self.silver_panel = SilverPanel(self.tabs, root, activity_changed=self.refresh_buttons)
+        self.tabs.add(self.silver_panel, text='Silver construction')
+        handoff = ttk.Button(self.silver_panel, text='Use saved profile in Gold →', command=self.use_silver_profile)
+        handoff.pack(anchor='e', pady=(6, 0))
+        self.silver_panel.actions.append(handoff)
         self.settings_page = ttk.Frame(self.tabs, padding=12)
         self.run_page = ttk.Frame(self.tabs, padding=12)
-        self.tabs.add(self.settings_page, text='1. Scenario settings')
-        self.tabs.add(self.run_page, text='2. Generate Gold')
+        self.tabs.add(self.settings_page, text='Gold scenario settings')
+        self.tabs.add(self.run_page, text='Generate Gold')
 
+        ttk.Label(self.settings_page, text='Gold scenario configurations', font=('Segoe UI', 16, 'bold')).pack(anchor='w')
+        ttk.Label(self.settings_page, text='Define policy and model assumptions → Configure a single scenario or sensitivity matrix → Review cases.').pack(anchor='w', pady=(0, 10))
         experiment = ttk.LabelFrame(self.settings_page, text='Experiment', padding=12)
         experiment.columnconfigure(1, weight=1)
         experiment.pack(fill='x', pady=(0, 10))
@@ -69,7 +79,7 @@ class GoldConfigurator:
         self.buttons['Review & generate'].pack(side='right')
         viewport = ttk.Frame(self.settings_page)
         viewport.pack(fill='both', expand=True)
-        self.settings_canvas = tk.Canvas(viewport, highlightthickness=0, height=300)
+        self.settings_canvas = tk.Canvas(viewport, highlightthickness=0, height=270)
         vertical = ttk.Scrollbar(viewport, orient='vertical', command=self.settings_canvas.yview)
         vertical.pack(side='right', fill='y')
         self.settings_canvas.configure(yscrollcommand=vertical.set)
@@ -125,12 +135,14 @@ class GoldConfigurator:
         bind_scroll(self.model_settings)
         self.settings_canvas.bind('<MouseWheel>', self.scroll_settings)
 
+        ttk.Label(self.run_page, text='Gold database preparation', font=('Segoe UI', 16, 'bold')).pack(anchor='w')
+        ttk.Label(self.run_page, text='Review scenario cases → Save an experiment plan → Build Gold databases from existing Silver.').pack(anchor='w', pady=(0, 10))
         p = ttk.LabelFrame(self.run_page, text='Batch execution settings', padding=12)
         p.pack(fill='x')
         for key, label in [('continue_on_failure', 'Continue after a failed run'),
                            ('skip_completed', 'Skip completed runs'), ('retry_failed', 'Retry failed runs')]:
             self.check(p, key, label)
-        ttk.Label(self.run_page, text='Generate plan saves the scenarios and reproducibility records. Prepare Gold builds the databases.\nAfter Gold preparation, use tab 3 to configure TEMOA options, select cases and generate a runnable batch.').pack(anchor='w', pady=10)
+        ttk.Label(self.run_page, text='Generate plan saves the scenarios and reproducibility records. Prepare Gold builds the databases.\nAfter Gold preparation, use TEMOA configurations to select cases and generate a runnable batch.').pack(anchor='w', pady=10)
         actions = ttk.Frame(self.run_page)
         actions.pack(fill='x', pady=(0, 10))
         for label, command in [('Edit settings', lambda: self.tabs.select(self.settings_page)),
@@ -144,7 +156,7 @@ class GoldConfigurator:
         table_frame.columnconfigure(0, weight=1)
         table_frame.rowconfigure(0, weight=1)
         columns = ('scenario', 'share', 'policy', 'price', 'requirement', 'storage', 'cumulative')
-        self.table = ttk.Treeview(table_frame, columns=columns, show='headings', height=10)
+        self.table = ttk.Treeview(table_frame, columns=columns, show='headings', height=8)
         for key, title in zip(columns, ('Scenario', 'Synthetic minimum', 'Emissions policy', 'CAD2020/t', 'Storage requirement', 'Storage fraction', 'Cumulative t')):
             self.table.heading(key, text=title)
             self.table.column(key, width=140, minwidth=60)
@@ -161,12 +173,13 @@ class GoldConfigurator:
         self.status = tk.StringVar(value='Configure your scenario, then choose Review & generate.')
         ttk.Label(frame, textvariable=self.status, wraplength=1050).pack(anchor='w', pady=(10, 0))
         self.temoa_panel = TemoaPanel(self.tabs, root, self.refresh_buttons, self.run_batch, self.batch_settings)
-        self.tabs.add(self.temoa_panel, text='3. TEMOA configurations')
+        self.tabs.add(self.temoa_panel, text='TEMOA configurations')
         self.buttons['Run batch'] = self.temoa_panel.run_button
         self.populate()
         for key, variable in self.variables.items():
             variable.trace_add('write', self.batch_edited if key in {'continue_on_failure', 'skip_completed', 'retry_failed'} else self.edited)
         self.refresh_buttons()
+        self.tabs.select(self.silver_panel)
         window.after(150, self.poll)
         window.protocol('WM_DELETE_WINDOW', self.close)
 
@@ -175,6 +188,24 @@ class GoldConfigurator:
             amount = -int(event.delta / 120) or (-1 if event.delta > 0 else 1)
             self.settings_canvas.yview_scroll(amount, 'units')
         return 'break'
+
+    def use_silver_profile(self):
+        """Explicitly share a saved profile; never start either builder."""
+        panel = self.silver_panel
+        try:
+            if panel.text() != panel.path.read_text(encoding='utf-8') and not panel.save():
+                return
+            path = panel.path.relative_to(self.root).as_posix()
+            widget, _ = self.field_widgets['build_profile']
+            choices = list(widget.cget('values'))
+            if path not in choices:
+                widget.configure(values=[*choices, path])
+            self.variables['build_profile'].set(path)
+            self.tabs.select(self.settings_page)
+            self.status.set('Silver profile selected for Gold. Build Silver first if its required artifacts do not yet exist.')
+        except Exception as error:
+            messagebox.showerror('Cannot use Silver profile in Gold',
+                                 f'Save the profile inside this repository before using it in Gold.\n{error}')
 
     def review(self):
         if self.preview():
@@ -226,7 +257,7 @@ class GoldConfigurator:
                     base[key] = value
         merge(defaults, raw)
         profiles = self.options('config/build_profiles/*.toml')
-        preferred = 'config/build_profiles/canada_renewables_t4_gcc.toml'
+        preferred = DEFAULT_UI_BUILD_PROFILE
         return {'matrix': {'name': raw.get('scenario', {}).get('id', 'gold_experiment'),
                            'build_profile': preferred if preferred in profiles else profiles[0],
                            'interaction': 'prompt'},
@@ -282,18 +313,21 @@ class GoldConfigurator:
         self.temoa_panel.dirty()
 
     def refresh_buttons(self):
+        busy = self.busy or self.silver_panel.busy
+        self.silver_panel.set_busy(self.busy)
         for label, button in self.buttons.items():
-            enabled = not self.busy
+            enabled = not busy
             if label == 'Prepare Gold':
                 enabled &= self.bundle is not None and not (self.bundle / 'preparation.json').exists()
             if label == 'Run batch':
                 enabled &= self.temoa_panel.can_run()
             button.configure(state='normal' if enabled else 'disabled')
         if hasattr(self, 'temoa_panel'):
-            self.temoa_panel.set_busy(self.busy)
+            self.temoa_panel.set_busy(busy)
         self.refresh_field_states()
 
     def refresh_field_states(self):
+        busy = self.busy or self.silver_panel.busy
         priced = 'emissions_price' in self.variables['emissions_policy'].get()
         pipelines = self.variables['pipelines'].get()
         active = {'prices': priced, 'fallback': priced,
@@ -302,11 +336,11 @@ class GoldConfigurator:
                   'impedance': pipelines}
         active.update({f'{tech}_pipeline_eos_stack_count': pipelines for tech in ('co2', 'gsl', 'h2', 'metoh')})
         for key, (widget, state) in self.field_widgets.items():
-            enabled = not self.busy and active.get(key, True)
+            enabled = not busy and active.get(key, True)
             widget.configure(state=state if enabled else 'disabled')
             if key in self.field_labels:
                 self.field_labels[key].state(['!disabled'] if enabled else ['disabled'])
-        self.model_groups['[pipeline_costs]'].state(['!disabled'] if pipelines and not self.busy else ['disabled'])
+        self.model_groups['[pipeline_costs]'].state(['!disabled'] if pipelines and not busy else ['disabled'])
 
     def load(self):
         path = filedialog.askopenfilename(title='Load model, scenario overlay, or experiment recipe', initialdir=self.root / 'registry', filetypes=[('TOML recipe', '*.toml')])
@@ -482,7 +516,7 @@ class GoldConfigurator:
         return result[0]
 
     def close(self):
-        if self.busy:
+        if self.busy or self.silver_panel.busy:
             messagebox.showinfo('Operation in progress', 'Keep this window open until the current operation finishes.')
         else:
             self.window.destroy()
@@ -492,10 +526,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', type=Path, default=Path('registry/model.toml'))
     parser.add_argument('--experiment', type=Path, help='Open a prepared experiment on the TEMOA configurations tab.')
+    parser.add_argument('--silver-config', type=Path, help='Load a Silver build profile in the first tab.')
+    parser.add_argument('--tab', choices=['silver', 'gold', 'temoa'], default='silver', help='Module to show initially.')
     args = parser.parse_args()
     root = find_project_root()
+    set_taskbar_identity()
     window = tk.Tk()
     app = GoldConfigurator(window, root, root / args.config)
+    if args.silver_config:
+        app.silver_panel.load_path(root / args.silver_config)
+    app.tabs.select({'silver': app.silver_panel, 'gold': app.settings_page, 'temoa': app.temoa_panel}[args.tab])
     if args.experiment:
         app.temoa_panel.load_bundle(root / args.experiment)
         app.tabs.select(app.temoa_panel)

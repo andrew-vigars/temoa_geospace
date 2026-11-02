@@ -136,8 +136,11 @@ def test_ui_defaults_to_model_and_previews_without_building(monkeypatch, tmp_pat
         _, cases = app.validated()
         app.show_cases(cases)
         window.update_idletasks()
-        assert [app.tabs.tab(tab, 'text') for tab in app.tabs.tabs()] == ['1. Scenario settings', '2. Generate Gold', '3. TEMOA configurations']
+        assert [app.tabs.tab(tab, 'text') for tab in app.tabs.tabs()] == ['Silver construction', 'Gold scenario settings', 'Generate Gold', 'TEMOA configurations']
+        assert app.tabs.select() == str(app.silver_panel)
+        app.use_silver_profile()
         assert app.tabs.select() == str(app.settings_page)
+        assert app.variables['build_profile'].get() == 'config/build_profiles/canada_renewables_t4_gcc.toml'
         app.buttons['Review & generate'].invoke()
         assert app.tabs.select() == str(app.run_page)
         app.buttons['Edit settings'].invoke()

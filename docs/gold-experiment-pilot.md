@@ -1,4 +1,96 @@
-# Gold scenario configurator
+# Silver, Gold and TEMOAv4 workflow configurator
+
+Open the unified interface from the repository root:
+
+```powershell
+.venv/Scripts/python.exe scripts/configure_workflow.py
+```
+
+It opens on **Silver construction**, using the existing
+`config/build_profiles/canada_renewables_t4_gcc.toml` baseline unchanged:
+25 km, all 13 provinces and territories, quantitative equal-weighted storage,
+anchor-plus-fill gasoline proxies, and the T4 GCC renewable configuration.
+Gold defaults to that same build profile. Opening the UI does not rebuild Silver.
+Explicitly loaded profiles and recipes retain their settings.
+The remaining tabs are **Gold scenario settings**,
+**Generate Gold**, and **TEMOA configurations**. Configure and build Silver in
+the first tab, then click **Use saved profile in Gold** to select that profile
+and open Gold settings. This handoff does not build Gold or start a run. Prepare
+Gold and configure/run TEMOA using the remaining tabs. You can stop after Silver,
+start with existing Silver artifacts, or open an existing prepared Gold experiment.
+
+Optional arguments include `--silver-config <profile.toml>`, `--config <model.toml>`,
+`--tab silver|gold|temoa`, and `--experiment <prepared-experiment-directory>`.
+The existing `configure_gold.py` command opens the same unified interface.
+The window and running application's taskbar icon use the repository's
+`GeoCANOE Logo` PNG. Windows launches use a GeoCANOE application identity so the
+interface can appear separately from Python. Restart the interface to see icon
+changes. A separately pinned Python shortcut retains its own shortcut icon.
+
+## Independent Silver construction
+
+The shared configurator includes a **Silver construction** tab. Silver, Gold,
+and TEMOA are independent modules; the tabs organize their controls and do not
+require completing an earlier module. Silver construction never generates Gold
+or launches TEMOA. Use the existing Gold profile selector to choose a saved
+Silver profile when you want to continue to Gold.
+
+To open only the Silver module:
+
+```powershell
+.venv/Scripts/python.exe scripts/configure_silver.py
+```
+
+Optionally pass `--config config/build_profiles/your_profile.toml`. The module
+loads the existing T4 GCC baseline by default without changing or building it.
+The scrollable form groups labeled fields by TOML section, including nested
+sections. Strings and numbers use entry fields; booleans and predefined categories
+use checkboxes. Single-choice categories are mutually exclusive. Province,
+connectivity-method and hydrography-category selections support multiple choices.
+Road networks and strong/weak connectivity use mutually exclusive checkboxes.
+The connectivity road layer and schema connectivity method are derived rather
+than exposed as duplicate selectors. Existing multi-network profiles are preserved until you
+select a network. `[roads.classes]` is hidden and retained unchanged in saved
+profiles. Numeric lists use comma-separated values without TOML
+brackets; projected resolutions are in kilometres and geographic
+resolutions are in degrees. Loading a profile discovers its fields automatically.
+Comments and unedited settings are retained in the saved TOML. The form also
+exposes optional basemap selection and jurisdiction-specific additional hub counts.
+Additional hubs use uppercase jurisdiction codes in the same alphabetical order
+as study-area selections. Gasoline minimum and fill-candidate
+population thresholds use mutually exclusive class checkboxes (1,000+, 30,000+,
+100,000+), reflecting the supported Bronze classifications. Numeric fields remain
+available for continuous settings such as grid resolution. Section notes explain
+units, dependencies and modelling assumptions throughout the Silver form.
+Hydrography polygons represent waterbody
+footprints used by the area-based impedance calculation. Leave hydrography lines
+disabled until a formal width/crossing heuristic and calibrated penalty exist:
+centre-lines have no represented width, and the current NHN impedance stage
+excludes line features even if line preprocessing is enabled.
+
+Storage mode-specific controls are enabled only for the selected eligibility.
+Quantitative capacity mapping is available only for quantitative eligibility;
+all-mapped and qualitative use unlimited capacity. Inactive quantitative settings
+are retained for reuse. **Equal weighted** divides each assessment's P50 capacity
+equally among its mapped cells, producing per-cell caps. **Shared** sums assessment
+P50 totals into one system-wide cap across eligible injection cells. **Unlimited**
+does not apply a geological capacity cap. These are capacity assumptions, separate
+from the Gold scenario's minimum-storage policy requirements.
+
+**Save profile as** validates the profile and writes it to the chosen file.
+**Validate inputs** invokes the existing Silver builder with `--validate-only`;
+**Build Silver** invokes its complete workflow. Unsaved edits must be saved
+before either operation. Progress and failures appear in the Silver log.
+Operations lock editing and other execution controls until finished, to avoid
+simultaneous writes to shared build artifacts. Keep the window open while running.
+
+The builder retains its existing output locations and reuse/overwrite behavior.
+Distinct filenames alone do not isolate datasets; choose profile identifiers and
+study-area labels appropriately for structural variants. This UI does not create
+an experiment, baseline/net-zero scenario, or automatic structural sweep. Those
+remain explicit user choices. Multiple resolutions can be specified in one profile.
+
+## Gold and TEMOA
 
 Launch from the repository root:
 
@@ -90,11 +182,11 @@ it does not change that threshold.
 
 For new UI experiments, preparation produces the Gold inventory and logs. Gold
 databases remain in the builder's existing artifact directory, with their paths
-and fingerprints recorded in the inventory. Successful preparation opens tab 3.
+and fingerprints recorded in the inventory. Successful preparation opens TEMOA configurations.
 TEMOA working copies and `output_files` behavior are unchanged. Keep the window
 open until an operation finishes.
 
-## TEMOA configurations (tab 3)
+## TEMOA configurations
 
 This tab is a scrollable form generated from the installed TEMOA template, with
 GeoCANOE defaults. It exposes run mode, solver name/options, extensions,
@@ -132,7 +224,7 @@ earlier prepared pilot bundles), or launch directly:
 ```
 
 A folder containing only `plan.json`, `recipe.toml` and scenarios is not prepared
-yet. Click **Prepare Gold** on tab 2 before opening it on tab 3. After restarting
+yet. Click **Prepare Gold** on Generate Gold before opening TEMOA configurations. After restarting
 the UI, load the saved recipe and generate a new plan to continue from the form.
 
 - Double-click a row or use enable/disable buttons to choose which cases run.

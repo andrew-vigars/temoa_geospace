@@ -157,6 +157,9 @@ freight_access = [
 road_layer = "freight_access"
 
 # Connectivity products to generate.
+# Strong: a shared road segment must intersect both neighbouring cells.
+# Weak: both cells contain roads, which need not connect to each other.
+# These are graph-access heuristics, not full road-network routing.
 methods = [
     #"weak",
     "strong",
@@ -241,29 +244,41 @@ strategy = "population_threshold"
 
 # The current Bronze boundary supports the official 1,000, 30,000, and 100,000
 # population-centre class thresholds.
+# These are 2021 StatCan population centres, not municipal city boundaries:
+# at least 1,000 residents and 400 residents/km2. Small = 1,000-29,999,
+# medium = 30,000-99,999, large = 100,000+. Selection uses PCCLASS rather than
+# exact centre population, so an arbitrary cutoff such as 50,000 is unsupported.
+# DA-derived population estimates are used for ranking, not class selection.
 minimum_population = 100000
+# The candidate cutoff applies to extra fill hubs, not registered anchors.
 candidate_minimum_population = 30000
+# The largest-centre fallback can retain a hub below the selected cutoff.
 empty_jurisdiction_policy = "largest_population_centre"
+# Hubs are demand proxies, not verified terminals. Rural demand is allocated
+# to nearest same-jurisdiction hubs using straight-line distance and population
+# shares. Demand is concentrated in hub cells; multiple hubs may share a cell.
 anchor_registry = "registry/gasoline_supply_anchors.csv"
 
 # Hybrid example: set strategy above to "supply_anchors_plus_fill", then add
 # jurisdiction-specific fill counts such as ON = 5. All 13 codes are supported.
 [gasoline_demand.proxies.additional_hubs]
 # Counts are additions beyond registered anchors or the jurisdiction fallback.
+# Use only with supply_anchors_plus_fill; population_threshold requires zero
+# additional hubs. Codes follow the alphabetical order used by the UI.
 # Uncomment only jurisdictions that should receive additional proxies.
-# NL = 0
-# PE = 0
-# NS = 1
-# NB = 2
-# QC = 4
-# ON = 5
-# MB = 1
-# SK = 1
 # AB = 4
 # BC = 5
-# YT = 0
+# MB = 1
+# NB = 2
+# NL = 0
+# NS = 1
 # NT = 0
 # NU = 0
+# ON = 5
+# PE = 0
+# QC = 4
+# SK = 1
+# YT = 0
 
 
 # -----------------------------------------------------------------------------
@@ -296,6 +311,9 @@ permanency = ["unknown", "permanent", "intermittent"]
 
 [hydrography.polygons]
 
+# Waterbody footprints support the current area-based impedance calculation.
+# The sample selects lakes >=50 km2; other classes need explicit selection
+# and suitable source-area thresholds.
 enabled = true
 # Supported NHN classes include lake, reservoir, pond, watercourse, and
 # tidal_river. Polygon and line families are configured independently.
@@ -308,6 +326,12 @@ lake = 50.0
 
 [hydrography.lines]
 
+# Keep disabled until a formal crossing/width heuristic and calibrated penalty
+# are defined. Watercourse centre-lines have no represented width, so a polygon
+# distance penalty cannot assign a meaningful cost to a line crossing.
+# Line preprocessing is supported, but the current NHN impedance calculation
+# excludes lines even if they are enabled here. Length filtering below does not
+# define water width or crossing cost.
 enabled = false
 # Example for a later network build: ["watercourse", "tidal_river"]
 classes = []

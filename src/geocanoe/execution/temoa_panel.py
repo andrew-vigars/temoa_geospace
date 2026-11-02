@@ -21,7 +21,9 @@ class TemoaPanel(ttk.Frame):
         self.cases, self.enabled, self.fields, self.controls = [], {}, {}, []
         self.field_widgets, self.field_labels, self.groups = {}, {}, {}
         self.busy = False
-        self.summary = tk.StringVar(value='Prepare Gold on tab 2, or open an existing prepared experiment.')
+        ttk.Label(self, text='TEMOAv4 run configurations', font=('Segoe UI', 16, 'bold')).pack(anchor='w')
+        ttk.Label(self, text='Choose prepared Gold cases → Configure solver and run options → Generate configurations and run a batch.').pack(anchor='w', pady=(0, 10))
+        self.summary = tk.StringVar(value='Prepare Gold on the Generate Gold tab, or open an existing prepared experiment.')
         ttk.Label(self, textvariable=self.summary, wraplength=1000).pack(anchor='w')
         header = ttk.Frame(self)
         header.pack(fill='x', pady=8)
@@ -38,7 +40,7 @@ class TemoaPanel(ttk.Frame):
         ttk.Label(self, text='Shared TEMOA settings · database paths and results labels are mapped from Gold automatically.').pack(anchor='w')
         viewport = ttk.Frame(self)
         viewport.pack(fill='both', expand=True, pady=6)
-        canvas = tk.Canvas(viewport, highlightthickness=0, height=230)
+        canvas = tk.Canvas(viewport, highlightthickness=0, height=200)
         scrollbar = ttk.Scrollbar(viewport, orient='vertical', command=canvas.yview)
         scrollbar.pack(side='right', fill='y')
         canvas.configure(yscrollcommand=scrollbar.set)

@@ -41,6 +41,35 @@ inventory, needs support from the literature on spatial disaggregation of fuel d
 | `proxies.anchor_registry` | `registry/gasoline_supply_anchors.csv` | Controlled anchors |
 | `proxies.additional_hubs.<PROVINCE>` | none | Extra greedy hubs per jurisdiction |
 
+### Bronze classification and representation limits
+
+The acquired 2021 StatCan boundary metadata defines a **population centre** as
+at least 1,000 residents and a density of at least 400 residents/km². It is not a
+list of municipalities or municipal city boundaries. The source classes are
+small (1,000–29,999), medium (30,000–99,999), and large (100,000 or more).
+The current proxy selector filters `PCCLASS`, rather than testing exact centre
+population. Only the corresponding cutoffs **1,000, 30,000, and 100,000** are
+supported; an arbitrary cutoff such as 50,000 would require a different selection
+method and suitable population evidence. DA-derived centre populations are
+ranking estimates, not a replacement for the source classification.
+
+For `population_threshold`, the cutoff selects all qualifying classes. A
+jurisdiction with no qualifying centre retains its largest centre even when it
+falls below that cutoff. For `supply_anchors_plus_fill`, the candidate cutoff
+restricts only additional fill candidates; registered anchors and the
+largest-centre fallback are not restricted by that candidate cutoff. Hubs use
+provincial population-centre parts (`PCPUID`), so a cross-border centre can be
+represented separately in each province.
+
+These choices determine **where demand is represented**, not whether rural
+demand is counted. Rural locations do not become candidate hubs, but their DA
+population contributes to catchments assigned to the nearest selected hub in
+the same jurisdiction by straight-line distance. Provincial gasoline sales are
+allocated by catchment population and concentrated at hub representative points,
+then aggregated into grid cells. Hubs are demand proxies, not a verified terminal
+inventory; multiple hubs may map to the same cell. Increasing hub counts does not
+necessarily increase the number of demand-bearing cells or add local road access.
+
 ## 8.4 Silver transformation
 
 ### D1. Hub selection (`run_gasoline_proxy_build`)
@@ -92,7 +121,7 @@ Gold joins the regional demand one-to-one on region and writes one `Demand` row 
 | 2 | Demand within a catchment is concentrated at **one point** (the hub). | All of a catchment's demand appears in one cell, even if the population is spread over many. This strongly affects where fuel must be delivered and thus pipeline and truck flows. **[cite-method]** |
 | 3 | Demand share is proportional to assigned population (2021 census), with no income, vehicle ownership or rurality effects. | **[cite-method]** (per-capita allocation) |
 | 4 | DAs are assigned to the nearest hub by **straight-line** distance within the province. | Road network and geography are ignored. A DA near a provincial border is not served by a nearer hub across it. |
-| 5 | Hub selection thresholds are the official 1,000 / 30,000 / 100,000 population-centre classes. | Sample uses 100,000, so only the largest centres host demand. |
+| 5 | Hub selection thresholds filter the official 1,000 / 30,000 / 100,000 population-centre classes, not exact city populations. | Sample uses the large-centre class (100,000+), with a largest-centre fallback in jurisdictions where none qualifies. Rural demand is concentrated at the selected hubs rather than omitted. |
 | 6 | The anchor registry is partly **map-inferred**. | `map_inferred` rows should not be read as physical terminals. Labels are preserved downstream. **[cite-data]** |
 | 7 | Population is 2021, fuel sales are for `sales_year`, and the model period is 2025–2050. | No demand growth, decline, or electrification is applied. The only allowed projection is constant. **[cite-method]** |
 | 8 | Gasoline density is a single constant, 0.00074 t/L. | Typical-value assumption, about 740 kg/m³. **[cite-data]** |
