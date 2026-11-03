@@ -78,6 +78,7 @@ from geocanoe.schema.artifacts import (
 )
 from geocanoe.schema.build import (
     build_schema_fingerprint,
+    select_basemap_stem_for_resolution,
     validate_gasoline_demand_region_coverage,
 )
 
@@ -313,11 +314,13 @@ def resolve_profile_selection(
     build_config = load_geospatial_build_config(config_path)
     if args.basemap is not None:
         basemap_stem = args.basemap
-    elif not build_config.schema.interactive_basemap_selection:
-        if build_config.schema.basemap_stem is None:
-            raise ValueError(f"No basemap is configured in {config_path}")
+    elif (
+        not build_config.schema.interactive_basemap_selection
+        and build_config.schema.basemap_stem is not None
+    ):
+        # Legacy profiles may still pin an explicit generated filename stem.
         basemap_stem = build_config.schema.basemap_stem
-    else:
+    elif build_config.schema.interactive_basemap_selection:
         pattern = (
             f"{build_config.study_area.label}_basemap_*_"
             f"{build_config.basemaps.keep_method}.gpkg"
@@ -328,6 +331,12 @@ def resolve_profile_selection(
             if "_boundary_" not in path.name
         )
         basemap_stem = select_numbered(basemap_stems, "processed basemap")
+    else:
+        model_config = load_model_config(MODEL_CONFIG_PATH, args.scenario)
+        basemap_stem = select_basemap_stem_for_resolution(
+            build_config,
+            model_config,
+        )
 
     return config_path.resolve(), build_config, basemap_stem
 

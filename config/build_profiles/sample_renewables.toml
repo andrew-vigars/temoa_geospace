@@ -48,7 +48,10 @@ provinces = ["ON"]
 
 [basemaps]
 
-# Current workflow supports centroid retention.
+# Centroid retention is the standard workflow. Legacy "intersects" retention
+# remains available by manually editing TOML to reproduce older builds, but it
+# is hidden from the profile editor, can create substantially more regions, and
+# is discouraged.
 keep_method = "centroid"
 
 # Decimal precision used for exported coordinates and grid lookup.
@@ -143,9 +146,12 @@ freight_access = [
 # Processed road layer used for graph overlay.
 road_layer = "freight_access"
 
-# Connectivity products to generate.
+# Strong connectivity is the standard workflow: a shared road segment must
+# intersect both neighbouring cells. Legacy "weak" connectivity remains
+# available by manually editing TOML for older analytical comparisons, but it
+# can connect unrelated roads and is hidden from the profile editor. This is a
+# graph-access heuristic pending routed road-network preprocessing.
 methods = [
-    #"weak",
     "strong",
 ]
 
@@ -162,10 +168,6 @@ plot_outputs = true
 # Road connectivity method used for truck links in the encoded schema.
 road_connection_method = "strong"
 
-# When true, build_schema.py prompts for one generated basemap variant.
-interactive_basemap_selection = false
-
-
 # Points within this distance outside the study-area boundary remain eligible
 # for nearest-region assignment. Buffering is performed in EPSG:3347.
 boundary_buffer_km = 50
@@ -179,14 +181,9 @@ boundary_simplify_tolerance_km = 5
 # 100 km on a 50 km grid, and 20 km on a 10 km grid.
 max_snap_distance_factor = 2.0
 
-# When interactive_basemap_selection is false, uncomment and set this:
-# basemap_stem = "provinces_only_basemap_50km_centroid"
-
-
 # -----------------------------------------------------------------------------
 # Geological CO2 storage representation
 # -----------------------------------------------------------------------------
-basemap_stem = "on_renewables_basemap_25km_centroid"
 
 [storage]
 

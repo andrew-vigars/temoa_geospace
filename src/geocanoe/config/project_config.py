@@ -43,6 +43,9 @@ ALL_PROVINCE_CODES = (
 
 SUPPORTED_KEEP_METHODS = {
     "centroid",
+    # Legacy compatibility only. New profiles should use centroid retention;
+    # intersects can create substantially larger regional grids.
+    "intersects",
 }
 
 SUPPORTED_ADJACENCY_METHODS = {
@@ -56,6 +59,8 @@ SUPPORTED_ROAD_NETWORKS = {
 }
 
 SUPPORTED_ROAD_CONNECTIVITY_METHODS = {
+    # Legacy analytical option. New profiles should use strong connectivity
+    # until routed road-network preprocessing replaces both heuristics.
     "weak",
     "strong",
 }
@@ -297,11 +302,11 @@ class SchemaConfig:
         Road-connectivity method used when selecting road-enabled graph edges for
         schema construction.
     interactive_basemap_selection : bool
-        Whether the schema-building workflow prompts the user to select a basemap
-        interactively at runtime.
+        Legacy diagnostics option controlling whether basemap selection prompts
+        at runtime. Omitted settings default to automatic resolution matching.
     basemap_stem : str | None
-        Explicit basemap filename stem used when interactive selection is disabled,
-        or ``None`` when selection is performed interactively.
+        Legacy explicit basemap filename stem retained for compatibility with
+        older profiles, or ``None`` for automatic resolution matching.
     boundary_buffer_km : float
         Buffer distance, in kilometres, applied to the study-area boundary during
         point-assignment preprocessing.
@@ -875,9 +880,8 @@ def load_geospatial_build_config(
     supported grid, adjacency, road-network, and connectivity options.
 
     Cross-section consistency is also enforced. The schema road-connectivity method
-    must be enabled by the road-connectivity configuration, non-interactive basemap
-    selection requires an explicit basemap stem, and the selected road-connectivity
-    layer must be included among the processed road networks.
+    must be enabled by the road-connectivity configuration, and the selected
+    road-connectivity layer must be included among the processed road networks.
 
     Parameters
     ----------
@@ -1151,6 +1155,16 @@ def load_geospatial_build_config(
     else:
         basemap_stem = None
 
+    interactive_basemap_selection = schema_raw.get(
+        "interactive_basemap_selection",
+        False,
+    )
+    if not isinstance(interactive_basemap_selection, bool):
+        raise ValueError(
+            "[schema].interactive_basemap_selection must be a boolean "
+            "when provided."
+        )
+
     schema = SchemaConfig(
         road_connection_method=_validate_choice(
             require_string(
@@ -1161,11 +1175,7 @@ def load_geospatial_build_config(
             SUPPORTED_ROAD_CONNECTIVITY_METHODS,
             "schema.road_connection_method",
         ),
-        interactive_basemap_selection=require_bool(
-            schema_raw,
-            "interactive_basemap_selection",
-            "schema",
-        ),
+        interactive_basemap_selection=interactive_basemap_selection,
         basemap_stem=basemap_stem,
         boundary_buffer_km=_require_positive_number(
             schema_raw,
@@ -1432,15 +1442,6 @@ def load_geospatial_build_config(
         raise ValueError(
             "schema.road_connection_method must also appear in "
             "road_connectivity.methods."
-        )
-
-    if (
-        not schema.interactive_basemap_selection
-        and schema.basemap_stem is None
-    ):
-        raise ValueError(
-            "schema.basemap_stem is required when "
-            "interactive_basemap_selection is false."
         )
 
     if (

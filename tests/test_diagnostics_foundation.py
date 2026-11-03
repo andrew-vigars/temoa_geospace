@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 
+from geocanoe.diagnostics.input import gate
 from geocanoe.diagnostics.models import DiagnosticReport, DiagnosticResult
 from geocanoe.diagnostics.renderers import render_console_result, write_json_report
 from geocanoe.diagnostics.runner import run_checks
@@ -13,6 +15,49 @@ from geocanoe.schema.artifacts import (
     resolve_latest_schema_artifact,
     resolve_schema_artifact_paths,
 )
+
+
+def test_profile_selection_derives_basemap_from_model_resolution(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    profile_path = tmp_path / "automatic.toml"
+    scenario_path = tmp_path / "scenario.toml"
+    build_config = SimpleNamespace(
+        schema=SimpleNamespace(
+            interactive_basemap_selection=False,
+            basemap_stem=None,
+        ),
+    )
+    model_config = object()
+
+    monkeypatch.setattr(
+        gate,
+        "load_geospatial_build_config",
+        lambda path: build_config,
+    )
+    monkeypatch.setattr(
+        gate,
+        "load_model_config",
+        lambda model_path, scenario: model_config,
+    )
+    monkeypatch.setattr(
+        gate,
+        "select_basemap_stem_for_resolution",
+        lambda build, model: "automatic_basemap_50km_centroid",
+    )
+
+    resolved_path, resolved_config, basemap_stem = gate.resolve_profile_selection(
+        SimpleNamespace(
+            config=profile_path,
+            basemap=None,
+            scenario=scenario_path,
+        )
+    )
+
+    assert resolved_path == profile_path.resolve()
+    assert resolved_config is build_config
+    assert basemap_stem == "automatic_basemap_50km_centroid"
 
 
 def test_diagnostic_report_exit_codes_and_runner_order() -> None:

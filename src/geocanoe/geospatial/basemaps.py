@@ -595,6 +595,50 @@ def retain_centroid_cells(
     return retained
 
 
+def retain_intersecting_cells(
+    candidate_grid: gpd.GeoDataFrame,
+    boundary_gdf: gpd.GeoDataFrame,
+) -> gpd.GeoDataFrame:
+    """Retain candidate cells that intersect the study area.
+
+    This legacy retention rule is preserved for reproducibility of older build
+    profiles. It commonly retains many more coastal and border cells than the
+    standard centroid rule and is not exposed in the Silver profile editor.
+
+    Parameters
+    ----------
+    candidate_grid : gpd.GeoDataFrame
+        Candidate grid containing polygon geometries and a temporary
+        ``centroid_geometry`` column.
+    boundary_gdf : gpd.GeoDataFrame
+        Study-area boundary used to test polygon intersection.
+
+    Returns
+    -------
+    gpd.GeoDataFrame
+        Candidate cells whose polygons intersect the study-area boundary.
+
+    Raises
+    ------
+    ValueError
+        If the candidate grid has no defined coordinate reference system.
+    """
+
+    if candidate_grid.crs is None:
+        raise ValueError("Candidate grid CRS is undefined.")
+
+    boundary_native = boundary_gdf.to_crs(candidate_grid.crs)
+    keep_index = gpd.sjoin(
+        candidate_grid[["geometry"]],
+        boundary_native[["geometry"]],
+        how="inner",
+        predicate="intersects",
+    ).index.unique()
+
+    retained = candidate_grid.loc[keep_index].copy()
+    return retained.drop(columns="centroid_geometry")
+
+
 def add_coordinate_metadata(
     grid: gpd.GeoDataFrame,
     boundary_gdf: gpd.GeoDataFrame,
@@ -725,11 +769,11 @@ def build_grid(
     keep_method: str,
     coordinate_precision: int,
 ) -> gpd.GeoDataFrame:
-    """Build one centroid-retained study-area grid.
+    """Build one study-area grid using the requested retention rule.
 
     The requested grid type is validated, a complete candidate grid is generated
-    across the aligned study-area extent, and cells are retained when their
-    centroids fall within the configured boundary. Canonical identifiers and
+    across the aligned study-area extent, and cells are retained using centroid
+    inclusion or the legacy any-intersection rule. Canonical identifiers and
     coordinate metadata are then added before the completed grid is returned.
 
     Parameters
@@ -750,18 +794,28 @@ def build_grid(
     Returns
     -------
     gpd.GeoDataFrame
-        Centroid-retained study-area grid with canonical region identifiers,
-        native coordinates, WGS84 display coordinates, and grid metadata.
+        Retained study-area grid with canonical region identifiers, native
+        coordinates, WGS84 display coordinates, and grid metadata.
 
     Raises
     ------
     ValueError
-        If ``grid_type`` is not defined in ``GRID_SYSTEMS``.
+        If ``grid_type`` or ``keep_method`` is unsupported.
     """
 
     if grid_type not in GRID_SYSTEMS:
         raise ValueError(
             f"Unknown grid type {grid_type!r}. Valid values: {sorted(GRID_SYSTEMS)}"
+        )
+
+    retention_functions = {
+        "centroid": retain_centroid_cells,
+        "intersects": retain_intersecting_cells,
+    }
+    if keep_method not in retention_functions:
+        raise ValueError(
+            f"Unknown keep method {keep_method!r}. "
+            f"Valid values: {sorted(retention_functions)}"
         )
 
     candidate_grid = build_candidate_grid(
@@ -773,9 +827,9 @@ def build_grid(
     )
 
     study_area_label = str(boundary_gdf["study_area"].iloc[0])
-    print(f"Applying {study_area_label} centroid filter...")
+    print(f"Applying {study_area_label} {keep_method} filter...")
 
-    retained_grid = retain_centroid_cells(
+    retained_grid = retention_functions[keep_method](
         candidate_grid=candidate_grid,
         boundary_gdf=boundary_gdf,
     )
@@ -1169,16 +1223,10 @@ pd.DataFrame
 Raises
 ------
 ValueError
-    If the configured retention method is not ``"centroid"`` or if any
-    downstream boundary or basemap validation fails.
+    If any downstream boundary or basemap validation fails.
 FileNotFoundError
     If the required raw boundary shapefile cannot be found.
     """
-
-    if config.basemaps.keep_method != "centroid":
-        raise ValueError(
-            "build_basemaps.py currently supports only centroid retention."
-        )
 
     PROCESSED_BASEMAP.mkdir(parents=True, exist_ok=True)
 

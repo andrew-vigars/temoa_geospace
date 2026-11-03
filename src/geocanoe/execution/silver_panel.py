@@ -19,7 +19,7 @@ import tomlkit
 from geocanoe.config import load_geospatial_build_config
 
 
-DEFAULT_UI_BUILD_PROFILE = 'config/build_profiles/canada_renewables_t4_gcc.toml'
+DEFAULT_UI_BUILD_PROFILE = 'config/build_profiles/sample_build_profile.toml'
 
 
 SECTION_NOTES = {
@@ -30,7 +30,7 @@ SECTION_NOTES = {
     'basemaps.geographic': 'Geographic grid sizes are in decimal degrees (EPSG:4326), not kilometres. Leave empty to skip this grid family.',
     'adjacency': 'Rook adjacency links cells along shared sides, not diagonally. This defines the candidate regional graph.',
     'roads': 'Networks are nested: backbone is the narrowest class set; primary freight adds arterial roads; freight access includes local roads. Road classes are retained from the profile and are not edited here.',
-    'road_connectivity': 'Strong requires a shared road segment intersecting both neighbouring cells. Weak requires roads in both cells, even if those roads do not connect. Neither is a full road-routing model. Plots are diagnostic outputs.',
+    'road_connectivity': 'Strong connectivity is the standard workflow: a shared road segment must intersect both neighbouring cells. This remains a heuristic until road-network preprocessing and routed shortest paths are implemented. Plots are diagnostic outputs.',
     'schema': 'The road network and connectivity method follow the selections above. Boundary buffer is in km; maximum snap distance is the selected grid resolution multiplied by the snap-distance factor.',
     'storage': 'Eligibility selects storage evidence, not a minimum-storage policy. All mapped and qualitative apply no geological capacity cap. Quantitative alone offers P50 capacity limits; disabled quantitative choices are remembered but inactive.',
     'storage.quantitative': 'P50 is the central storage-capacity estimate. Equal weighted imposes per-cell shares; shared imposes one system-wide pool. These assumptions affect the spatial flexibility of storage.',
@@ -144,8 +144,6 @@ class SilverPanel(ttk.Frame):
         self.category_controls = {}
         self.path_controls = {}
         values = document.unwrap()
-        # Optional settings must remain accessible even when omitted in a profile.
-        values.setdefault('schema', {}).setdefault('basemap_stem', '')
         proxies = values.setdefault('gasoline_demand', {}).setdefault('proxies', {})
         hubs = proxies.setdefault('additional_hubs', {})
         for province in ('NL', 'PE', 'NS', 'NB', 'QC', 'ON', 'MB', 'SK', 'AB', 'BC', 'YT', 'NT', 'NU'):
@@ -210,7 +208,12 @@ class SilverPanel(ttk.Frame):
         items = sorted(values.items()) if prefix == ('gasoline_demand', 'proxies', 'additional_hubs') else values.items()
         for key, value in items:
             path = (*prefix, key)
-            if path in {('road_connectivity', 'road_layer'), ('schema', 'road_connection_method')}:
+            if path in {('basemaps', 'keep_method'),
+                        ('road_connectivity', 'road_layer'),
+                        ('road_connectivity', 'methods'),
+                        ('schema', 'road_connection_method'),
+                        ('schema', 'interactive_basemap_selection'),
+                        ('schema', 'basemap_stem')}:
                 continue
             if isinstance(value, dict):
                 self.add_fields(value, path)
@@ -299,7 +302,6 @@ class SilverPanel(ttk.Frame):
         names = {'study_area.provinces': 'ALL_PROVINCE_CODES',
                  'roads.networks': 'SUPPORTED_ROAD_NETWORKS',
                  'road_connectivity.road_layer': 'SUPPORTED_ROAD_LAYERS',
-                 'road_connectivity.methods': 'SUPPORTED_ROAD_CONNECTIVITY_METHODS',
                  'hydrography.permanency': 'SUPPORTED_HYDROGRAPHY_PERMANENCY',
                  'hydrography.polygons.classes': 'SUPPORTED_HYDROGRAPHY_CLASSES',
                  'hydrography.lines.classes': 'SUPPORTED_HYDROGRAPHY_CLASSES'}
@@ -315,8 +317,7 @@ class SilverPanel(ttk.Frame):
     @staticmethod
     def choices(path):
         from geocanoe.config import project_config as config
-        names = {'basemaps.keep_method': 'SUPPORTED_KEEP_METHODS',
-                 'adjacency.method': 'SUPPORTED_ADJACENCY_METHODS',
+        names = {'adjacency.method': 'SUPPORTED_ADJACENCY_METHODS',
                  'schema.road_connection_method': 'SUPPORTED_ROAD_CONNECTIVITY_METHODS',
                  'storage.eligibility': 'SUPPORTED_STORAGE_ELIGIBILITY_MODES',
                  'gasoline_demand.proxies.strategy': 'SUPPORTED_GASOLINE_PROXY_STRATEGIES',

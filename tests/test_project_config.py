@@ -23,6 +23,8 @@ def test_committed_sample_build_profile_loads() -> None:
     assert config.schema.road_connection_method in (
         config.road_connectivity.methods
     )
+    assert config.schema.interactive_basemap_selection is False
+    assert config.schema.basemap_stem is None
     assert config.road_connectivity.road_layer in config.roads.networks
     assert config.storage.eligibility == "all_mapped"
     assert config.storage.use_capacity_bound is False
@@ -201,6 +203,50 @@ anchor_registry = "registry/gasoline_supply_anchors.csv"
 
 [gasoline_demand.proxies.additional_hubs]
 """
+
+
+def test_legacy_intersects_keep_method_remains_loadable(tmp_path):
+    source = _DUAL_GRID_FAMILY_PROFILE.replace(
+        'keep_method = "centroid"',
+        'keep_method = "intersects"',
+    )
+    path = tmp_path / "legacy-intersects.toml"
+    path.write_text(source, encoding="utf-8")
+
+    config = load_geospatial_build_config(path)
+
+    assert config.basemaps.keep_method == "intersects"
+
+
+def test_noninteractive_schema_selection_no_longer_requires_stem(tmp_path):
+    source = _DUAL_GRID_FAMILY_PROFILE.replace(
+        "interactive_basemap_selection = true",
+        "interactive_basemap_selection = false",
+    )
+    path = tmp_path / "automatic-basemap.toml"
+    path.write_text(source, encoding="utf-8")
+
+    config = load_geospatial_build_config(path)
+
+    assert config.schema.interactive_basemap_selection is False
+    assert config.schema.basemap_stem is None
+
+
+def test_legacy_weak_road_connectivity_remains_loadable(tmp_path):
+    source = _DUAL_GRID_FAMILY_PROFILE.replace(
+        'methods = ["strong"]',
+        'methods = ["weak"]',
+    ).replace(
+        'road_connection_method = "strong"',
+        'road_connection_method = "weak"',
+    )
+    path = tmp_path / "legacy-weak-connectivity.toml"
+    path.write_text(source, encoding="utf-8")
+
+    config = load_geospatial_build_config(path)
+
+    assert config.road_connectivity.methods == ("weak",)
+    assert config.schema.road_connection_method == "weak"
 
 
 def test_profile_derives_projected_grid_type_when_geographic_is_empty(

@@ -102,7 +102,8 @@ The workflow currently supports:
   summaries, and previews;
 - Silver impedance evidence derived from Aboriginal Lands, population density,
   and NHN hydrography, with resolution-matched edge cost multipliers;
-- weak and strong road-connectivity mapping;
+- strong road-connectivity mapping, with the earlier weak heuristic retained
+  for reproducibility;
 - province assignment and graph-node snapping for legacy point inputs;
 - preprocessing of 2024 large-facility greenhouse-gas emissions;
 - acquisition of a selected CanCO₂ unified-storage release from a local sibling repository;
@@ -645,8 +646,9 @@ Geospatial preprocessing stages use a shared TOML build profile loaded through `
 - centroid retention and coordinate precision;
 - rook-adjacency settings;
 - road classes, processed road networks, and output CRS;
-- weak and/or strong road-connectivity methods;
-- the road layer, road-connectivity method, and basemap used during schema construction;
+- strong road connectivity and optional diagnostic plots;
+- the road layer used during schema construction; basemaps are selected by
+  configured grid type and resolution;
 - the Silver evidence rule used to enable geological CO2 injection and whether
   a numerical storage-capacity bound is requested;
 - point-assignment boundary and snapping tolerances.

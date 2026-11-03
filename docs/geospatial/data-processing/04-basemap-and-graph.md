@@ -38,7 +38,7 @@ profile (e.g. [sample_build_profile.toml](../../../config/build_profiles/sample_
 | Parameter | Sample value | Meaning |
 |---|---|---|
 | `study_area.provinces` | NL … BC (10 provinces) | Jurisdictions dissolved into the study area |
-| `basemaps.keep_method` | `centroid` | Only supported retention rule |
+| `basemaps.keep_method` | `centroid` | Standard retention rule. Legacy `intersects` is supported only for reproducibility, is hidden from the profile editor, and can create substantially more regions. |
 | `basemaps.projected.resolutions_km` | `[50]` | Grid cell size (EPSG:3347) |
 | `basemaps.geographic.resolutions` | `[]` | Degree grids (EPSG:4326), unused in sample |
 | `basemaps.coordinate_precision` | 6 | Decimals for stored lon/lat |
@@ -62,14 +62,17 @@ profile (e.g. [sample_build_profile.toml](../../../config/build_profiles/sample_
    different study areas share cell edges.
 4. **Generate candidate grid** (`build_candidate_grid`). Square cells of
    `resolution × native_scale` across the aligned box.
-5. **Retain cells** (`retain_centroid_cells`). Keep a cell only if its centroid
-   lies *within* the dissolved boundary (spatial join, `within`).
+5. **Retain cells** (`retain_centroid_cells`). The standard workflow keeps a
+   cell only if its centroid lies *within* the dissolved boundary (spatial join,
+   `within`). The legacy `intersects` option instead keeps every cell touching
+   the boundary and is retained only to reproduce older profiles.
 6. **Assign identifiers** (`add_coordinate_metadata`). Compute WGS84 `lon`/`lat`
    of centroids, sort by native `centroid_y` then `centroid_x`, and number cells
    `R0…Rn` in that order. `site_id` equals `region`.
 
-Outputs: `data_files/processed/basemaps/{study_area}_basemap_{res}{km|deg}_centroid.gpkg`,
-boundary files, previews and `basemap_summary.csv`.
+Outputs: `data_files/processed/basemaps/{study_area}_basemap_{res}{km|deg}_{keep_method}.gpkg`,
+boundary files, previews and `basemap_summary.csv`. Standard builds use the
+`centroid` suffix.
 
 ### Graph (`geocanoe.geospatial.adjacency`)
 

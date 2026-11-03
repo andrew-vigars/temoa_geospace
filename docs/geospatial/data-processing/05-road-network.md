@@ -28,7 +28,7 @@ Temoa. Only the resulting set of enabled edges does.
 | `roads.output_crs` | `EPSG:4326` |
 | `roads.export_individual_provinces` | `false` |
 | `road_connectivity.road_layer` | `freight_access` |
-| `road_connectivity.methods` | `["strong"]` (`weak` available) |
+| `road_connectivity.methods` | `["strong"]`; legacy `weak` is code-only/manual TOML compatibility and is hidden from the profile editor |
 | `schema.road_connection_method` | `strong` |
 
 Nested road-class definitions (NRN `ROADCLASS` values):
@@ -99,7 +99,7 @@ binary. **[confirm]** that truck distance cost uses the graph edge length
 | 2 | Only the English NRN is used. | `get_nrn_gpkg_path` | Attributes assumed English-named (`ROADCLASS` values). |
 | 3 | Duplicate roads are identified by exact geometry only. | `deduplicate_boundary_segments` | Near-duplicates at jurisdiction borders with different vertices survive and can inflate shared-segment counts. |
 | 4 | Strong connectivity needs one NRN segment to intersect both cells. **[cite-gis]** (overlay/`intersects` predicate semantics; NRN segmentation rules) | `build_strong_road_connections` | NRN segments are split at intersections, so a short segment rarely spans two cells. On fine grids, strong connectivity can understate connections that real multi-segment routes provide. The result is sensitive to cell size. **[confirm]** by comparing weak vs strong edge shares at 25 km and 50 km. |
-| 5 | Weak connectivity treats any road in both cells as a link. | `build_weak_road_connections` | Overstates connectivity because the two roads need not connect. Available but disabled in the sample. |
+| 5 | Weak connectivity treats any road in both cells as a link. | `build_weak_road_connections` | Overstates connectivity because the two roads need not connect. Retained only for older analytical comparisons and manual TOML use; standard builds use strong connectivity. |
 | 6 | Connectivity is evaluated on the same graph used for pipelines. | design | Truck links follow the rook grid, not actual road geometry. |
 | 7 | Roads are not used to route or cost, only to enable. | Gold | Road quality, terrain, seasonal/winter roads and ferries are not represented. **[cite-method]** (road-network representation in freight and hydrogen/CO₂ logistics models) |
 | 8 | Both edge directions are classified identically. | `edge classification` | Road links are symmetric. |
@@ -118,4 +118,7 @@ and connectivity summary CSV, and diagnostic PNGs (`plot_outputs = true`).
 
 ## 5.9 Tests
 
-No dedicated unit tests exist for `roads.py` or `road_connectivity.py`. Adding fixtures for weak vs strong connectivity on a small synthetic grid would pin down assumption 4 above.
+No dedicated unit tests exist for `roads.py` or `road_connectivity.py`. Adding
+fixtures for the current strong heuristic and a future routed shortest-path
+implementation would pin down assumption 4 above. The legacy weak function is
+retained for reproducibility.

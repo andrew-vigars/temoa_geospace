@@ -25,16 +25,20 @@ def test_categories_preserve_profiles_and_road_selection_is_exclusive():
             assert label.cget('text') == path[-1]
         assert not any(path[:2] == ('roads', 'classes') for path in panel.fields)
         assert ('road_connectivity', 'road_layer') not in panel.fields
+        assert ('road_connectivity', 'methods') not in panel.fields
         assert ('schema', 'road_connection_method') not in panel.fields
+        assert ('schema', 'interactive_basemap_selection') not in panel.fields
+        assert ('schema', 'basemap_stem') not in panel.fields
+        assert ('basemaps', 'keep_method') not in panel.fields
+        assert tomllib.loads(panel.text())['basemaps']['keep_method'] == 'centroid'
         panel.category_controls[('roads', 'networks')]['backbone'].invoke()
         result = tomllib.loads(panel.text())
         assert result['roads']['networks'] == ['backbone']
         assert result['road_connectivity']['road_layer'] == 'backbone'
+        assert result['road_connectivity']['methods'] == ['strong']
+        assert result['schema']['road_connection_method'] == 'strong'
         assert result['roads']['classes'] == tomllib.loads(original)['roads']['classes']
-        panel.category_controls[('road_connectivity', 'methods')]['weak'].invoke()
-        result = tomllib.loads(panel.text())
-        assert result['road_connectivity']['methods'] == ['weak']
-        assert result['schema']['road_connection_method'] == 'weak'
+        assert ('road_connectivity', 'plot_outputs') in panel.fields
         panel.category_controls[('roads', 'networks')]['primary_freight'].invoke()
         assert tomllib.loads(panel.text())['roads']['networks'] == ['primary_freight']
         panel.category_controls[('study_area', 'provinces')]['YT'].invoke()
@@ -80,17 +84,13 @@ def test_storage_controls_follow_eligibility_and_preserve_inactive_quantitative_
         window.destroy()
 
 
-def test_default_uses_existing_t4_gcc_profile_unchanged():
+def test_default_uses_sample_build_profile_unchanged():
     window = tk.Tk()
     window.withdraw()
     try:
         panel = SilverPanel(window, ROOT)
-        assert panel.path == ROOT / 'config/build_profiles/canada_renewables_t4_gcc.toml'
+        assert panel.path == ROOT / 'config/build_profiles/sample_build_profile.toml'
         assert panel.text() == panel.path.read_text(encoding='utf-8')
-        profile = tomllib.loads(panel.text())
-        assert len(profile['study_area']['provinces']) == 13
-        assert profile['basemaps']['projected']['resolutions_km'] == [25]
-        assert profile['renewables']['config'] == 'config/renewables/canada_t4_gcc.toml'
         assert not panel.busy
     finally:
         window.destroy()

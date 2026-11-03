@@ -45,11 +45,11 @@ Defined by the committed profiles in [config/build_profiles/](../../../config/bu
 |---|---|---|
 | `[profile]` | `id` (becomes part of the build ID and file names) | this chapter |
 | `[study_area]` | `label`, `provinces` | [4](04-basemap-and-graph.md) |
-| `[basemaps]`, `[basemaps.projected]`, `[basemaps.geographic]` | `keep_method`, `coordinate_precision`, `resolutions_km`, `resolutions` | [4](04-basemap-and-graph.md) |
+| `[basemaps]`, `[basemaps.projected]`, `[basemaps.geographic]` | `coordinate_precision`, `resolutions_km`, `resolutions`; `keep_method` is hidden in the profile editor, defaults to `centroid` in sample profiles, and permits legacy `intersects` only through manual TOML editing | [4](04-basemap-and-graph.md) |
 | `[adjacency]` | `method = "rook"`, `no_neighbor_id` | [4](04-basemap-and-graph.md) |
 | `[roads]`, `[roads.classes]` | `networks`, `output_crs`, class lists | [5](05-road-network.md) |
-| `[road_connectivity]` | `road_layer`, `methods` | [5](05-road-network.md) |
-| `[schema]` | `road_connection_method`, `interactive_basemap_selection`, `basemap_stem`, `max_snap_distance_factor`, `boundary_buffer_km`*, `boundary_simplify_tolerance_km`* | [11](11-gold-spatial-mapping.md) |
+| `[road_connectivity]` | `road_layer`, `plot_outputs`; `methods` is hidden in the profile editor and defaults to `strong`, with legacy `weak` available only through manual TOML editing | [5](05-road-network.md) |
+| `[schema]` | `road_connection_method`, `max_snap_distance_factor`, `boundary_buffer_km`*, `boundary_simplify_tolerance_km`* | [11](11-gold-spatial-mapping.md) |
 | `[storage]`, `.quantitative`, `.qualitative`, `.all_mapped` | `eligibility`, source selection, `capacity_mapping` (`unlimited`, `equal_weighted`, `shared`) | [7](07-co2-storage.md) |
 | `[gasoline_demand]`, `.proxies`, `.proxies.additional_hubs` | `sales_year`, density, `strategy`, population thresholds | [8](08-gasoline-demand.md) |
 | `[pipeline_impedance]` | `enabled`, `penalty_registry`, `penalty_profile`, `output_crs` | [6](06-pipeline-impedance.md) |
