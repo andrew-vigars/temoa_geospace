@@ -16,6 +16,9 @@ select the exchange rate. CAD exchange entries are 1.
 release directory and exact GDP-series selectors. The economics Bronze stage
 preserves the complete unmodified StatCan ZIP and curated CANOE exchange CSV,
 each with an acquisition manifest under `data_files/raw/economics/<release>/`.
+The curated CSV checksum uses canonical LF newlines so Git's platform-specific
+text checkout does not change its content identity; the manifest also records
+the exact staged-byte checksum.
 Verified caches are reused offline. Corruption or upstream revisions fail
 checksum validation; adopt revisions deliberately with a new pin and directory.
 The global `--overwrite` flag does not replace verified economics releases.

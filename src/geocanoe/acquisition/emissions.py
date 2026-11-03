@@ -66,19 +66,47 @@ EMISSIONS_SOURCE_PAGE = (
     "756bc907-34bb-4b33-9a87-b3c1a6c3f292"
 )
 
+# The Open Government record still advertises these two static resources, but
+# both began returning HTTP 404 after an upstream publishing change in 2026.
+# Keep the URLs here so the provenance of the recovered snapshot remains clear.
+EMISSIONS_CSV_UPSTREAM_URL = (
+    "https://indicators-map.canada.ca/CSVs/en/"
+    "Greenhouse%20gas%20emissions%20from%20large%20facilities%20-%202024.csv"
+)
+EMISSIONS_GEOJSON_UPSTREAM_URL = (
+    "https://indicators-map.canada.ca/historic/english/"
+    "AirEmissions_GHG_2024.zip"
+)
+
+# An immutable Internet Archive capture preserves the exact ECCC CSV release.
+EMISSIONS_CSV_ARCHIVE_URL = (
+    "https://web.archive.org/web/20260503123643id_/"
+    + EMISSIONS_CSV_UPSTREAM_URL
+)
+
+# The archived ZIP was not captured. ECCC's corresponding ArcGIS layer remains
+# available and exposes the same 2024 facility locations as GeoJSON. Pin the
+# query to 2024 so later changes to the live layer cannot silently mix years.
+EMISSIONS_ARCGIS_LAYER_URL = (
+    "https://maps-cartes.ec.gc.ca/arcgis/rest/services/CESI/MapServer/10"
+)
+EMISSIONS_ARCGIS_GEOJSON_URL = (
+    f"{EMISSIONS_ARCGIS_LAYER_URL}/query?"
+    "where=Year%3D2024&outFields=*&returnGeometry=true&outSR=4326&"
+    "orderByFields=OBJECTID&f=geojson"
+)
+
 EMISSIONS_RESOURCE = {
     "csv": {
         "name": "Large facility greenhouse gas emissions (CSV)",
-        "url": (
-            "https://indicators-map.canada.ca/CSVs/en/"
-            "Greenhouse%20gas%20emissions%20from%20large%20facilities%20-%202024.csv"
-        ),
+        "url": EMISSIONS_CSV_ARCHIVE_URL,
+        "upstream_url": EMISSIONS_CSV_UPSTREAM_URL,
         "filename": "Greenhouse gas emissions from large facilities - 2024.csv",
     },
     "geojson": {
         "name": "Large facility locations (GeoJSON)",
-        "url": "https://indicators-map.canada.ca/historic/english/AirEmissions_GHG_2024.zip",
-        "archive_name": "AirEmissions_GHG_2024.zip",
+        "url": EMISSIONS_ARCGIS_GEOJSON_URL,
+        "upstream_url": EMISSIONS_GEOJSON_UPSTREAM_URL,
         "expected_file": "AirEmissions_GHG_2024.json",
     },
 }
@@ -198,7 +226,7 @@ def extract_geojson_archive(
         print(f"[Skip extract] {output_dir.name} already contains GeoJSON file(s).")
         return existing_json
 
-    print(f"[Extract] {zip_path.name} → {output_dir.name}")
+    print(f"[Extract] {zip_path.name} -> {output_dir.name}")
 
     with zipfile.ZipFile(zip_path, "r") as zip_ref:
         zip_ref.extractall(output_dir)
@@ -224,7 +252,7 @@ def extract_geojson_archive(
                 continue
 
         shutil.move(str(source_path), str(destination_path))
-        print(f"[Move] {source_path.name} → {destination_path.name}")
+        print(f"[Move] {source_path.name} -> {destination_path.name}")
 
     for path in sorted(output_dir.iterdir()):
         if path.is_dir():
@@ -291,10 +319,10 @@ def validate_outputs(output_dir: Path) -> tuple[Path, Path]:
 def get_raw_emissions_data(overwrite: bool = False) -> tuple[Path, Path]:
     """Acquire and validate the raw large-facility emissions dataset.
 
-    The raw emissions directory is created when needed. The configured facility
-    emissions CSV and GeoJSON ZIP archive are downloaded, the GeoJSON archive is
-    extracted and flattened, and both expected output files are validated before
-    their paths are returned.
+    The raw emissions directory is created when needed. The preserved official
+    facility-emissions CSV and the matching GeoJSON from ECCC's ArcGIS service
+    are downloaded, then both expected output files are validated before their
+    paths are returned.
 
     Existing files are reused by default. When ``overwrite`` is true, downloaded
     and extracted files are replaced according to the underlying acquisition
@@ -316,13 +344,7 @@ def get_raw_emissions_data(overwrite: bool = False) -> tuple[Path, Path]:
     RuntimeError
         If either source file cannot be downloaded after all retry attempts.
     FileNotFoundError
-        If archive extraction produces no GeoJSON file or either expected raw
-        emissions output is missing.
-    ValueError
-        If the extracted output directory contains an unexpected number of JSON
-        files.
-    zipfile.BadZipFile
-        If the downloaded GeoJSON archive is not a valid ZIP file.
+        If either expected raw emissions output is missing.
     """
 
     RAW_EMISSIONS.mkdir(parents=True, exist_ok=True)
@@ -339,16 +361,10 @@ def get_raw_emissions_data(overwrite: bool = False) -> tuple[Path, Path]:
         overwrite=overwrite,
     )
 
-    geojson_archive_path = RAW_EMISSIONS / EMISSIONS_RESOURCE["geojson"]["archive_name"]
-    downloaded_geojson_archive = download_file(
+    geojson_path = RAW_EMISSIONS / EMISSIONS_RESOURCE["geojson"]["expected_file"]
+    downloaded_geojson = download_file(
         url=EMISSIONS_RESOURCE["geojson"]["url"],
-        destination=geojson_archive_path,
-        overwrite=overwrite,
-    )
-
-    geojson_files = extract_geojson_archive(
-        zip_path=downloaded_geojson_archive,
-        output_dir=RAW_EMISSIONS,
+        destination=geojson_path,
         overwrite=overwrite,
     )
 
@@ -362,7 +378,7 @@ def get_raw_emissions_data(overwrite: bool = False) -> tuple[Path, Path]:
             print(f"- {file.name}")
 
     print(f"\nCSV ready: {downloaded_csv.name}")
-    print(f"GeoJSON ready: {geojson_files[0].name}")
+    print(f"GeoJSON ready: {downloaded_geojson.name}")
 
     return csv_ready, json_ready
 

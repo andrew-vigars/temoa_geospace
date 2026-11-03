@@ -61,6 +61,17 @@ def write_population_centres(directory: Path) -> Path:
     return path
 
 
+def test_population_centre_resource_uses_mirror_with_upstream_provenance() -> None:
+    assert gasoline_demand.POPULATION_CENTRE_ARCHIVE_URL == (
+        "https://data.source.coop/dataforcanada/d4c-datapkg-statistical/"
+        "archive/statcan/boundaries/2021/lpc_000b21a_e.zip"
+    )
+    assert gasoline_demand.POPULATION_CENTRE_ARCHIVE_UPSTREAM_URL == (
+        "https://www12.statcan.gc.ca/census-recensement/2021/geo/"
+        "sip-pis/boundary-limites/files-fichiers/lpc_000b21a_e.zip"
+    )
+
+
 def test_archive_validation_and_extraction(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
@@ -116,6 +127,13 @@ def test_acquisition_reuses_valid_outputs_and_writes_manifest(
     assert result["fuel_sales"] == table
     assert result["population_centres"] == centres
     assert manifest["stage"] == "gasoline_demand"
+    population_source = manifest["sources"]["population_centres"]
+    assert population_source["distribution_url"] == (
+        gasoline_demand.POPULATION_CENTRE_ARCHIVE_URL
+    )
+    assert population_source["upstream_distribution_url"] == (
+        gasoline_demand.POPULATION_CENTRE_ARCHIVE_UPSTREAM_URL
+    )
     assert manifest["reused_population_source"]["stage"] == "residential"
     assert manifest["methodology_reference"]["publisher"] == (
         "Natural Resources Canada"

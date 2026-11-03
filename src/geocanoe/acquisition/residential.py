@@ -35,9 +35,13 @@ BOUNDARY_CATALOGUE_URL = (
     "sip-pis/boundary-limites/index-eng.cfm"
 )
 BOUNDARY_ARCHIVE_NAME = "lda_000b21a_e.zip"
-BOUNDARY_ARCHIVE_URL = (
+BOUNDARY_ARCHIVE_UPSTREAM_URL = (
     "https://www12.statcan.gc.ca/census-recensement/2021/geo/"
     "sip-pis/boundary-limites/files-fichiers/lda_000b21a_e.zip"
+)
+BOUNDARY_ARCHIVE_URL = (
+    "https://data.source.coop/dataforcanada/d4c-datapkg-statistical/"
+    "archive/statcan/boundaries/2021/lda_000b21a_e.zip"
 )
 BOUNDARY_STEM = "lda_000b21a_e"
 BOUNDARY_SHAPEFILE_NAME = f"{BOUNDARY_STEM}.shp"
@@ -238,6 +242,8 @@ def acquire_residential(
             "boundaries": validate_boundary_shapefile(boundary_path),
             "population_table": validate_population_table(population_path),
         }
+
+    print(f"DA boundary download mirror: {BOUNDARY_ARCHIVE_URL}")
 
     resources = (
         (

@@ -14,6 +14,17 @@ import tomllib
 from geocanoe.paths import find_project_root
 
 
+def _provenance_sha256(path, provenance):
+    """Apply the checksum mode declared by a source provenance record."""
+    payload = Path(path).read_bytes()
+    mode = provenance.get("checksum_mode", "raw")
+    if mode == "text_lf":
+        payload = payload.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    elif mode != "raw":
+        raise ValueError(f"Unsupported economic checksum mode: {mode}")
+    return hashlib.sha256(payload).hexdigest()
+
+
 def conversion_basis(source_currency, source_year, source_scale=1.0, *, config=None):
     """Return a checked multiplier and auditable economic inputs for one cost."""
     root = find_project_root()
@@ -41,10 +52,10 @@ def conversion_basis(source_currency, source_year, source_scale=1.0, *, config=N
     if source_year not in indexes or target_year not in indexes:
         raise ValueError("Missing source or target price year in GDP index")
     exchange_path = root / policy["exchange_path"]
-    exchange_digest = hashlib.sha256(exchange_path.read_bytes()).hexdigest()
     exchange_provenance = json.loads(
         (root / policy["exchange_provenance"]).read_text(encoding="utf-8")
     )
+    exchange_digest = _provenance_sha256(exchange_path, exchange_provenance)
     if exchange_digest != exchange_provenance["sha256"]:
         raise ValueError("Exchange table checksum mismatch")
     with exchange_path.open(encoding="utf-8-sig", newline="") as stream:

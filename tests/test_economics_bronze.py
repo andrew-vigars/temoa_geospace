@@ -77,6 +77,27 @@ def test_bronze_rejects_tampering(economic_project):
         prepare_economics()
 
 
+def test_exchange_checksum_is_portable_across_text_line_endings(tmp_path):
+    source = {
+        "id": "exchange",
+        "kind": "exchange_csv",
+        "checksum_mode": "text_lf",
+    }
+    lf_payload = b"Year,CAD,USD\n2024,1,1.25\n"
+    source["sha256"] = hashlib.sha256(lf_payload).hexdigest()
+    path = tmp_path / "exchange.csv"
+
+    path.write_bytes(lf_payload)
+    bronze.validate_source(path, source)
+
+    path.write_bytes(lf_payload.replace(b"\n", b"\r\n"))
+    bronze.validate_source(path, source)
+
+    path.write_bytes(b"Year,CAD,USD\r\n2024,1,9.99\r\n")
+    with pytest.raises(ValueError, match="checksum mismatch"):
+        bronze.validate_source(path, source)
+
+
 def test_economics_registered_in_bronze_workflow():
     from geocanoe.execution.bronze import BRONZE_STAGE_ORDER, STAGE_MODULE_NAMES
     assert "economics" in BRONZE_STAGE_ORDER

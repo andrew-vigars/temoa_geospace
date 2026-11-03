@@ -10,8 +10,8 @@ Source:
     https://www12.statcan.gc.ca/census-recensement/2021/geo/sip-pis/boundary-limites/index-eng.cfm
 
 Inputs:
-    Public Statistics Canada ZIP archive from:
-        https://www12.statcan.gc.ca/census-recensement/2021/geo/sip-pis/boundary-limites/files-fichiers/lpr_000b21a_e.zip
+    Archived copy of the public Statistics Canada ZIP from Source Cooperative:
+        https://data.source.coop/dataforcanada/d4c-datapkg-statistical/archive/statcan/boundaries/2021/lpr_000b21a_e.zip
 
 Outputs:
     data_files/raw/basemaps/
@@ -77,14 +77,20 @@ BASEMAP_SOURCE_PAGE = (
     "sip-pis/boundary-limites/index-eng.cfm"
 )
 
-BASEMAP_URL = (
+BASEMAP_UPSTREAM_URL = (
     "https://www12.statcan.gc.ca/census-recensement/2021/geo/"
     "sip-pis/boundary-limites/files-fichiers/lpr_000b21a_e.zip"
+)
+
+BASEMAP_URL = (
+    "https://data.source.coop/dataforcanada/d4c-datapkg-statistical/"
+    "archive/statcan/boundaries/2021/lpr_000b21a_e.zip"
 )
 
 BASEMAP_RESOURCE = {
     "name": "Statistics Canada 2021 provincial and territorial boundary file",
     "url": BASEMAP_URL,
+    "upstream_url": BASEMAP_UPSTREAM_URL,
     "archive_name": "lpr_000b21a_e.zip",
     "expected_shapefile": "lpr_000b21a_e.shp",
 }
@@ -226,7 +232,7 @@ def extract_basemap_archive(
             elif path.is_dir():
                 shutil.rmtree(path)
 
-    print(f"[Extract] {zip_path.name} → {output_dir.name}")
+    print(f"[Extract] {zip_path.name} -> {output_dir.name}")
 
     with zipfile.ZipFile(zip_path, "r") as zip_ref:
         zip_ref.extractall(output_dir)
@@ -250,7 +256,7 @@ def extract_basemap_archive(
                 continue
 
         shutil.move(str(source_path), str(destination_path))
-        print(f"[Move] {source_path.name} → {destination_path.name}")
+        print(f"[Move] {source_path.name} -> {destination_path.name}")
 
     for path in sorted(output_dir.iterdir()):
         if path.is_dir():
@@ -364,6 +370,7 @@ def acquire_basemap(
 
     print("Acquiring Statistics Canada basemap shapefile...\n")
     print(f"Source page: {BASEMAP_SOURCE_PAGE}")
+    print(f"Download mirror: {BASEMAP_RESOURCE['url']}")
     print(f"Raw basemap folder: {raw_basemaps}\n")
 
     archive_path = raw_basemaps / BASEMAP_RESOURCE["archive_name"]

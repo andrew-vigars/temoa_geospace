@@ -2,6 +2,7 @@
 
 import argparse
 import csv
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -15,6 +16,17 @@ from geocanoe.acquisition.era5_renewables import acquisition_lock, manifest, sha
 from geocanoe.paths import find_project_root
 
 
+def configured_sha256(path, source):
+    """Hash raw bytes or canonical LF text, as declared by the source."""
+    mode = source.get("checksum_mode", "raw")
+    if mode == "raw":
+        return sha256(path)
+    if mode == "text_lf":
+        payload = Path(path).read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        return hashlib.sha256(payload).hexdigest()
+    raise ValueError(f"Unsupported economic checksum mode: {mode}")
+
+
 def load_settings(config_path=None):
     root = find_project_root()
     path = Path(config_path) if config_path else root / "config/economics/sources.toml"
@@ -25,7 +37,7 @@ def load_settings(config_path=None):
 
 def validate_source(path, source):
     """Check pinned bytes and basic structure, preserving the entire payload."""
-    if sha256(path) != source["sha256"]:
+    if configured_sha256(path, source) != source["sha256"]:
         raise ValueError(f"Economic source checksum mismatch: {source['id']}")
     if source["kind"] == "statcan_zip":
         with zipfile.ZipFile(path) as archive:
@@ -83,6 +95,7 @@ def acquire_economics(config_path=None):
             staged.replace(path)
             manifest(record, {
                 "source": source, "sha256": sha256(path),
+                "configured_sha256": configured_sha256(path, source),
                 "bytes": path.stat().st_size, "config_sha256": sha256(config_path),
                 "scope": "unmodified complete source; no cost conversion",
             })

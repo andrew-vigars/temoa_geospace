@@ -356,7 +356,7 @@ land, and uses each design's physical curve before regional aggregation.
 The optional `t1_only` mode retains the original baseline. No ATB CF uplift
 is applied automatically.
 
-Mapping provenance: sister repo `canoe-electricity-main/input_files/params.toml`,
+Mapping provenance: sister repo `canoe-electricity/input_files/params.toml`,
 `[new_wind_techs]`; weighting logic in `canoe_electricity/new_wind_solar.py`.
 The local config is self-contained: CANOE is not a runtime dependency.
 

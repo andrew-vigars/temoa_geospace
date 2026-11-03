@@ -95,6 +95,17 @@ def test_download_reports_streamed_byte_progress(
     assert progress_updates == [3, 3]
 
 
+def test_boundary_resource_uses_archival_mirror_with_upstream_provenance() -> None:
+    assert residential.BOUNDARY_ARCHIVE_URL == (
+        "https://data.source.coop/dataforcanada/d4c-datapkg-statistical/"
+        "archive/statcan/boundaries/2021/lda_000b21a_e.zip"
+    )
+    assert residential.BOUNDARY_ARCHIVE_UPSTREAM_URL == (
+        "https://www12.statcan.gc.ca/census-recensement/2021/geo/"
+        "sip-pis/boundary-limites/files-fichiers/lda_000b21a_e.zip"
+    )
+
+
 def test_archive_validation_and_extraction(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()

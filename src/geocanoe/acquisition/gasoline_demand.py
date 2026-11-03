@@ -48,9 +48,13 @@ FUEL_SALES_METADATA_NAME = "23100066_MetaData.csv"
 POPULATION_CENTRE_CATALOGUE_URL = (
     "https://www150.statcan.gc.ca/n1/en/catalogue/92-166-X"
 )
-POPULATION_CENTRE_ARCHIVE_URL = (
+POPULATION_CENTRE_ARCHIVE_UPSTREAM_URL = (
     "https://www12.statcan.gc.ca/census-recensement/2021/geo/"
     "sip-pis/boundary-limites/files-fichiers/lpc_000b21a_e.zip"
+)
+POPULATION_CENTRE_ARCHIVE_URL = (
+    "https://data.source.coop/dataforcanada/d4c-datapkg-statistical/"
+    "archive/statcan/boundaries/2021/lpc_000b21a_e.zip"
 )
 POPULATION_CENTRE_ARCHIVE_NAME = "lpc_000b21a_e.zip"
 POPULATION_CENTRE_STEM = "lpc_000b21a_e"
@@ -320,6 +324,9 @@ def write_acquisition_manifest(
                 "census_year": 2021,
                 "catalogue_url": POPULATION_CENTRE_CATALOGUE_URL,
                 "distribution_url": POPULATION_CENTRE_ARCHIVE_URL,
+                "upstream_distribution_url": (
+                    POPULATION_CENTRE_ARCHIVE_UPSTREAM_URL
+                ),
                 "source_crs": EXPECTED_POPULATION_CENTRE_CRS,
                 "record_count": EXPECTED_POPULATION_CENTRE_RECORDS,
                 "unique_centre_count": EXPECTED_POPULATION_CENTRES,
@@ -392,6 +399,10 @@ def acquire_gasoline_demand(
         validate_fuel_sales_table(fuel_sales)
         validate_csv_metadata(fuel_metadata)
 
+        print(
+            "Population-centre download mirror: "
+            f"{POPULATION_CENTRE_ARCHIVE_URL}"
+        )
         download_file(
             POPULATION_CENTRE_ARCHIVE_URL,
             centres_archive,

@@ -33,7 +33,7 @@ CANOE_CLOUD **raw EIA response**, preserving its bytes in GeoCANOE's own Bronze
 directory. It does not write into either sibling repository, import their code,
 or deserialize pickle files.
 
-The configured AEO 2025 Reference Table 3 US release was acquired 2026-10-29.
+The configured AEO 2025 Reference Table 3 US release was acquired 2026-11-02.
 Its 2,673 rows span 2024–2050; the original request began in 2023 but returned
 no 2023 observations. Validation rejects changed checksums, truncated responses,
 wrong edition/scenario/table/region, missing years, and duplicate keys.

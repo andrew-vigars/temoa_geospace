@@ -22,6 +22,6 @@ cartographic_file = "data_files/raw/basemaps/lpr_000b21a_e.shp"
 digital_file = "data_files/raw/basemaps/lpr_000a21a_e.shp"
 
 [canoe]
-params = "../canoe-electricity-main/input_files/params.toml"
-generators = "../canoe-electricity-main/input_files/generator_technologies.csv"
+params = "../canoe-electricity/input_files/params.toml"
+generators = "../canoe-electricity/input_files/generator_technologies.csv"
 atb_edition = 2024
