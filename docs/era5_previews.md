@@ -1,5 +1,30 @@
 # Raw ERA5 previews without rebuilding Silver
 
+## Standard renewable evidence gallery
+
+The latest research-update reference is the T4-GCC run. Generate its standalone
+Silver gallery without rebuilding weather, Atlite profiles, or model inputs:
+
+```powershell
+.venv/Scripts/python.exe -m geocanoe.preprocessing.renewables_progression data_files/processed/renewables/t4-gcc/canada-vre/25km_centroid/757ba5211761066a data_files/processed/renewables/t4-gcc/preview/canada-vre_25km_centroid_757ba5211761066a
+```
+
+Open `index.html` in that destination. Standard CF-preview builds also generate
+this gallery. It shows existing monthly raw ERA5 maps, wind/solar land eligibility,
+the individual T1–T4 area shares, their combined dominant-type map, and final annual
+wind/solar CF maps. Each exported map includes its legend. Maps use the production
+geometry in EPSG:3347 with fixed fraction/CF scales of 0–1. The combined type map
+is a visual summary; final wind CFs preserve mixtures rather than selecting the
+dominant type. Missing raw previews are identified explicitly; generate them with
+the command below using the desired run directory.
+
+The gallery also exports national and regional-detail T1–T4 pie maps, as PNG and
+zoomable SVG. Each production region has an equal-radius pie at a representative
+point on its EPSG:3347 polygon. Slices show fractions of represented wind area;
+pie size does not encode eligible area or capacity. Regions without represented
+wind area retain a grey basemap polygon without a pie. The detail window is
+selected around the densest neighbourhood of regions with mixed turbine shares.
+
 From the repository root, using the existing Canada run:
 
 ```powershell

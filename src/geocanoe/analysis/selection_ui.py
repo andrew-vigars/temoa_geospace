@@ -37,10 +37,11 @@ const selected = new Set(), byId = new Map();
 let active = false, drawing = null, vertices = [], preview = null, anchor = null;
 const pane = map.createPane('regionSelection');
 pane.style.zIndex = 625; pane.style.pointerEvents = 'none';
-const baseStyle = {color:'#586477', weight:0.7, fillColor:'#ffffff', fillOpacity:0.01};
-const pickedStyle = {color:'#ff6500', weight:3, fillColor:'#ff9b35', fillOpacity:0.35};
+const baseStyle = {color:'#586477', weight:0.7, opacity:1, fillColor:'#ffffff', fillOpacity:0.01};
+const hiddenStyle = {...baseStyle, opacity:0, fillOpacity:0};
+const pickedStyle = {color:'#ff6500', weight:3, opacity:1, fillColor:'#ff9b35', fillOpacity:0.35};
 const overlay = L.geoJSON(config.geojson, {
-  pane:'regionSelection', renderer:L.svg({pane:'regionSelection'}), style:baseStyle,
+  pane:'regionSelection', renderer:L.svg({pane:'regionSelection'}), style:hiddenStyle,
   onEachFeature(feature, layer) {
     const id = feature.properties.region; byId.set(id, layer);
     layer.bindTooltip(id);
@@ -103,7 +104,7 @@ ui('toggle').onclick = () => {
 };
 function refresh() {
   ui('heading').textContent = 'Region selection ('+selected.size+')';
-  byId.forEach((layer, id) => layer.setStyle(selected.has(id) ? pickedStyle : baseStyle));
+  byId.forEach((layer, id) => layer.setStyle(selected.has(id) ? pickedStyle : (active ? baseStyle : hiddenStyle)));
   ui('count').textContent = selected.size + ' regions selected';
   ui('regions').replaceChildren(...Array.from(selected).sort().map(id => new Option(id,id)));
 }
@@ -111,6 +112,7 @@ function setActive(value) {
   active = value; ui('active').checked = value;
   pane.style.pointerEvents = value ? 'auto' : 'none';
   byId.forEach(layer => { if(layer._path) layer._path.style.pointerEvents = value ? 'auto' : 'none'; });
+  refresh();
 }
 function cancel() {
   drawing = null; vertices = []; anchor = null;

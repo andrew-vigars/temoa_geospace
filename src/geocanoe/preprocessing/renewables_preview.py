@@ -217,7 +217,7 @@ def month_statistics(ds):
     rows = []
     means = ds.mean("time").to_dataframe()[list(ds.data_vars)]
     profiles = (
-        [(f"wind_cf_{t.lower()}", f"WIND_GEN_{t}") for t in ("T1", "T2", "T3")]
+        [(f"wind_cf_{t.lower()}", f"WIND_GEN_{t}") for t in ("T1", "T2", "T3", "T4") if f"wind_cf_{t.lower()}" in ds]
         if "wind_cf_t1" in ds
         else [("wind_cf", "WIND_GEN")]
     )
@@ -246,7 +246,7 @@ def plot_maps(regions, means, path, title, land_enabled=False):
     if joined[["wind_cf", "solar_cf"]].isna().any().any():
         raise ValueError("Preview geometry does not match profile region IDs.")
     profiles = (
-        [(f"wind_cf_{t.lower()}", f"Onshore wind {t}") for t in ("T1", "T2", "T3")]
+        [(f"wind_cf_{t.lower()}", f"Onshore wind {t}") for t in ("T1", "T2", "T3", "T4") if f"wind_cf_{t.lower()}" in means]
         if "wind_cf_t1" in means
         else [("wind_cf", "Onshore wind")]
     )
@@ -263,12 +263,16 @@ def plot_maps(regions, means, path, title, land_enabled=False):
             cmap="viridis",
             vmin=0,
             vmax=1,
-            legend=True,
+            legend=False,
             linewidth=0,
             rasterized=True,
         )
         axis.set_title(label)
         axis.set_axis_off()
+    fig.colorbar(
+        plt.cm.ScalarMappable(norm=plt.Normalize(0, 1), cmap="viridis"),
+        ax=list(axes), label="Capacity factor", fraction=0.03, pad=0.02,
+    )
     fig.suptitle(
         title
         + (
@@ -290,6 +294,9 @@ def build_previews(output, preview_root=None, engine="netcdf4"):
     destination = root / f"{output.parents[1].name}_{output.parent.name}_{output.name}"
     destination.mkdir(parents=True, exist_ok=True)
     print(f"Renewables: loading preview geometry from {output}", flush=True)
+    from geocanoe.preprocessing.renewables_progression import build_progression
+
+    build_progression(output, destination)
     regions = gpd.read_file(
         output / "annual_capacity_factors.gpkg", layer="capacity_factors"
     )

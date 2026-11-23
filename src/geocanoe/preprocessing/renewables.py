@@ -764,7 +764,7 @@ def preview(regions, annual, output, year, land_enabled=False):
         index=False,
     )
     profiles = (
-        [(f"wind_cf_{t.lower()}", f"Onshore wind {t}") for t in ("T1", "T2", "T3")]
+        [(f"wind_cf_{t.lower()}", f"Onshore wind {t}") for t in ("T1", "T2", "T3", "T4") if f"wind_cf_{t.lower()}" in annual]
         if "wind_cf_t1" in annual
         else [("wind_cf", "Onshore wind")]
     )
@@ -781,11 +781,15 @@ def preview(regions, annual, output, year, land_enabled=False):
             cmap="viridis",
             vmin=0,
             vmax=1,
-            legend=True,
+            legend=False,
             linewidth=0,
         )
         axis.set_title(label)
         axis.set_axis_off()
+    fig.colorbar(
+        plt.cm.ScalarMappable(norm=plt.Normalize(0, 1), cmap="viridis"),
+        ax=list(axes), label="Capacity factor", fraction=0.03, pad=0.02,
+    )
     fig.suptitle(
         f"{year} annual capacity factors | "
         + (

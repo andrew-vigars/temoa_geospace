@@ -112,6 +112,17 @@ def test_preview_accepts_roundoff_without_mutating_source():
     xr.testing.assert_identical(ds, original)
 
 
+def test_month_statistics_includes_t4_when_present():
+    ds = xr.Dataset(
+        {name: (("region", "time"), [[0.2, 0.4]]) for name in
+         ("wind_cf", "solar_cf", "wind_cf_t1", "wind_cf_t2", "wind_cf_t3", "wind_cf_t4")},
+        coords={"region": ["R0"], "time": pd.date_range("2018-01-01", periods=2, freq="h")},
+    )
+    _, stats = month_statistics(ds)
+    assert "WIND_GEN_T4" in set(stats.tech)
+    assert stats.loc[stats.tech == "WIND_GEN_T4", "monthly_mean_cf"].iloc[0] == pytest.approx(.3)
+
+
 @pytest.mark.parametrize("field", ["wind_cf", "solar_cf", "wind_cf_t1"])
 @pytest.mark.parametrize("value", [-1e-4, 1.0001, np.nan, np.inf])
 def test_preview_rejects_invalid_cf_in_every_design(field, value):
