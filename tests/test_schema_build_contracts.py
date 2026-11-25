@@ -1201,3 +1201,35 @@ def test_fractional_storage_rejects_invalid_source_baseline(emissions):
             ResolvedSchemaConfig(**values),
             pd.DataFrame({"region": ["R0", "R1"], "co2": emissions}),
         )
+
+
+@pytest.mark.parametrize("roads", [True, False])
+@pytest.mark.parametrize("pipelines", [True, False])
+@pytest.mark.parametrize("transmission", [True, False])
+def test_transport_mode_builds_with_transmission_switch(roads, pipelines, transmission):
+    all_specs = build_tech_specs(pd.read_csv(PROJECT_ROOT / "registry/transport_techs.csv"))
+    specs = select_enabled_transport_tech_specs(
+        all_specs, roads_enabled=roads, pipelines_enabled=pipelines,
+        transmission_enabled=transmission,
+    )
+    links = pd.DataFrame({"canoe_region": ["R0-R1"], "distance_km": [10.0]})
+    canonical = CanonicalLinks(
+        region_table=pd.DataFrame(), pipeline_links=links, road_links=links,
+        valid_node_regions={"R0", "R1"}, valid_pipeline_edge_regions={"R0-R1"},
+        valid_road_edge_regions={"R0-R1"},
+    )
+    tables = {
+        "efficiency": pd.DataFrame({"tech": ["ELC_TRANS", "ELC_GEN"]}),
+        "cost_variable": pd.DataFrame({"tech": ["ELC_TRANS", "ELC_GEN"], "region": ["R0-R1", "R0"]}),
+        "cost_invest_eos": pd.DataFrame({"tech_or_group": ["ELC_TRANS", "ELC_GEN"]}),
+    }
+    schema_build.remove_disabled_transport_technologies(tables, all_specs.transport_techs - specs.transport_techs)
+    schema_build.rebuild_transport_efficiency(tables, canonical, specs, "backbone", "strong", 2025)
+    schema_build.rebuild_legacy_transport_costvariable(tables, canonical, specs, "strong", 2025)
+    assert specs.trans_techs == (all_specs.trans_techs if transmission else set())
+    assert specs.pipe_techs == (all_specs.pipe_techs if pipelines else set())
+    assert specs.truck_techs == (all_specs.truck_techs if roads else set())
+    for table in tables.values():
+        column = "tech" if "tech" in table else "tech_or_group"
+        assert ("ELC_TRANS" in set(table[column])) is transmission
+        assert "ELC_GEN" in set(table[column])

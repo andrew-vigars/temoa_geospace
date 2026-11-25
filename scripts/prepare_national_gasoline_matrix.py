@@ -73,6 +73,7 @@ def scenario_cases(settings):
                 'basemap': {'grid_type': common['grid_type'], 'resolution': common['resolution']},
                 'transport_modes': {'roads_enabled': common['roads_enabled'],
                                     'pipelines_enabled': common['pipelines_enabled'],
+                                    'transmission_enabled': common.get('transmission_enabled', True),
                                     'disabled_technologies': common.get('disabled_technologies', [])},
                 'pipeline_costs': {'impedance_scope': common['pipeline_impedance_scope'],
                                    'eos_stack_counts': {'CO2_PIPE': common['co2_pipeline_eos_stack_count'],

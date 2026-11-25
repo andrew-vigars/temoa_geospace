@@ -122,6 +122,7 @@ def recipe_from_form(values, template):
         raise ValueError('End year must be after start year.')
     model['time'].update(start_year=start, end_year=end)
     model['transport_modes'].update(roads_enabled=values['roads'], pipelines_enabled=values['pipelines'],
+                                   transmission_enabled=values.get('transmission', model['transport_modes'].get('transmission_enabled', True)),
                                    disabled_technologies=[s.strip() for s in values['disabled'].split(',') if s.strip()])
     for tech in ('co2', 'gsl', 'h2', 'metoh'):
         key = f'{tech}_pipeline_eos_stack_count'

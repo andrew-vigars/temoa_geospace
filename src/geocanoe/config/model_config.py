@@ -113,6 +113,7 @@ class ModelTransportModesConfig:
     roads_enabled: bool
     pipelines_enabled: bool
     disabled_technologies: tuple[str, ...] = ()
+    transmission_enabled: bool = True
 
 
 @dataclass(frozen=True)
@@ -257,6 +258,7 @@ def load_model_config(
 
     # Make the optional setting available to overlays of older defaults files.
     require_table(raw, "transport_modes").setdefault("disabled_technologies", [])
+    require_table(raw, "transport_modes").setdefault("transmission_enabled", True)
     require_table(raw, "storage").setdefault("point_source_fraction", 0.0)
     raw.setdefault("synthetic_gasoline", {"minimum_national_share": 0.0})
     raw.setdefault("conventional_gasoline", {"silver_config": "config/canoe_fuel/silver.toml"})
@@ -432,6 +434,9 @@ def load_model_config(
             resolution=basemap_resolution,
         ),
         transport_modes=ModelTransportModesConfig(
+            transmission_enabled=require_bool(
+                transport_modes_raw, "transmission_enabled", "transport_modes",
+            ),
             disabled_technologies=tuple(disabled_technologies),
             roads_enabled=require_bool(
                 transport_modes_raw,

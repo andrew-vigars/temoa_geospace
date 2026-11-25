@@ -422,3 +422,24 @@ def test_fractional_storage_rejects_conflicting_absolute_target(tmp_path):
     )
     with pytest.raises(ValueError, match="minimum_cumulative_activity"):
         load_model_config(MODEL_CONFIG_PATH, overlay)
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_transmission_override_with_older_model_defaults(tmp_path, enabled):
+    base = tmp_path / "model.toml"
+    base.write_text(MODEL_CONFIG_PATH.read_text(encoding="utf-8").replace(
+        "transmission_enabled = true\n", ""), encoding="utf-8")
+    assert load_model_config(base).transport_modes.transmission_enabled is True
+    scenario = tmp_path / "transmission.toml"
+    scenario.write_text('[scenario]\nid="transmission"\n[transport_modes]\n'
+                        f'transmission_enabled={str(enabled).lower()}\n', encoding="utf-8")
+    assert load_model_config(base, scenario).transport_modes.transmission_enabled is enabled
+
+
+@pytest.mark.parametrize("value", ['"false"', '0', '[]'])
+def test_transmission_switch_rejects_nonboolean_values(tmp_path, value):
+    scenario = tmp_path / "invalid.toml"
+    scenario.write_text('[scenario]\nid="invalid"\n[transport_modes]\n'
+                        f'transmission_enabled={value}\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="transmission_enabled"):
+        load_model_config(MODEL_CONFIG_PATH, scenario)
