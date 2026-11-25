@@ -94,3 +94,29 @@ def test_default_uses_sample_build_profile_unchanged():
         assert not panel.busy
     finally:
         window.destroy()
+
+
+def test_renewable_coverage_tracks_master_province_selection(tmp_path):
+    window = tk.Tk()
+    window.withdraw()
+    try:
+        panel = SilverPanel(window, ROOT)
+        panel.fields[('renewables', 'enabled')][0].set(True)
+        assert 'ON' in panel.renewable_scope.get()
+        assert 'basemap study area' in panel.renewable_scope.get()
+        panel.category_controls[('study_area', 'provinces')]['ON'].invoke()
+        assert 'ON' not in panel.renewable_scope.get().split('\n')[0]
+        panel.category_controls[('study_area', 'provinces')]['YT'].invoke()
+        assert 'YT' in panel.renewable_scope.get()
+        saved = tmp_path / 'renewables.toml'
+        saved.write_text(panel.text(), encoding='utf-8')
+        from geocanoe.config import load_geospatial_build_config
+        from geocanoe.preprocessing.renewables import selected_provinces
+        profile = load_geospatial_build_config(saved)
+        assert selected_provinces(profile, {'province_subset': ['ON']}) == list(profile.study_area.provinces)
+        assert 'ON' not in profile.study_area.provinces
+        assert 'YT' in profile.study_area.provinces
+        panel.fields[('renewables', 'enabled')][0].set(False)
+        assert 'disabled' in panel.renewable_scope.get()
+    finally:
+        window.destroy()

@@ -1,7 +1,6 @@
 """Model settings, independent policies, matrices and actual Tk controls."""
 from copy import deepcopy
 from pathlib import Path
-import runpy
 import tomllib
 
 import pytest
@@ -20,7 +19,7 @@ def inputs():
                   emissions_policy='none + emissions_price', prices='100, 250, 350, 500',
                   storage_requirement='none', storage='0', cumulative='0', start='2025', end='2050',
                   projection='constant', grid_type='projected', resolution='25', impedance='none', roads=True,
-                  pipelines=True, disabled='H2_PIPE, H2_TRUCK', fallback='0',
+                  pipelines=True, transmission=True, disabled='H2_PIPE, H2_TRUCK', fallback='0',
                   global_discount_rate='3', default_loan_rate='4',
                   build_profile='config/build_profiles/sample_build_profile.toml',
                   continue_on_failure=True, skip_completed=True, retry_failed=False)
@@ -126,12 +125,17 @@ def test_model_structure_accepts_overlays_and_rejects_unknown_nested_settings():
 
 def test_ui_defaults_to_model_and_previews_without_building(monkeypatch, tmp_path):
     import tkinter as tk
-    monkeypatch.syspath_prepend(str(ROOT / 'scripts'))
-    configurator = runpy.run_path(str(ROOT / 'scripts/configure_gold.py'))['GoldConfigurator']
+    from geocanoe.execution.configure_workflow import GoldConfigurator as configurator
+    from geocanoe.execution.silver_panel import DEFAULT_UI_BUILD_PROFILE
     window = tk.Tk()
     window.withdraw()
     try:
         app = configurator(window, ROOT, ROOT / 'registry/model.toml')
+        assert app.variables['transmission'].get() is True
+        app.variables['transmission'].set(False)
+        _, transmission_cases = app.validated()
+        assert transmission_cases[0]['document']['transport_modes']['transmission_enabled'] is False
+        app.variables['transmission'].set(True)
         check_gold_dependencies(app)
         _, cases = app.validated()
         app.show_cases(cases)
@@ -140,14 +144,14 @@ def test_ui_defaults_to_model_and_previews_without_building(monkeypatch, tmp_pat
         assert app.tabs.select() == str(app.silver_panel)
         app.use_silver_profile()
         assert app.tabs.select() == str(app.settings_page)
-        assert app.variables['build_profile'].get() == 'config/build_profiles/canada_renewables_t4_gcc.toml'
+        assert app.variables['build_profile'].get() == DEFAULT_UI_BUILD_PROFILE
         app.buttons['Review & generate'].invoke()
         assert app.tabs.select() == str(app.run_page)
         app.buttons['Edit settings'].invoke()
         assert app.tabs.select() == str(app.settings_page)
         assert app.settings_canvas.bbox('all')[3] > app.settings_canvas.winfo_height()
         assert len(app.table.get_children()) == 1
-        assert app.variables['output'].get().startswith('experiments/')
+        assert app.variables['output'].get().startswith('config/temoav4/experiments/')
         assert 'outliers' not in app.variables
         assert 'silver_config' not in app.variables
         assert app.buttons['Prepare Gold'].instate(['disabled'])
@@ -338,3 +342,27 @@ for dataset, expected in [('Site points', 'y'), ('CO2 facilities', 'n')]:
     assert not app.busy
     assert [request['context'] for request in prompts] == ['Site points', 'CO2 facilities']
     assert 'complete' in app.status.get()
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_transmission_form_setting_is_saved_in_scenarios(enabled):
+    values, template = inputs()
+    values['transmission'] = enabled
+    cases = list(model_cases(recipe_from_form(values, template)))
+    assert all(case['document']['transport_modes']['transmission_enabled'] is enabled for case in cases)
+
+
+def test_registered_workflow_command_loads_outside_repository(tmp_path):
+    import subprocess
+    import sys
+    from importlib.metadata import EntryPoint
+
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    target = project["project"]["scripts"]["geocanoe-configure"]
+    entry = EntryPoint(name="geocanoe-configure", value=target, group="console_scripts")
+    assert callable(entry.load())
+    result = subprocess.run(
+        [sys.executable, "-m", entry.module, "--help"], cwd=tmp_path,
+        capture_output=True, text=True, check=True,
+    )
+    assert "--tab {silver,gold,temoa}" in result.stdout

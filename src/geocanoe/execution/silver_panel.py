@@ -17,6 +17,7 @@ from tkinter import filedialog, messagebox, ttk
 import tomlkit
 
 from geocanoe.config import load_geospatial_build_config
+from geocanoe.execution.workflow_process import WorkflowProcess
 
 
 DEFAULT_UI_BUILD_PROFILE = 'config/build_profiles/sample_build_profile.toml'
@@ -43,7 +44,7 @@ SECTION_NOTES = {
     'hydrography.polygons.minimum_source_area_km2': 'Area thresholds are km² of the complete source feature before clipping to the study area, not the remaining clipped area.',
     'hydrography.lines': 'Keep lines disabled for the current workflow. River and watercourse centre-lines have no represented width; the polygon-based distance penalty cannot turn a line crossing into a meaningful cost. A formal crossing/width heuristic and calibrated penalty are needed first. Enabling line preprocessing does not include lines in the current NHN impedance calculation.',
     'hydrography.lines.minimum_source_length_km': 'Length thresholds are km of complete source lines before clipping. They filter evidence only; they do not define water width or crossing cost.',
-    'renewables': 'Enable only with the required renewable evidence and dependencies. Renewable profiles require projected grids of at least 25 km; the referenced config contains resource-specific settings.',
+    'renewables': 'Renewable provinces follow the study-area province selection above. There is no separate province subset. Changing the selection requires rebuilding renewable Silver before Gold. Projected grids must be at least 25 km.',
 }
 
 
@@ -95,6 +96,7 @@ class SilverPanel(ttk.Frame):
         self.root = Path(root)
         self.activity_changed = activity_changed or (lambda: None)
         self.busy = False
+        self.job = None
         self.external_busy = False
         self.messages = queue.Queue()
         self.fields = {}
@@ -102,6 +104,7 @@ class SilverPanel(ttk.Frame):
         self.actions = []
         self.path = None
         self.source = tk.StringVar()
+        self.renewable_scope = tk.StringVar()
         self.status = tk.StringVar(value='Load or edit a build profile. Silver can be built on its own.')
         ttk.Label(self, text='Silver build profiles', font=('Segoe UI', 16, 'bold')).pack(anchor='w')
         ttk.Label(self, text='Configure Silver → Save profile → Validate inputs or Build Silver. Gold is optional.').pack(anchor='w')
@@ -113,6 +116,8 @@ class SilverPanel(ttk.Frame):
             button = ttk.Button(bar, text=label, command=command)
             button.pack(side='left', padx=(0, 8))
             self.actions.append(button)
+        self.cancel_button = ttk.Button(bar, text='Cancel Silver', command=self.cancel, state='disabled')
+        self.cancel_button.pack(side='left')
         ttk.Label(self, text='Select categories below. Enter numeric lists as comma-separated values; projected resolutions are km, geographic resolutions are degrees.').pack(anchor='w')
         viewport = ttk.Frame(self)
         viewport.pack(fill='both', expand=True, pady=6)
@@ -149,6 +154,10 @@ class SilverPanel(ttk.Frame):
         for province in ('NL', 'PE', 'NS', 'NB', 'QC', 'ON', 'MB', 'SK', 'AB', 'BC', 'YT', 'NT', 'NU'):
             hubs.setdefault(province, 0)
         self.add_fields(values)
+        scope_group = ttk.LabelFrame(self.form, text='Renewable coverage', padding=12)
+        scope_group.pack(fill='x', padx=(0, 8), pady=(0, 10))
+        ttk.Label(scope_group, textvariable=self.renewable_scope, wraplength=850,
+                  justify='left').pack(anchor='w')
         for variable, _ in self.fields.values():
             variable.trace_add('write', lambda *_: self.set_busy(self.external_busy))
         self.set_busy(self.external_busy)
@@ -350,7 +359,23 @@ class SilverPanel(ttk.Frame):
             messagebox.showerror('Cannot save Silver profile', str(error), parent=self)
             return False
 
+    def refresh_renewable_scope(self):
+        enabled = self.fields.get(('renewables', 'enabled'))
+        provinces = self.fields.get(('study_area', 'provinces'))
+        if not enabled or not enabled[0].get():
+            self.renewable_scope.set('Renewable processing is disabled in this build profile.')
+            return
+        selected = field_value(('study_area', 'provinces'), [], provinces[0].get())
+        self.renewable_scope.set(
+            f"Renewable provinces: {', '.join(selected) or '(select study-area provinces above)'}.\n"
+            'Scope follows the basemap study area. Existing Silver bundles must be rebuilt '
+            'to cover this selection before Gold construction.'
+        )
+
     def set_busy(self, busy):
+        cancelling = self.job is not None and self.job.cancelled.is_set()
+        self.cancel_button.configure(state='normal' if self.busy and not cancelling else 'disabled')
+        self.refresh_renewable_scope()
         self.external_busy = busy
         state = 'disabled' if busy or self.busy else 'normal'
         for widget in self.actions:
@@ -379,13 +404,14 @@ class SilverPanel(ttk.Frame):
             if validate_only:
                 command.append('--validate-only')
             label = 'Silver input validation' if validate_only else 'Silver build'
+            self.job = job = WorkflowProcess()
             self.busy = True
             self.set_busy(self.external_busy)
             self.activity_changed()
-            self.status.set(f'{label} running. Keep this window open.')
+            self.status.set(f'{label} running. You can cancel below.')
             def work():
                 try:
-                    with subprocess.Popen(command, cwd=self.root, stdin=subprocess.DEVNULL,
+                    with job.popen(command, cwd=self.root, stdin=subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                             encoding='utf-8', errors='replace',
                             env={**os.environ, 'PYTHONUNBUFFERED': '1', 'PYTHONUTF8': '1'}) as process:
@@ -393,11 +419,20 @@ class SilverPanel(ttk.Frame):
                             self.messages.put(('log', line))
                         self.messages.put(('done', (label, process.wait())))
                 except Exception as error:
-                    self.messages.put(('log', f'{error}\n'))
+                    if not job.cancelled.is_set():
+                        self.messages.put(('log', f'{error}\n'))
                     self.messages.put(('done', (label, 1)))
-            threading.Thread(target=work, daemon=True).start()
+            self.worker = threading.Thread(target=work, daemon=True)
+            self.worker.start()
         except Exception as error:
             messagebox.showerror('Cannot start Silver', str(error), parent=self)
+
+    def cancel(self):
+        if self.busy and self.job is not None:
+            self.job.cancel()
+            self.status.set('Cancelling Silver and its child processes…')
+            self.set_busy(self.external_busy)
+            self.activity_changed()
 
     def poll(self):
         try:
@@ -410,8 +445,10 @@ class SilverPanel(ttk.Frame):
                     self.log.configure(state='disabled')
                 else:
                     label, code = value
+                    self.worker.join()
                     self.busy = False
-                    self.status.set(f'{label}: {"complete" if code == 0 else "failed; see progress log"}.')
+                    outcome = "cancelled" if self.job.cancelled.is_set() else "complete" if code == 0 else "failed; see progress log"
+                    self.status.set(f'{label}: {outcome}.')
                     self.set_busy(self.external_busy)
                     self.activity_changed()
         except queue.Empty:
@@ -435,7 +472,8 @@ def main():
     panel.pack(fill='both', expand=True)
     def close():
         if panel.busy:
-            messagebox.showinfo('Operation in progress', 'Keep this window open until Silver finishes.')
+            panel.cancel()
+            window.after(100, close)
         else:
             window.destroy()
     window.protocol('WM_DELETE_WINDOW', close)

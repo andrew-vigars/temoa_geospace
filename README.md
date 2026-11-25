@@ -118,7 +118,7 @@ The workflow currently supports:
 - explicit carbon accounting with optional minimum-storage targets or
   atmospheric emissions prices;
 - topology-independent hydrogen-pipeline cost preprocessing and curve fitting;
-- graph-based pipeline, truck, and electricity-transmission links;
+- graph-based pipeline, truck, and optional electricity-transmission links;
 - schema encoding into a CANOE/TEMOA SQLite database;
 - timestamped single-scenario execution with archived inputs, solved databases, provenance records, and Excel exports;
 - ordered batch execution of multiple CANOE/TEMOA configurations;
@@ -835,6 +835,21 @@ When weighting is enabled, schema construction requires exact one-to-one edge
 coverage from the matching Silver artifact under
 ``data_files/processed/pipeline_impedance/<build-id>/edges/``. Truck and
 electricity-transmission costs always retain physical distance.
+
+Disable electricity transmission for a scenario with:
+
+```toml
+[transport_modes]
+transmission_enabled = false
+```
+
+This omits transmission technologies, exchange processes, and costs from Gold;
+local electricity supply remains available. The default is `true`, including for
+older configuration files. Silver evidence is reusable across both settings.
+
+After building Bronze, run `geocanoe-configure` to open the unified interface for
+Silver construction, Gold scenarios, and TEMOA run configuration. Use `--tab gold`
+or `--tab temoa` to select a module directly.
 
 Pipeline capacity ceilings can be increased independently by technology by
 tiling the complete H2-derived EOS capacity-cost curve end-to-end. The default

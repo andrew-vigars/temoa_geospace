@@ -1,5 +1,11 @@
 # Geospatial-CANOE model workflow
 
+After building Bronze, run `geocanoe-configure` to open the unified Silver, Gold
+and TEMOA interface. Use `--tab gold` or `--tab temoa` to open those modules
+directly. Scenario overlays can set `[transport_modes].transmission_enabled = false`
+to omit electricity transmission from Gold while retaining local electricity supply.
+The switch defaults to `true` and does not rebuild Silver evidence.
+
 This file is the standalone, detailed workflow reference used by developers. It
 intentionally remains under `scripts/` as project documentation; it is not part
 of the importable `src/geocanoe/` package.

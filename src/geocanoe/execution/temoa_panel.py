@@ -216,7 +216,7 @@ class TemoaPanel(ttk.Frame):
             messagebox.showerror('Cannot load TEMOA settings', str(error))
 
     def choose_bundle(self):
-        path = filedialog.askdirectory(title='Open prepared Gold experiment', initialdir=self.root / 'experiments')
+        path = filedialog.askdirectory(title='Open prepared Gold experiment', initialdir=self.root / 'config/temoav4/experiments')
         if path:
             try:
                 self.load_bundle(Path(path))

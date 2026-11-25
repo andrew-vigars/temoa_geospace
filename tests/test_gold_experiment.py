@@ -95,7 +95,7 @@ def test_model_based_plan_contains_cumulative_storage_and_axes(tmp_path):
                 'batch': {'continue_on_failure': True}}
     recipe = tmp_path / 'recipe.toml'
     recipe.write_text(tomlkit.dumps(settings), encoding='utf-8')
-    output = tmp_path / 'experiments/test'
+    output = tmp_path / 'config/temoav4/experiments/test'
     plan = create_plan(tmp_path, recipe, output, list(model_cases(settings)))
     assert plan['kind'] == 'gold_model_matrix'
     assert len(plan['cases']) == 2
@@ -103,7 +103,7 @@ def test_model_based_plan_contains_cumulative_storage_and_axes(tmp_path):
     report = (output / 'README.md').read_text(encoding='utf-8')
     assert 'minimum_cumulative_activity' in report
     assert 'finance.global_discount_rate' in report
-    assert plan['settings']['matrix']['batch_path'] == 'experiments/test/batch.toml'
+    assert plan['settings']['matrix']['batch_path'] == 'config/temoav4/experiments/test/batch.toml'
 
 
 def test_ui_gold_preparation_defers_solver_and_batch_generation(tmp_path, monkeypatch):

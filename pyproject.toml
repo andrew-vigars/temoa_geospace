@@ -63,6 +63,7 @@ dev = [
 ]
 
 [project.scripts]
+geocanoe-configure = "geocanoe.execution.configure_workflow:main"
 geocanoe-build-bronze = "geocanoe.execution.bronze:main"
 geocanoe-build-silver = "geocanoe.execution.silver:main"
 geocanoe-build-schema = "geocanoe.schema.build:main"

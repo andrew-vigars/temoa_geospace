@@ -44,7 +44,7 @@ from geocanoe.diagnostics.input.database import run_schema_database_checks
 from geocanoe.diagnostics.output.gate import run_output_database_checks
 from geocanoe.diagnostics.renderers import write_json_report
 from geocanoe.execution.temoa_backend import distribution_record, run_temoa
-from geocanoe.execution.temoa_config import configure_nodefile_directory
+from geocanoe.execution.temoa_config import configure_nodefile_directory, solver_config_paths
 from geocanoe.execution.provenance import archive_run_configs
 from geocanoe.paths import find_project_root
 from geocanoe.schema.database import update_db_paths
@@ -345,7 +345,7 @@ def resolve_run_inputs(
     if args.config is not None:
         config_path = resolve_project_path(args.config)
     else:
-        config_options = sorted(CONFIG_DIR.rglob("*.toml"))
+        config_options = solver_config_paths(CONFIG_DIR)
         config_path = select_file(config_options, "config")
 
     return db_path, config_path

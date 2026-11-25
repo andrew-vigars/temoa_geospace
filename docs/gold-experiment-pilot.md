@@ -3,7 +3,7 @@
 Open the unified interface from the repository root:
 
 ```powershell
-.venv/Scripts/python.exe scripts/configure_workflow.py
+geocanoe-configure
 ```
 
 It opens on **Silver construction**, using the existing
@@ -22,6 +22,11 @@ start with existing Silver artifacts, or open an existing prepared Gold experime
 Optional arguments include `--silver-config <profile.toml>`, `--config <model.toml>`,
 `--tab silver|gold|temoa`, and `--experiment <prepared-experiment-directory>`.
 The existing `configure_gold.py` command opens the same unified interface.
+Use **Cancel operation** in the window footer to stop an active Silver build,
+Gold preparation, or TEMOA batch, including child processes. Silver also has a
+**Cancel Silver** button. Closing the window cancels active work and exits after
+processes stop. Cancellation is reported separately from failure; interrupted
+work may leave partial outputs and is not a completed build.
 The window and running application's taskbar icon use the repository's
 `GeoCANOE Logo` PNG. Windows launches use a GeoCANOE application identity so the
 interface can appear separately from Python. Restart the interface to see icon
@@ -110,7 +115,7 @@ they are not model/scenario overlays. A rejected load preserves the current form
 1. On **Scenario settings**, use the **Experiment** box at the top to choose
    Single scenario or Sensitivity matrix. Choose
    an existing build profile and a new output directory. The default is
-   `experiments/trial_<timestamp>/` in the repository root. Silver is not rebuilt.
+   `config/temoav4/experiments/trial_<timestamp>/` under `config/temoav4`. Silver is not rebuilt.
    The optional **Auto-exclude all build outliers** checkbox accepts graph-snap
    exclusions for both site points and CO2 facilities across the experiment.
    It is off by default and is saved in the recipe and plan.
@@ -163,7 +168,7 @@ The experiment contains:
 
 Changing form values disconnects the current plan. Generate a new plan before
 preparing changed settings. Existing experiment directories are never replaced.
-Bundles under `experiments/` are local and ignored by Git; retain them separately
+Bundles under `config/temoav4/experiments/` are local and ignored by Git; retain them separately
 with research outputs.
 
 ## Prepare and run
@@ -220,7 +225,7 @@ After preparation, the mapping table shows every Gold case. Alternatively, use
 earlier prepared pilot bundles), or launch directly:
 
 ```powershell
-.venv/Scripts/python.exe scripts/configure_gold.py --experiment experiments/my_experiment
+.venv/Scripts/python.exe scripts/configure_gold.py --experiment config/temoav4/experiments/my_experiment
 ```
 
 A folder containing only `plan.json`, `recipe.toml` and scenarios is not prepared
@@ -252,7 +257,7 @@ preparer retains its combined Gold/config/batch behavior for compatibility.
 From a terminal, preparation uses ordinary CLI questions instead of popups:
 
 ```powershell
-.venv/Scripts/python.exe scripts/plan_gold_experiment.py --prepare experiments/trial_example
+.venv/Scripts/python.exe scripts/plan_gold_experiment.py --prepare config/temoav4/experiments/trial_example
 ```
 
 The generated README includes the exact preparation and batch commands. A failed

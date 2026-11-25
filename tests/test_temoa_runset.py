@@ -26,7 +26,7 @@ def prepared(root, bundle):
 
 def test_runset_maps_gold_and_records_disabled_cases_without_rebuilding(tmp_path, monkeypatch):
     monkeypatch.setattr(batch, 'PROJECT_ROOT', tmp_path)
-    bundle = tmp_path / 'experiments/test'
+    bundle = tmp_path / 'config/temoav4/experiments/test'
     cases = prepared(tmp_path, bundle)
     original = (tmp_path / cases[0]['gold_database']).read_bytes()
     settings = default_run_settings()

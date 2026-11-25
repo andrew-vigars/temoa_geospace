@@ -20,8 +20,8 @@ site/
 /SPM Research Update/
 
 # Local experiment bundles; retain the folder's usage notes.
-experiments/*
-!experiments/README.md
+config/temoav4/experiments/*
+!config/temoav4/experiments/README.md
 
 # -----------------------
 

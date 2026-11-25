@@ -1,5 +1,5 @@
 """Open the unified Silver, Gold and TEMOAv4 workflow interface."""
-from configure_gold import main
+from geocanoe.execution.configure_workflow import main
 
 
 if __name__ == '__main__':

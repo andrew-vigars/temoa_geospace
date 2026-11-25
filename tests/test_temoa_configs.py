@@ -10,12 +10,28 @@ from geocanoe.execution.temoa_config import (
     default_config_path,
     generate_temoa_config,
     temoa_tutorial_config_text,
+    solver_config_paths,
 )
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TEMOA_CONFIG_DIR = PROJECT_ROOT / "config" / "temoav4"
-TEMOA_CONFIGS = sorted(TEMOA_CONFIG_DIR.rglob("*.toml"))
+TEMOA_CONFIGS = solver_config_paths(TEMOA_CONFIG_DIR)
+
+
+def test_solver_picker_excludes_experiment_inputs_and_snapshots(tmp_path):
+    included = ['config_sample.toml', 'carbon_sweeps/baseline.toml',
+                'experiments/old/solver/case.toml',
+                'experiments/new/temoa_runs/selection/solver/case.toml']
+    excluded = ['experiments/new/recipe.toml', 'experiments/new/scenarios/case.toml',
+                'experiments/new/temoa_runs/selection/batch.toml',
+                'experiments/new/snapshots/config/temoav4/solver/case.toml',
+                'experiments/new/relocation_originals/solver/case.toml']
+    for name in included + excluded:
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    assert solver_config_paths(tmp_path) == sorted(tmp_path / name for name in included)
 
 
 def test_nodefiles_are_isolated_to_run_and_explicit_directory_is_preserved(tmp_path: Path) -> None:

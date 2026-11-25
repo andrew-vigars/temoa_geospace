@@ -16,6 +16,20 @@ DEFAULT_CONFIG_RELATIVE_PATH = Path("config/temoav4/config_sample.toml")
 DEFAULT_DATABASE_PATH = "data_files/processed/schema/CANOE_geospatial.sqlite"
 
 
+def solver_config_paths(directory: Path) -> list[Path]:
+    """Find solver configs, excluding experiment recipes and frozen snapshots."""
+    configs = []
+    for path in directory.rglob("*.toml"):
+        parts = path.relative_to(directory).parts
+        if parts[0] == 'experiments':
+            # Older bundles have solver/ directly; UI selections use temoa_runs/.
+            if not (len(parts) == 4 and parts[2] == 'solver' or
+                    len(parts) == 6 and parts[2] == 'temoa_runs' and parts[4] == 'solver'):
+                continue
+        configs.append(path)
+    return sorted(configs)
+
+
 def configure_nodefile_directory(config_path: Path, output_dir: Path) -> None:
     """Default enabled Gurobi node files to this run's output directory."""
     document = tomlkit.parse(config_path.read_text(encoding="utf-8"))
