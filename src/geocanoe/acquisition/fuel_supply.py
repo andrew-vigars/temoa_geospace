@@ -1,7 +1,7 @@
-"""Import a pinned, complete CANOE_CLOUD EIA response into GeoCANOE Bronze.
+"""Import a complete CANOE_CLOUD EIA response into GeoCANOE Bronze.
 
-No sibling caches or databases are modified. Explicit source refreshes use a
-new configuration pin and release directory. Verified caches work offline.
+No sibling caches or databases are modified. Resolve the newest acquisition on
+a cache miss and record its identity. Verified caches work offline.
 """
 from __future__ import annotations
 
@@ -29,9 +29,20 @@ def load_settings(config_path=None, root=None):
     return root, path, settings
 
 
+def resolve_source(root, settings):
+    """Resolve an explicit artifact or the newest available acquisition folder."""
+    if settings.get('source_path'):
+        return root / settings['source_path']
+    directory = root / settings['source_dir']
+    candidates = sorted(directory.glob(f"*/eia/{settings['filename']}"))
+    if not candidates:
+        raise FileNotFoundError(f'No EIA acquisitions found under {directory}')
+    return candidates[-1]
+
+
 def read_response(path, settings):
     """Validate edition, scope, completeness and unique EIA observation keys."""
-    if sha256(path) != settings['source_sha256']:
+    if settings.get('source_sha256') and sha256(path) != settings['source_sha256']:
         raise ValueError('EIA source checksum mismatch')
     payload = json.loads(Path(path).read_text(encoding='utf-8'))
     response = payload['response']
@@ -84,8 +95,12 @@ def acquire_fuel_supply(config_path=None, root=None):
             validate_bronze(config_path, root)
             return raw
         staged = path.with_suffix('.json.part')
+        source = resolve_source(root, settings)
+        source_digest = sha256(source)
         try:
-            shutil.copyfile(root / settings['source_path'], staged)
+            shutil.copyfile(source, staged)
+            if sha256(staged) != source_digest:
+                raise ValueError('EIA source changed during import')
             frame = read_response(staged, settings)
             staged.replace(path)
         finally:
@@ -93,6 +108,7 @@ def acquire_fuel_supply(config_path=None, root=None):
         manifest(raw / 'manifest.json', {
             'stage': 'Bronze EIA fuel supply', 'source': settings,
             'sha256': sha256(path), 'bytes': path.stat().st_size,
+            'resolved_source': {'path': str(source.resolve()), 'sha256': source_digest},
             'rows': len(frame), 'config_sha256': sha256(config_path),
             'scope': 'Complete unmodified CANOE_CLOUD EIA response; no conversion',
         })

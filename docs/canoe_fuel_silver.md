@@ -19,7 +19,7 @@ stage is independent of the geospatial build profile. Its direct command
 builds prices without validating unrelated map inputs. Economic registry tables
 must already be prepared as described in `docs/economics.md`.
 
-Configuration lives in `config/canoe_fuel/bronze.toml` (source pin and release),
+Configuration lives in `config/canoe_fuel/bronze.toml` (source discovery and scope),
 `config/canoe_fuel/silver.toml` (series, period, coverage and boundary),
 `registry/gasoline_properties.toml` (energy/mass assumptions), and the shared
 `registry/economics.toml` (source-year FX/GDP policy). Commands accept `--config`.
@@ -28,20 +28,29 @@ Configuration lives in `config/canoe_fuel/bronze.toml` (source pin and release),
 
 The original temporary helper used CANOE_CLOUD acquisition/Silver functions and
 exported data to canoe-fuel's pickle cache. It has been removed. The maintained
-`geocanoe.acquisition.fuel_supply` stage instead imports the pinned complete
+`geocanoe.acquisition.fuel_supply` stage instead imports the complete
 CANOE_CLOUD **raw EIA response**, preserving its bytes in GeoCANOE's own Bronze
 directory. It does not write into either sibling repository, import their code,
 or deserialize pickle files.
 
-The configured AEO 2025 Reference Table 3 US release was acquired 2026-11-02.
-Its 2,673 rows span 2024–2050; the original request began in 2023 but returned
-no 2023 observations. Validation rejects changed checksums, truncated responses,
+On a cache miss, the stage selects the newest available acquisition folder under
+`source_dir` containing `eia/eia_aeo_table3.json`. No particular acquisition date
+is required. It records the resolved upstream path and checksum in the local
+manifest and verifies that copying preserved the source bytes. An invalid newest
+response fails validation rather than silently falling back to older data.
+Optional `source_path` and `source_sha256` values support an explicit historical
+artifact and checksum; leave both blank for automatic selection.
+
+The configured AEO 2025 Reference Table 3 US scope spans 2024–2050; the original
+request began in 2023 but returned no 2023 observations. Validation rejects
+changed local cache checksums, truncated responses,
 wrong edition/scenario/table/region, missing years, and duplicate keys.
 
 After import, the verified cache works without CANOE_CLOUD present. Corruption
-and unmanifested caches fail; global `--overwrite` does not replace a pinned
-release. Refresh by acquiring a complete response through CANOE_CLOUD and
-configuring its path, hash, scope, and a **new** release directory. This stage
+and unmanifested caches fail; global `--overwrite` does not replace an existing
+verified cache. The default local directory is `data_files/raw/fuel_supply/eia_aeo_2025_ref`.
+Acquire newer responses through CANOE_CLOUD; to import one when a local cache
+already exists, configure a new `raw_dir` to preserve the old artifact. This stage
 imports an acquisition; it does not run CANOE_CLOUD's network acquisition or
 mutate its catalog.
 

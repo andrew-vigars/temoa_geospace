@@ -46,6 +46,52 @@ def acquire(root):
     return bronze.acquire_fuel_supply(root=root)
 
 
+def discovered_source(root, dates):
+    config = root / 'config/canoe_fuel/bronze.toml'
+    setting(config, 'source_path', '')
+    setting(config, 'source_sha256', '')
+    setting(config, 'source_dir', 'upstream')
+    for date in dates:
+        path = root / 'upstream' / date / 'eia/eia_aeo_table3.json'
+        path.parent.mkdir(parents=True)
+        shutil.copyfile(root / 'source.json', path)
+    return path
+
+
+def test_discovers_newest_acquisition_without_date_or_checksum_pin(project):
+    newest = discovered_source(project, ['2026-11-25', '2026-11-28'])
+    # A later complete response may have different bytes at the same URL.
+    newest.write_text(newest.read_text() + '\n')
+    raw = acquire(project)
+    record = json.loads((raw / 'manifest.json').read_text())
+    assert (raw / newest.name).read_bytes() == newest.read_bytes()
+    assert record['resolved_source'] == {
+        'path': str(newest.resolve()), 'sha256': bronze.sha256(newest)}
+    shutil.rmtree(project / 'upstream')
+    assert acquire(project) == raw
+
+
+def test_discovery_accepts_only_a_new_date_present(project):
+    newest = discovered_source(project, ['2026-12-01'])
+    assert (acquire(project) / newest.name).read_bytes() == newest.read_bytes()
+
+
+def test_discovery_rejects_incomplete_newest_response(project):
+    newest = discovered_source(project, ['2026-11-25', '2026-11-28'])
+    payload = json.loads(newest.read_text())
+    payload['response']['total'] = '999'
+    newest.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match='truncated'):
+        acquire(project)
+
+
+def test_discovery_reports_missing_acquisitions(project):
+    discovered_source(project, ['2026-11-28'])
+    shutil.rmtree(project / 'upstream')
+    with pytest.raises(FileNotFoundError, match='No EIA acquisitions'):
+        acquire(project)
+
+
 def mutate_source(root, change):
     source = root / 'source.json'
     payload = json.loads(source.read_text())
