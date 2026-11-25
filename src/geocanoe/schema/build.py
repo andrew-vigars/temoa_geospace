@@ -123,6 +123,7 @@ PROCESSED_EMISSIONS_DIR = (
 )
 
 CO2_SOURCE_PATH = PROCESSED_EMISSIONS_DIR / "co2_large_facilities_2024_clean.gpkg"
+GRAPH_SNAP_AUDIT_DIR = DATA_FILES / "processed" / "emissions" / "graph_snap_audits"
 TRANSPORT_TECHS_PATH = REGISTRY_DIR / "transport_techs.csv"
 GEN_EFFICIENCIES_PATH = REGISTRY_DIR / "generation_efficiency.csv"
 TECHNOLOGIES_PATH = REGISTRY_DIR / "techs.csv"
@@ -2695,27 +2696,28 @@ def snap_points_to_graph_nodes(
                 .replace("+", "and")
             )
             diagnostic_path = (
-                ARCHIVED_LEGACY_INPUTS
+                GRAPH_SNAP_AUDIT_DIR
                 / f"{safe_label}_graph_snap_distance_audit.csv"
             )
+            diagnostic_path.parent.mkdir(parents=True, exist_ok=True)
             try:
                 diagnostic.to_csv(diagnostic_path, index=False)
             except PermissionError:
                 timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
                 diagnostic_path = (
-                ARCHIVED_LEGACY_INPUTS
-                / (
-                    f"{safe_label}_graph_snap_distance_audit_"
-                    f"{timestamp}.csv"
+                    GRAPH_SNAP_AUDIT_DIR
+                    / (
+                        f"{safe_label}_graph_snap_distance_audit_"
+                        f"{timestamp}.csv"
+                    )
                 )
-            )
-            diagnostic.to_csv(diagnostic_path, index=False)
+                diagnostic.to_csv(diagnostic_path, index=False)
 
-            print(
-                "The default audit CSV is open or locked. "
-                "Wrote a timestamped audit file instead.",
-                flush=True,
-            )
+                print(
+                    "The default audit CSV is open or locked. "
+                    "Wrote a timestamped audit file instead.",
+                    flush=True,
+                )
 
             largest_distances = (
                 diagnostic["snap_distance_km"]

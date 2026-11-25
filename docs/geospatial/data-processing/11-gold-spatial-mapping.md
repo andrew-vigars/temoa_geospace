@@ -116,8 +116,9 @@ empty and the validated Silver polygons cover every selected node instead.
    (`sjoin_nearest`), accepted only up to `max_snap_distance_factor × resolution`
    (100 km at 50 km resolution; geographic grids use 111 km/degree).
 4. **Outliers.** Points beyond the limit are written to a
-   `*_graph_snap_distance_audit.csv`, and the build **prompts at the console** to
-   exclude them or stop.
+   `data_files/processed/emissions/graph_snap_audits/*_graph_snap_distance_audit.csv`,
+   and the build **prompts at the console** to exclude them or stop. These are
+   generated during Gold mapping from Silver inputs, not archived legacy inputs.
 5. **Aggregate per node:**
 
    | Quantity | Aggregation | Temoa table |

@@ -93,7 +93,7 @@ def build_one(root, settings, scenario):
     import geopandas as gpd
     import pandas as pd
     from geocanoe.schema.build import (
-        ARCHIVED_LEGACY_INPUTS, CO2_SOURCE_PATH, run_schema_build,
+        GRAPH_SNAP_AUDIT_DIR, CO2_SOURCE_PATH, run_schema_build,
     )
     profile = load_geospatial_build_config(root / settings['matrix']['build_profile'])
     if settings['matrix'].get('interaction') == 'prompt':
@@ -111,7 +111,7 @@ def build_one(root, settings, scenario):
     def respond(prompt):
         if prompt != 'Continue the schema build and exclude these outliers? [y/n]: ':
             raise ValueError(f'Unrecognized interactive build decision: {prompt}')
-        audit = pd.read_csv(ARCHIVED_LEGACY_INPUTS / 'co2_facilities_graph_snap_distance_audit.csv')
+        audit = pd.read_csv(GRAPH_SNAP_AUDIT_DIR / 'co2_facilities_graph_snap_distance_audit.csv')
         actual = {(round(float(x), 6), round(float(y), 6))
                   for x, y in zip(audit.longitude, audit.latitude)}
         if actual != expected or len(audit) != len(expected):
