@@ -9,7 +9,7 @@ import xarray as xr
 from geocanoe.preprocessing import renewables as stage
 from geocanoe.preprocessing import renewables_weather as physical
 from geocanoe.execution.silver import SILVER_STAGE_DEPENDENCIES
-from geocanoe.schema.renewables import apply_bundle
+from geocanoe.schema.renewables import apply_bundle, validate_bundle
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -64,8 +64,8 @@ def test_annual_temoa_tables_have_valid_capacity_and_currency_contract(tmp_path)
         0.15,
         0.2,
     }
-    assert not json.loads((tmp_path / "contract.json").read_text())["merge_ready"]
-    assert SILVER_STAGE_DEPENDENCIES["renewables_atlite"] == ("basemaps",)
+    assert "merge_ready" not in json.loads((tmp_path / "contract.json").read_text())
+    assert SILVER_STAGE_DEPENDENCIES["renewables_atlite"] == ("basemaps", "atb_subset")
     with pytest.raises(ValueError, match="exactly one OCC, GCC"):
         stage.gold_tables(
             annual,
@@ -174,6 +174,14 @@ def test_gold_replacement_uses_cad_dollars_and_requires_all_nodes(tmp_path):
         {"sector": ["industrial"], "notes": ["industrial sector"]}
     )
     before = {name: frame.copy() for name, frame in encoded.items()}
+    with pytest.raises(ValueError, match="covers 2/3 selected nodes; missing 1") as error:
+        validate_bundle(tmp_path, {"R1", "R2", "R3"}, 2025)
+    assert "R3" in str(error.value)
+    assert "[study_area].provinces" in str(error.value)
+    assert str(tmp_path) in str(error.value)
+    validated, technologies = validate_bundle(tmp_path, {"R1", "R2"}, 2025)
+    assert set(validated["efficiency"].region) == {"R1", "R2"}
+    assert technologies == {"WIND_GEN", "SOLAR_GEN"}
     with pytest.raises(ValueError, match="every selected Gold node"):
         apply_bundle(encoded, tmp_path, {"R1", "R2", "R3"}, 2025)
     for name in encoded:
@@ -265,3 +273,13 @@ def test_production_regions_reuses_only_matching_boundary(tmp_path, capsys, reus
     assert ("reused dissolved boundary" in output) == reuse
     assert "clipped 1/1" in output
     assert "area/validity checks" in output
+
+
+@pytest.mark.parametrize("legacy", [None, [], ["ON"], ["YT"]])
+def test_renewable_scope_follows_basemap_provinces_even_with_legacy_subset(legacy, capsys):
+    from types import SimpleNamespace
+    profile = SimpleNamespace(study_area=SimpleNamespace(provinces=("ON", "QC", "BC")))
+    settings = {} if legacy is None else {"province_subset": legacy}
+    assert stage.selected_provinces(profile, settings) == ["ON", "QC", "BC"]
+    if legacy:
+        assert "ignoring legacy province_subset" in capsys.readouterr().out

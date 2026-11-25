@@ -4,7 +4,7 @@ import json
 import pytest
 
 from geocanoe.acquisition.era5_renewables import manifest, sha256
-from geocanoe.preprocessing.atb import SELECTION_COLUMNS, build_atb_subset
+from geocanoe.preprocessing.atb import SELECTION_COLUMNS, build_atb_subset, validate_atb_inputs, run_atb_subset_build
 
 
 def test_exact_family_selection_preserves_cases_columns_and_rejects_unknown(tmp_path):
@@ -34,6 +34,9 @@ def test_exact_family_selection_preserves_cases_columns_and_rejects_unknown(tmp_
     config.write_text(
         f'source="{source.as_posix()}"\nmanifest="{record.as_posix()}"\noutput_dir="{tmp_path.as_posix()}/out"\ntechnologies=["UtilityPV"]\n'
     )
+    # Preflight verifies Bronze without creating or requiring derived Silver.
+    validate_atb_inputs(config)
+    assert not (tmp_path / "out").exists()
     output = build_atb_subset(config)
     with output.open() as f:
         reader = csv.DictReader(f)
@@ -54,4 +57,15 @@ def test_exact_family_selection_preserves_cases_columns_and_rejects_unknown(tmp_
         assert list(csv.DictReader(f)) == selected
     source.write_text("corrupt")
     with pytest.raises(ValueError, match="checksum"):
+        validate_atb_inputs(config)
+    with pytest.raises(ValueError, match="checksum"):
         build_atb_subset(config)
+
+
+def test_atb_silver_stage_is_skipped_when_renewables_are_disabled(monkeypatch):
+    from types import SimpleNamespace
+    import geocanoe.preprocessing.atb as stage
+    def unexpected_build():
+        raise AssertionError('Disabled renewables must not need ATB evidence')
+    monkeypatch.setattr(stage, 'build_atb_subset', unexpected_build)
+    assert run_atb_subset_build(SimpleNamespace(renewables_enabled=False)) is None

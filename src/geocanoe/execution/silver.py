@@ -51,6 +51,7 @@ import argparse
 import importlib
 import subprocess
 import sys
+import tomllib
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -247,6 +248,7 @@ class SilverWorkflowState:
 # =============================================================================
 
 STAGE_MODULE_NAMES = {
+    "atb_subset": "geocanoe.preprocessing.atb",
     "fuel_supply": "geocanoe.preprocessing.fuel_supply",
     "gasoline_proxies": "geocanoe.preprocessing.gasoline_demand",
     "gasoline_demand": "geocanoe.preprocessing.gasoline_demand",
@@ -268,6 +270,7 @@ STAGE_MODULE_NAMES = {
 }
 
 SILVER_STAGE_ORDER = (
+    "atb_subset",
     "fuel_supply",
     "gasoline_proxies",
     "gasoline_demand",
@@ -289,6 +292,7 @@ SILVER_STAGE_ORDER = (
 )
 
 SILVER_STAGE_DEPENDENCIES: dict[str, tuple[str, ...]] = {
+    "atb_subset": (),
     "fuel_supply": (),
     "gasoline_proxies": (),
     "gasoline_demand": ("gasoline_proxies",),
@@ -311,10 +315,11 @@ SILVER_STAGE_DEPENDENCIES: dict[str, tuple[str, ...]] = {
     ),
     "roads": (),
     "road_connectivity": ("basemaps", "adjacency", "roads"),
-    "renewables_atlite": ("basemaps",),
+    "renewables_atlite": ("basemaps", "atb_subset"),
 }
 
 EXTERNAL_INPUT_DEPENDENCIES: dict[str, tuple[str, ...]] = {
+    "atb_subset": ("verified ATB Bronze source and selection config",),
     "fuel_supply": ("verified EIA Bronze and controlled economic/physical inputs",),
     "emissions": (
         "raw emissions CSV",
@@ -526,6 +531,9 @@ def build_stage_executors(
     """
 
     return {
+        "atb_subset": FunctionExecutor(
+            require_stage_callable(stage_modules["atb_subset"], "run_atb_subset_build", "atb_subset")
+        ),
         "fuel_supply": FunctionExecutor(
             require_stage_callable(stage_modules["fuel_supply"], "run_fuel_supply_build", "fuel_supply"),
             pass_config=False,
@@ -1222,6 +1230,35 @@ def validate_external_inputs(
             path=path, status=status, details=details,
         )
 
+    if config.renewables_enabled and "atb_subset" in stage_modules:
+        path = PROJECT_ROOT / "config/atb/renewable_families_2025.toml"
+        try:
+            stage_modules["atb_subset"].validate_atb_inputs(path)
+            status, details = "found", None
+        except (OSError, ValueError, KeyError) as exc:
+            status, details = "invalid", str(exc)
+        add_external_input_check(
+            checks, stage_name="atb_subset", input_name="verified ATB Bronze source",
+            path=path, status=status, details=details,
+        )
+        settings_path = PROJECT_ROOT / config.renewables_config
+        try:
+            settings = tomllib.loads(settings_path.read_text(encoding="utf-8"))
+            for key in ("technology_crosswalk", "atb_subset", "atb_selection_manifest"):
+                if not isinstance(settings[key], str) or not settings[key]:
+                    raise ValueError(f"Renewable {key} must be a nonempty path.")
+            check_required_file(
+                checks, stage_name="renewables_atlite", input_name="renewable technology crosswalk",
+                path=PROJECT_ROOT / settings["technology_crosswalk"],
+            )
+            status, details = "found", None
+        except (OSError, ValueError, KeyError) as exc:
+            status, details = "invalid", str(exc)
+        add_external_input_check(
+            checks, stage_name="renewables_atlite", input_name="renewable settings",
+            path=settings_path, status=status, details=details,
+        )
+
     print_external_input_report(checks)
 
     failures = [check for check in checks if check["status"] != "found"]
@@ -1900,6 +1937,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     state = SilverWorkflowState.empty()
     if args.reuse_existing_basemaps:
         state.completed_stages.add("basemaps")
+        selected_stages = ("atb_subset", "renewables_atlite")
     run_silver_workflow(
         config=build_config,
         definition=definition,

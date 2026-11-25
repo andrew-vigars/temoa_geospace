@@ -276,3 +276,12 @@ def test_retired_legacy_inputs_are_not_registered():
     assert "legacy_inputs" not in silver.SILVER_STAGE_ORDER
     assert "legacy_inputs" not in silver.SILVER_STAGE_DEPENDENCIES
     assert "legacy_inputs" not in silver.EXTERNAL_INPUT_DEPENDENCIES
+
+
+def test_atb_subset_is_registered_before_renewable_conversion():
+    from geocanoe.execution import silver
+    modules = silver.import_stage_modules(silver.STAGE_MODULE_NAMES)
+    executors = silver.build_stage_executors(modules)
+    assert silver.SILVER_STAGE_ORDER.index('atb_subset') < silver.SILVER_STAGE_ORDER.index('renewables_atlite')
+    assert 'atb_subset' in silver.SILVER_STAGE_DEPENDENCIES['renewables_atlite']
+    assert executors['atb_subset'].callable is modules['atb_subset'].run_atb_subset_build

@@ -779,7 +779,7 @@ def resolve_schema_configuration(
             "configured road-connectivity stage."
         )
 
-    from geocanoe.schema.renewables import configured_bundle_dir
+    from geocanoe.schema.renewables import configured_bundle_dir, validate_bundle
     renewables_bundle_dir = configured_bundle_dir(build_config, basemap_stem)
     implementation_digest = build_schema_implementation_digest()
     gasoline_config = PROJECT_ROOT / model_config.conventional_gasoline_silver_config
@@ -872,6 +872,9 @@ def resolve_schema_configuration(
     )
 
     validate_required_paths(config)
+    if renewables_bundle_dir is not None:
+        nodes = gpd.read_file(config.graph_node_path, columns=["region"], ignore_geometry=True)
+        validate_bundle(renewables_bundle_dir, nodes["region"], config.model_start_year)
 
     return config
 

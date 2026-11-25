@@ -187,7 +187,7 @@ empirical generation calibration or completed production Gold solve.
 ## Configuration and execution
 
 `src/geocanoe/preprocessing/renewables.py` registers Silver stage
-`renewables_atlite`, depending on `basemaps`. It accepts the existing shared
+`renewables_atlite`, depending on `basemaps` and `atb_subset`. It accepts the existing shared
 build profile's study area, label, retention method and projected resolutions.
 Enable it in a profile with `[renewables] enabled=true` and
 `config="config/renewables/atlite.toml"`. It is disabled in the general sample
@@ -217,10 +217,14 @@ basemaps as well, include `basemaps` in the requested stages. The direct module
 entry point explicitly executes renewables regardless of the profile enable flag.
 
 `config/renewables/atlite.toml` selects 2018 weather, the verified national ERA5
-Bronze cache, Census boundary, province subset (initially ON), technology registry,
-ATB source audit, physical assumptions, cache locations, native I/O backend, and
-model/cost years. Set `province_subset=[]` to use all profile jurisdictions; this
-will require a larger Silver conversion before replacing a national Gold model.
+Bronze cache, Census boundary, technology registry, ATB source audit, physical
+assumptions, cache locations, native I/O backend, and model/cost years.
+`[study_area].provinces` in the build profile is the master province selection
+for basemaps and renewable processing. Legacy `province_subset` settings no longer
+restrict this selection. In `geocanoe-configure`, the Silver construction tab
+shows the effective renewable provinces and updates them with the study-area
+selection. Rebuild renewable Silver after expanding that selection; previously
+built bundles retain their original coverage.
 
 ## Sources and physical profiles
 
@@ -304,10 +308,13 @@ skips legacy wind-site input; legacy builds remain available with renewables off
 All candidate rows are also tested on a disposable Temoa v4 schema with foreign
 keys enabled. No existing production SQLite database is modified by Silver.
 
-Gold requires every selected node to have CFs. The initial Ontario subset cannot
-replace ELC_GEN across a larger multi-province graph. `merge_ready=false` in the
-Silver contract indicates that it is not an unconditional merge artifact; the
-Gold adapter performs target-specific validation. Land eligibility, installed
+Gold requires every selected node to have CFs. Previously built Ontario-only
+bundles cannot replace ELC_GEN across a larger multi-province graph. Silver writes
+schema-check results to `temoa_inputs/schema_validation.json`; the Gold adapter
+performs target-specific validation before merging. The former `merge_ready` and
+`gold_merge_ready` fields were hard-coded to false and have been removed from new
+exports; their presence in older artifacts does not indicate a failed validation
+or merge. Parameter refreshes also remove these fields. Land eligibility, installed
 fleet weighting and empirical calibration remain separate from the resource baseline.
 The national resource-assigned mode adds land-based capacity caps and ATB GCC;
 site-specific distance-based grid/spur costs remain outside this representation. Unconstrained resource-baseline builds must
@@ -529,3 +536,21 @@ The annual model still solves with annual capacity factors; these monthly
 profiles are diagnostics from the exact checksum-verified Silver bundle
 recorded in the Gold manifest, not additional intra-annual model constraints.
 Export errors are recorded in the run manifest without discarding a solve.
+
+
+### ATB cost subset prerequisite
+
+The main Silver workflow builds `atb_subset` from verified ATB Bronze before
+renewable conversion. It generates `technology_families.csv` and
+`selection_manifest.json`; both are derived Silver evidence. The stage is skipped
+when renewables are disabled. Upfront validation verifies the Bronze source and
+renewable settings before any long geospatial processing.
+
+If a full build has already completed the geospatial stages, resume with:
+
+```powershell
+geocanoe-build-silver --config config/build_profiles/default-v1.toml --stages renewables_atlite --reuse-existing-basemaps
+```
+
+This validates the existing basemaps, builds the ATB subset, and runs renewable
+processing without repeating the other Silver stages.

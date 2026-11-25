@@ -635,7 +635,6 @@ def gold_tables(annual, crosswalk, costs, settings, output):
             "shared_wind_capacity_group": WIND_GROUP
             if wind_mode(settings) == "selectable_t1_t2_t3"
             else None,
-            "merge_ready": False,
             "requirements": [
                 "Verify target costs share the declared CAD2020 dollar scale",
                 "Configured legacy policy: replace ELC_GEN; require complete node coverage",
@@ -885,6 +884,8 @@ def refresh_parameter_exports(output, settings_path=None):
         "currency_basis_sha256": sha256(root / settings["currency_basis"]),
     }
     record.pop("written_utc", None)
+    # Older manifests carried a hard-coded flag unrelated to Gold validation.
+    record.pop("gold_merge_ready", None)
     manifest(output / "manifest.json", record)
     hourly.close()
     print(
@@ -892,6 +893,19 @@ def refresh_parameter_exports(output, settings_path=None):
         flush=True,
     )
     return output
+
+
+def selected_provinces(config, settings):
+    """Use the basemap study area as the master scope, including for old configs."""
+    provinces = list(config.study_area.provinces)
+    legacy = settings.get("province_subset")
+    if legacy and set(legacy) != set(provinces):
+        print(
+            "Renewables: ignoring legacy province_subset; using all build-profile "
+            f"study-area provinces: {', '.join(provinces)}.",
+            flush=True,
+        )
+    return provinces
 
 
 def run_renewables_build(
@@ -919,6 +933,8 @@ def run_renewables_build(
         / getattr(config, "renewables_config", "config/renewables/atlite.toml")
     )
     settings = tomllib.loads(settings_path.read_text())
+    # Cost evidence must be usable before land preparation or ERA5 cache hashing.
+    crosswalk, costs = select_costs(settings, root)
     engine = settings.get("netcdf_engine", "netcdf4")
     from geocanoe.preprocessing import renewables_land as land
 
@@ -939,11 +955,7 @@ def run_renewables_build(
         raise ValueError(
             "Annual renewable products require the shared 2018 weather year and all 12 months."
         )
-    provinces = settings.get("province_subset") or list(config.study_area.provinces)
-    if not set(provinces).issubset(config.study_area.provinces):
-        raise ValueError(
-            "Renewable province subset must belong to the build study area."
-        )
+    provinces = selected_provinces(config, settings)
     bronze = root / settings["bronze_dir"]
     plan = json.loads((bronze / "request_plan.json").read_text())["plan"]
     for item in tqdm(plan, desc="Renewables: verifying ERA5 Bronze", unit="request"):
@@ -957,7 +969,6 @@ def run_renewables_build(
         (m, f) for m in range(1, 13) for f in FEATURE_VARIABLES
     }:
         raise ValueError("Expected exactly one request per month/feature.")
-    crosswalk, costs = select_costs(settings, root)
     bundle = root / settings["wind_resource_dir"]
     identities = {
         "settings": sha256(settings_path),
@@ -1206,7 +1217,6 @@ def run_renewables_build(
                     if wind_mode(settings) == "resource_assigned"
                     else wind_mode(settings)
                 ),
-                "gold_merge_ready": False,
                 "weighting": "eligible area within production polygons"
                 if land_identity["policy"]["enabled"]
                 else "uniform area within Census-clipped production polygons",

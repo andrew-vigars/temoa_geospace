@@ -18,8 +18,8 @@ SELECTABLE_TECHS = {"WIND_GEN_T1", "WIND_GEN_T2", "WIND_GEN_T3", "SOLAR_GEN"}
 WIND_GROUP = "WIND_RESOURCE"
 
 
-def apply_bundle(db_encoded, bundle_dir, nodes, model_period):
-    """Validate first, then replace legacy rows atomically in the encoded mapping."""
+def validate_bundle(bundle_dir, nodes, model_period):
+    """Validate renewable evidence before expensive Gold table construction."""
     bundle_dir = Path(bundle_dir)
     contract = json.loads((bundle_dir / "contract.json").read_text())
     selectable = contract.get("wind_representation", "t1_only") == "selectable_t1_t2_t3"
@@ -63,7 +63,7 @@ def apply_bundle(db_encoded, bundle_dir, nodes, model_period):
             != {(WIND_GROUP, t) for t in SELECTABLE_TECHS - {"SOLAR_GEN"}}
         ):
             raise ValueError("Invalid shared wind resource group membership.")
-    for tech in renewable_techs:
+    for tech in sorted(renewable_techs):
         for name in [
             "efficiency",
             "capacity_to_activity",
@@ -77,8 +77,18 @@ def apply_bundle(db_encoded, bundle_dir, nodes, model_period):
             column = "tech" if "tech" in frame else "tech_or_group"
             subset = frame.loc[frame[column] == tech]
             if len(subset) != len(nodes) or set(subset.region) != nodes:
+                covered = set(subset.region)
+                missing = sorted(nodes - covered)
+                duplicates = len(subset) - len(covered)
                 raise ValueError(
-                    f"Renewable Silver must cover every selected Gold node: {tech}/{name}."
+                    f"Renewable Silver must cover every selected Gold node: {tech}/{name}. "
+                    f"Bundle covers {len(covered):,}/{len(nodes):,} selected nodes; "
+                    f"missing {len(missing):,}, duplicate rows {duplicates:,}. "
+                    f"Missing examples: {', '.join(missing[:5]) or 'none'}. "
+                    f"Selected bundle: {bundle_dir}. "
+                    "Rebuild renewable Silver for all [study_area].provinces in the "
+                    "build profile and the selected Gold basemap. Existing partial "
+                    "bundles are not expanded by changing configuration alone."
                 )
     for name, table in tables.items():
         for column in ["period", "vintage"]:
@@ -107,6 +117,13 @@ def apply_bundle(db_encoded, bundle_dir, nodes, model_period):
             or not bounds.operator.eq("le").all()
         ):
             raise ValueError("Invalid renewable MW capacity bounds.")
+    return tables, renewable_techs
+
+
+def apply_bundle(db_encoded, bundle_dir, nodes, model_period):
+    """Validate first, then replace legacy rows atomically in the encoded mapping."""
+    nodes = set(map(str, nodes))
+    tables, renewable_techs = validate_bundle(bundle_dir, nodes, model_period)
     # Work on copies; a failed validation above never mutates a live build.
     updated = {}
     removed = {}

@@ -27,8 +27,8 @@ SELECTION_COLUMNS = (
 )
 
 
-def build_atb_subset(config_path=None):
-    """Stream the verified master; preserve original columns and exact selected rows."""
+def validate_atb_inputs(config_path=None):
+    """Resolve and verify the Bronze source before any Silver processing."""
     root = find_project_root()
     config_path = (
         Path(config_path)
@@ -52,6 +52,22 @@ def build_atb_subset(config_path=None):
     technologies = config["technologies"]
     if not technologies or len(set(technologies)) != len(technologies):
         raise ValueError("Technology selection must be nonempty and unique.")
+    return root, config_path, config, source, source_manifest, record
+
+
+def run_atb_subset_build(build_config):
+    """Build renewable cost evidence as part of the Silver workflow."""
+    if not getattr(build_config, "renewables_enabled", False):
+        print("ATB renewable subset: disabled with renewable processing.", flush=True)
+        return None
+    return build_atb_subset()
+
+
+def build_atb_subset(config_path=None):
+    """Stream the verified master; preserve original columns and exact selected rows."""
+    root, config_path, config, source, source_manifest, record = validate_atb_inputs(config_path)
+    digest = record["sha256"]
+    technologies = config["technologies"]
     out = root / config["output_dir"]
     out.mkdir(parents=True, exist_ok=True)
     target = out / "technology_families.csv"

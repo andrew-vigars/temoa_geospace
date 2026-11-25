@@ -6,8 +6,7 @@ weather_year = 2018
 months = [1,2,3,4,5,6,7,8,9,10,11,12]
 bronze_dir = "data_files/raw/era5/canada_2018"
 boundary_file = "data_files/raw/basemaps/lpr_000b21a_e.shp"
-# Initially validate Ontario; [] uses every province in the build profile.
-province_subset = ["ON"]
+# Renewable provinces always follow [study_area].provinces in the build profile.
 output_dir = "data_files/processed/renewables"
 weather_cache_dir = "data_files/processed/renewables/weather_cache"
 technology_crosswalk = "registry/renewables/technology_crosswalk.csv"
